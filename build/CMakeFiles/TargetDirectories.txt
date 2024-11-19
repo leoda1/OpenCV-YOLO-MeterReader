@@ -1,0 +1,2 @@
+C:/Users/22681/Desktop/project/OpenCV-YOLO-MeterReader/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/22681/Desktop/project/OpenCV-YOLO-MeterReader/build/CMakeFiles/ZERO_CHECK.dir

@@ -1,0 +1,8 @@
+<!-- gui/resources/resources.qrc -->
+<RCC>
+    <qresource prefix="/">
+        <file>icons/icon.png</file>
+        <file>styles/style.qss</file>
+        <!-- 其他资源文件 -->
+    </qresource>
+</RCC>
