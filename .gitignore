@@ -1,2 +1,6 @@
 # 忽略 build 文件夹及其内容
 build/
+
+# 保留 build 文件夹中特定文件
+# !build/important-file.txt
+# !build/specific-folder/

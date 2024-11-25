@@ -1,47 +1,34 @@
-cmake_minimum_required(VERSION 3.14)
-project(your_project LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.16)
 
-set(CMAKE_CXX_STANDARD 17)
+# 项目名称和版本
+project(grab_images  VERSION 1.0 LANGUAGES CXX)
+
+
+# 设置 C++ 标准
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 查找第三方库
-find_package(OpenCV REQUIRED)
-find_package(Torch REQUIRED)  # libtorch
-find_package(Qt5 COMPONENTS Widgets Core Gui REQUIRED)
+# 指定 Pylon 安装目录（修改为实际路径）
+set(PYLON_ROOT "C:/Program Files/Basler/pylon 8")
 
-# 包含子目录
-add_subdirectory(data_acquisition)
-add_subdirectory(image_processing)
-add_subdirectory(image_analysis)
-add_subdirectory(data_processing)
-add_subdirectory(dial_rendering)
-add_subdirectory(gui)
+# 添加 Pylon 的 include 和库路径
+include_directories("${PYLON_ROOT}/Development/include")
+include_directories("inc")
+link_directories("${PYLON_ROOT}/Development/lib/Win32")
 
-# 可执行文件
-add_executable(your_project main.cpp)
+# 自动添加当前项目的所有源文件
+file(GLOB_RECURSE SOURCES "src/*.cpp")
 
-# 链接库
-target_link_libraries(your_project
-    PRIVATE
-    data_acquisition_lib
-    image_processing_lib
-    image_analysis_lib
-    data_processing_lib
-    dial_rendering_lib
-    gui_lib
-    ${OpenCV_LIBS}
-    ${TORCH_LIBRARIES}
-    Qt5::Widgets
-    Qt5::Core
-    Qt5::Gui
-)
+# 自动添加当前项目的所有头文件
+file(GLOB_RECURSE HEADERS "inc/*.h")
 
-# 包含头文件路径
-target_include_directories(your_project PRIVATE
-    data_acquisition/include
-    image_processing/include
-    image_analysis/include
-    data_processing/include
-    dial_rendering/include
-    gui/include
+# 添加可执行文件
+add_executable(grab_images src/analysis/grab_images.cpp)
+
+# 链接 Pylon 库
+target_link_libraries(grab_images PRIVATE
+    PylonBase_v9
+    GenApi_MD_VC141_v3_1_Basler_pylon
+    PylonUtility_v9
+    GCBase_MD_VC141_v3_1_Basler_pylon
 )

@@ -8,7 +8,7 @@
 │   ├── analysis/            # 图像分析和数据处理合并
 │   ├── dial_rendering/
 │   └── gui/
-├── include/                 # 头文件目录
+├── inc/                     # 头文件目录
 │   ├── data_handling/
 │   ├── analysis/
 │   ├── dial_rendering/
