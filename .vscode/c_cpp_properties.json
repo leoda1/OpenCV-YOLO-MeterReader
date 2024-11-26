@@ -6,7 +6,9 @@
                 "${workspaceFolder}/**",
                 "C:\\MainSDK\\msys64\\mingw64\\bin",
                 "C:\\Program Files\\Basler\\pylon 8\\Development\\include",
-                "C:\\Program Files\\Basler\\pylon 8\\Development\\lib"
+                "C:\\Program Files\\Basler\\pylon 8\\Development\\lib",
+                "E:\\opencv\\build\\include\\opencv2",
+                "E:/opencv/build/include"
             ],
             "defines": [
                 "_DEBUG",
@@ -17,7 +19,7 @@
             "compilerPath": null,
             "cStandard": "c11",
             "cppStandard": "c++11",
-            "intelliSenseMode": "windows-msvc-x64",
+            "intelliSenseMode": "${default}",
             "configurationProvider": "ms-vscode.cmake-tools"
         }
     ],

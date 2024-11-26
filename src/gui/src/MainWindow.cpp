@@ -1,5 +1,5 @@
 // gui/src/MainWindow.cpp
-#include "../include/MainWindow.h"
+#include "../../inc/gui/MainWindow.h"
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),

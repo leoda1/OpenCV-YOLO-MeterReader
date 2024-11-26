@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
         CGrabResultPtr ptrGrabResult;
 
         // 定义拍摄次数
-        int captureCount = 5; // 多次拍摄次数
+        int captureCount = 5; // 多次拍摄次数(根据任务书设置次数)
 
         // 循环进行多次拍摄
         for (int count = 0; count < captureCount; ++count)

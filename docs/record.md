@@ -1,7 +1,7 @@
-@ [11.25-12.02的工作内容](11.25-12.02的工作内容)
+## [工作内容]()
 
 &emsp;&emsp;这个项目的开发配置：代码IDEA选了vscode，因为basler和QT需要visual studio，所以我直接vscode + cmake + vs2019 + qt来实现整个过程。其中qt需要使用科大云才能完成下载，避雷qsinghua源，报错n次。
-
+## 1.相机采集
 &emsp;&emsp;接下来第一件事情是手上这个basler相机,我应该怎么用官方给的SDK实现我要的功能（1.开启相机 2.record各种时间间隔的图片 3.多次拍摄 4.对相机的配置能够超参数修改 5.简单的图片处理 6.关闭相机 7.相机连接失败的时候怎么删除相机设备并重新连接。。。）这里的参考资料为：[官方的SDK开发指南](https://docs.baslerweb.com/pylonapi/cpp/pylon_programmingguide#common-settings-for-building-applications-with-pylon-windows
 ) 和 pylon/development/samples/c++目录下的样例实现上述功能。
 
@@ -56,3 +56,21 @@ target_link_libraries(grab_images PRIVATE
 ```
 测试结果图如下：（当前的清晰度，对焦举例，光圈大小等等都没有进行微调。。。，默认拍摄是3840x2748分辨率图片）
 ![alt text](fig_doc\image1.png)
+
+## 2 识别表盘和指针
+### 2.1 采集后处理
+&emsp;&emsp;目前这个grab_images.cpp需要将功能封装成一个类，涉及到三个小阶段的内容
+
+1. 封装后能要提供接口给QT，点击开始的时候能一次完成10个（时间间隔/压力控制器数据的间隔）的拍摄并处理10张图片后返回结果。
+2. 两个表盘可能需要一次将类派生出两种对象实现不同的细节要求。
+3. 每组图片数据应该有一个队列去存，先存的先删，后存的后删，能够保持一个大概存取7天内的结果内存。
+
+### 2.2 识别算法部分
+#### 2.2.1 OpenCV来实现指针识别
+&emsp;&emsp;使用OpenCV表盘1和2的指针角度实时识别。Opencv_hp.h是封装后的实现，具体实现代码是Opencv_hp.cpp。
+* 任务包括两种表盘 首先从scale1和scale2的角度两种方法实现 其中获取表盘、圆心、半径等等为通用计算函数，用protect保护，数据部分则正常private，在highPreciseDetector这个类中我们只用showScale1Result和showScale2Result返回两种表盘的结果。
+* 具体实现原理为cpp中，首先
+
+#### 2.2.2 YoloV8-Pose定位指针关键点来实现指针识别
+&emsp;&emsp;Nanodet+YoloV8-Pose实现指针仪表的实时检测。
+

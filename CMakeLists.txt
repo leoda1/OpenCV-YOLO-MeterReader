@@ -12,7 +12,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(PYLON_ROOT "C:/Program Files/Basler/pylon 8")
 
 # 添加 Pylon 的 include 和库路径
-include_directories("${PYLON_ROOT}/Development/include")
+include_directories("${PYLON_ROOT}/Development/include" "E:/opencv/build/include")
 include_directories("inc")
 link_directories("${PYLON_ROOT}/Development/lib/Win32")
 
@@ -31,4 +31,5 @@ target_link_libraries(grab_images PRIVATE
     GenApi_MD_VC141_v3_1_Basler_pylon
     PylonUtility_v9
     GCBase_MD_VC141_v3_1_Basler_pylon
+    ${OpenCV_LIBS}
 )
