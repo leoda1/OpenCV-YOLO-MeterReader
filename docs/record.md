@@ -17,6 +17,7 @@ link_directories("${PYLON_ROOT}/Development/lib/x64")
 ```
 &emsp;&emsp;后续在项目的inc/analysis路径下加了CameraEventPrinter.h, ConfigurationEventPrinter.h, ImageEventPrinter.h, PixelFormatAndAoiConfiguration.h, SampleImageCreator.h这五个官方给的Include Files，因为接下来要用到Samples中的派生类去实现我以上的功能，所以就将这些头文件copy了过来。
 
+### 1.1 第一版本
 * 首先第一个测试用例，grab_images.cpp。参考官方的smaples实现了上述1，2，3，5，6，7，暂时还没想好相机的拍摄配置该怎么调，图是拍512x512还是更高的3840x2738再resize，光圈，对焦距离，成像色彩等等，所以暂时能拍就行，等后续确定了技术路线的输入图片要求后再返工这部分代码。
 ```sh
 cmake_minimum_required(VERSION 3.16)
@@ -54,9 +55,23 @@ target_link_libraries(grab_images PRIVATE
     GCBase_MD_VC141_v3_1_Basler_pylon
 )
 ```
-测试结果图如下：（当前的清晰度，对焦举例，光圈大小等等都没有进行微调。。。，默认拍摄是3840x2748分辨率图片）
+测试结果图如下：（用了pylon viewer软件直接了当了修改分辨率为1920x1080 并手动将相机的焦距和对焦进行了调整，当前可以看清楚图片中内容）
 ![alt text](fig_doc\image1.png)
 
+### 1.1 第二版本
+当前对grab_images.cpp中的功能进行针对项目的具体化修改。
+生成grab_images.exe的指令是：
+```sh
+cmake -B build -G "Visual Studio 16 2019"
+cmake --build build
+```
+* 问题1：测试的时候发现中文无法显示，所以需要打印的文字都使用英文
+* 问题2： exposureTime（代码中曝光时间怎么设定的）
+    * 这里我通过pylon viewer软件来测试相机在20cm对焦距离内拍清楚需要多少曝光和光圈 确定了是35000us，这里根据测试结果在代码中进行修改。
+        ```cpp
+            exposureTime->SetValue(35000.0); // 设置曝光时间为35000微秒
+        ```
+* 问题3：
 ## 2 识别表盘和指针
 ### 2.1 采集后处理
 &emsp;&emsp;目前这个grab_images.cpp需要将功能封装成一个类，涉及到三个小阶段的内容

@@ -29,7 +29,6 @@ protected://protected 函数仅用于类内部获取数据、计算、实现结�
 	double getScale1Result();
 	double getScale2Result();
 
-
 private:
 	cv::Mat img;//存储读入的图像
 };

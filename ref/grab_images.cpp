@@ -1,4 +1,3 @@
-
 /*
     该程序使用Basler Pylon SDK实现以下功能：
     1. 开启相机
@@ -28,22 +27,14 @@ using namespace Pylon;
 static const uint32_t c_countOfImagesToGrab = 10;
 
 int main(int argc, char* argv[]) {
-    // 程序的退出代码
-    int exitCode = 0;
-
-    // 初始化 Pylon
-    Pylon::PylonAutoInitTerm autoInitTerm;
-
-    // 在使用任何Pylon方法之前，必须初始化Pylon运行时
-    PylonInitialize();
+    int exitCode = 0;                       // 程序的退出代码
+    Pylon::PylonAutoInitTerm autoInitTerm;  // 自动初始化Pylon资源，并在程序退出时释放
+    PylonInitialize();                      // 在使用任何Pylon方法之前，必须初始化Pylon运行时
 
     try {
-        // 创建相机对象
-        CInstantCamera camera(CTlFactory::GetInstance().CreateFirstDevice());
-        // 打印相机的型号名称
-        cout << "使用设备: " << camera.GetDeviceInfo().GetModelName() << endl;
-        // 打开相机
-        camera.Open();
+        CInstantCamera camera(CTlFactory::GetInstance().CreateFirstDevice());       // 创建相机对象
+        cout << "Using device: " << camera.GetDeviceInfo().GetModelName() << endl;  // 打印相机的型号名称
+        camera.Open(); // 打开相机
 
         // 设置相机参数，例如曝光时间和增益（超参数配置）
         // 这里可以根据需要修改相机的参数
@@ -54,19 +45,14 @@ int main(int argc, char* argv[]) {
             exposureTime->SetValue(10000.0); // 设置曝光时间为10000微秒
         }
 
-        // 开始抓取图像
-        camera.StartGrabbing();
+        camera.StartGrabbing(); // 开始抓取图像
 
-        // 定义图像抓取结果指针
-        CGrabResultPtr ptrGrabResult;
+        CGrabResultPtr ptrGrabResult; // 定义图像抓取结果指针
 
-        // 定义拍摄次数
-        int captureCount = 5; // 多次拍摄次数(根据任务书设置次数)
+        int captureCount = 5; // Number of captures (according to task requirements)
 
-        // 循环进行多次拍摄
         for (int count = 0; count < captureCount; ++count)
         {
-            // 按照时间间隔拍摄图片，时间间隔可以根据需要调整
             int intervalMilliseconds = 1000; // 每隔1秒拍摄一次
             for (int i = 0; i < c_countOfImagesToGrab; ++i)
             {
@@ -80,19 +66,15 @@ int main(int argc, char* argv[]) {
                         const uint8_t* pImageBuffer = (uint8_t*)ptrGrabResult->GetBuffer();
 
                         // 进行简单的图像处理，例如打印第一像素的灰度值
-                        cout << "paishedi" << i + 1 << " zhangtupian" << endl;
-                        cout << "图像尺寸: " << ptrGrabResult->GetWidth() << " x " << ptrGrabResult->GetHeight() << endl;
-                        cout << "第一像素灰度值: " << (uint32_t)pImageBuffer[0] << endl;
-
+                        cout << "Captured image " << i + 1 << endl;
+                        cout << "Image dimensions: " << ptrGrabResult->GetWidth() << " x " << ptrGrabResult->GetHeight() << endl;
+                        cout << "First pixel intensity: " << (uint32_t)pImageBuffer[0] << endl;
 #ifdef PYLON_WIN_BUILD
-                        // 显示抓取的图像
-                        Pylon::DisplayImage(1, ptrGrabResult);
+                        Pylon::DisplayImage(1, ptrGrabResult); // 显示抓取的图像
 #endif
                     }
-                    else
-                    {
-                        // 抓取失败，输出错误信息
-                        cout << "抓取错误: " << ptrGrabResult->GetErrorCode() << " " << ptrGrabResult->GetErrorDescription() << endl;
+                    else {
+                        cout << "Capture error: " << ptrGrabResult->GetErrorCode() << " " << ptrGrabResult->GetErrorDescription() << endl; // 抓取失败，输出错误信息
                     }
                 }
 
@@ -102,36 +84,21 @@ int main(int argc, char* argv[]) {
             }
             cout << "finish di" << count + 1 << "grab" << endl;
         }
-        // 停止抓取
-        camera.StopGrabbing();
-
-        // 关闭相机
-        camera.Close();
+        camera.StopGrabbing(); // 停止抓取
+        camera.Close(); // 关闭相机
     }
-    catch (const GenericException& e)
-    {
-        // 错误处理
-        cerr << "发生异常: " << e.GetDescription() << endl;
-
-        // 当相机连接失败时，删除相机设备并重新连接
-        cerr << "尝试重新连接相机..." << endl;
-
-        // 重新初始化相机
-        try
-        {
-            CInstantCamera camera(CTlFactory::GetInstance().CreateFirstDevice());
-            camera.Open();
-            // 在这里可以重复上面的操作，重新配置相机并抓取图像
+    catch (const GenericException& e) {
+        cerr << "An exception occurred: " << e.GetDescription() << endl; // 错误处理
+        cerr << "Attempting to reconnect the camera..." << endl; // 当相机连接失败时，删除相机设备并重新连接
+        try {
+            CInstantCamera camera(CTlFactory::GetInstance().CreateFirstDevice()); // 重新初始化相机
+            camera.Open(); // 打开相机
         }
-        catch (const GenericException& e)
-        {
-            cerr << "重新连接相机失败: " << e.GetDescription() << endl;
+        catch (const GenericException& e) {
+            cerr << "Failed to reconnect the camera: " << e.GetDescription() << endl; // 重新连接相机失败
             exitCode = 1;
         }
     }
-
-    // 释放Pylon资源
-    PylonTerminate();
-
+    PylonTerminate(); // 释放Pylon资源
     return exitCode;
 }
