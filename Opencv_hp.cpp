@@ -1,4 +1,4 @@
-#include"../inc/Opencv_hp.h"
+#include"Opencv_hp.h"
 #include<math.h>
 #include<iostream>
 #include<string>

@@ -10,16 +10,23 @@ MainWindow::MainWindow(QWidget *parent) :
     m_control = new SBaslerCameraControl(this);
     m_control->initSome();
     connect(m_control, &SBaslerCameraControl::sigCurrentImage, [=](QImage img){
-        QPixmap pix = QPixmap::fromImage(img).transformed(m_matrix);
-        ui->label->setPixmap(pix);
-        ui->widget_pic->setFixedSize(pix.size());
+        if (!img.isNull()) {
+            QPixmap pix = QPixmap::fromImage(img);
+            ui->label->setPixmap(pix); 
+            ui->widget_pic->setFixedSize(pix.size());
+        } else {
+            qDebug() << "Received invalid image!";
+        }
     });
     connect(m_control, &SBaslerCameraControl::sigSizeChange, [=](QSize size){
         // 默认大小641,494
         ui->label_size->setText(QString("\345\260\272\345\257\270:%0*%1").arg(QString::number(size.width())).arg(QString::number(size.height()))); // 尺寸
         ui->widget_pic->setFixedSize(size);
+        this->setMaximumSize(641, 494);
+        // this->resize(size.width(), size.height());
     });
     m_control->OpenCamera(m_control->cameras().first());
+    m_control->StartAcquire();
 }
 
 MainWindow::~MainWindow()
@@ -30,7 +37,11 @@ MainWindow::~MainWindow()
 
 void MainWindow::on_pushButton_getExTime_clicked()
 {
-    ui->label_exTime->setText(QString::number(m_control->getExposureTime()));
+    if (m_control) {
+        ui->label_exTime->setText(QString::number(m_control->getExposureTime()));
+    } else {
+        qDebug() << "Camera control object is not initialized.";
+    }
 }
 
 void MainWindow::on_pushButton_SetExTime_clicked()
@@ -69,7 +80,3 @@ void MainWindow::on_pushButton_Start_clicked()
     }
 }
 
-void MainWindow::on_pushButtonRotate_clicked()
-{
-    m_matrix.rotate(90);
-}

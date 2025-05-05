@@ -10,6 +10,11 @@
 #include <QImage>
 #include <QTimer>
 #include <QMainWindow>
+#include <QString>
+#include <QEvent>
+#include <QtGui>
+#include <QtCore>
+
 
 using namespace std;
 using namespace Pylon;

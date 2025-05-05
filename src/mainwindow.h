@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include "grab_images2.h"
+#include <QtGui>
 
 namespace Ui {
 class MainWindow;
@@ -24,11 +25,9 @@ private slots:
     void on_pushButton_CFMode_clicked();
     void on_comboBox_CFMode_activated(int index);
     void on_pushButton_Start_clicked();
-    void on_pushButtonRotate_clicked();
 private:
     Ui::MainWindow *ui;
     SBaslerCameraControl* m_control = Q_NULLPTR;
-    QMatrix m_matrix;
 };
 
 #endif // MAINWINDOW_H

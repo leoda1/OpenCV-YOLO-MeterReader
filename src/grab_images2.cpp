@@ -11,7 +11,6 @@
 #include "grab_images2.h"
 #include <QDateTime>    // 包含 Qt 的时间日期库
 #include <QDebug>       // 包含 Qt 的调试库
-#include <QString>
 
 SBaslerCameraControl::SBaslerCameraControl(QObject *parent) : QObject(parent)  // 构造函数
 {
@@ -37,6 +36,7 @@ void SBaslerCameraControl::initSome()  // 初始化摄像头控制
     UpdateCameraList();  // 更新摄像头列表
     emit sigCameraCount(n);  // 发送信号，通知摄像头数量
     qDebug() << "Basler Camera Count: " << n;
+    
 }
 
 void SBaslerCameraControl::deleteAll()  // 删除所有摄像头控制
@@ -57,9 +57,9 @@ QStringList SBaslerCameraControl::cameras()  // 获取摄像头列表
 
 void SBaslerCameraControl::UpdateCameraList()  // 更新摄像头列表
 {
-    m_cameralist.clear(); // 清空列表，避免累积
+    // m_cameralist.clear(); // 清空列表，避免累积
     CTlFactory& TLFactory = CTlFactory::GetInstance();  // 获取传输层工厂实例
-    std::unique_ptr<ITransportLayer> pTl(TLFactory.CreateTl("BaslerUsb"));  // 创建传输层实例
+    ITransportLayer *pTl = TLFactory.CreateTl("BaslerUsb");  // 创建传输层实例
     DeviceInfoList_t devices;  // 存储设备信息的列表
     int n = pTl->EnumerateDevices(devices);  // 枚举设备
     
@@ -70,8 +70,7 @@ void SBaslerCameraControl::UpdateCameraList()  // 更新摄像头列表
     }
     for (int i=0 ; i < cameraArray.GetSize(); i++) {  // 遍历所有设备
         cameraArray[i].Attach(TLFactory.CreateDevice(devices[i]));
-        string sn = cameraArray[i].GetDeviceInfo().GetSerialNumber();
-        qDebug() << "Serial Number: " << QString::fromStdString(sn);
+        string sn = cameraArray[i].GetDeviceInfo().GetSerialNumber().c_str();
         m_cameralist << QString::fromStdString(sn);
     }
     emit sigCameraUpdate(m_cameralist);  // 发送摄像头更新信号
@@ -87,22 +86,30 @@ void SBaslerCameraControl::CopyToImage(CGrabResultPtr pInBuffer, QImage &OutImag
             m_size = QSize(nWidth, nHeight);  // 更新图像尺寸
             emit sigSizeChange(m_size);  // 发送尺寸变化信号
         }
-        QImage imgBuff(buff, nWidth, nHeight, QImage::Format_Indexed8);  // 创建 QImage 对象
-        OutImage = imgBuff;  // 赋值给输出图像
-        if(pInBuffer->GetPixelType() == PixelType_Mono8) {  // 如果图像类型是单通道灰度图像
-            uchar* pCursor = OutImage.bits();  // 获取 QImage 的数据指针
-            if ( OutImage.bytesPerLine() != nWidth ) {  // 如果行字节数不等于图像宽度
-                for ( int y=0; y<nHeight; ++y ) {  // 遍历每一行
-                    pCursor = OutImage.scanLine( y );  // 获取当前行指针
-                    for ( int x=0; x<nWidth; ++x ) {  // 遍历每一列
-                        *pCursor =* buff;  // 将缓冲区的图像数据复制到 QImage 中
-                        ++pCursor;
-                        ++buff;
-                    }
+
+        EPixelType pixelType = pInBuffer->GetPixelType();
+
+        if (pixelType == PixelType_Mono8) {
+            // 处理8位灰度图像
+            QImage img(buff, nWidth, nHeight, QImage::Format_Grayscale8);
+            OutImage = img.convertToFormat(QImage::Format_RGB888); // 转换为RGB888显示
+        } else if (pixelType == PixelType_BayerGB8) {
+            // 处理BGR8图像，手动交换R和B通道
+            QImage img(nWidth, nHeight, QImage::Format_RGB888);
+            for (int y = 0; y < nHeight; ++y) {
+                const uchar* srcLine = buff + y * nWidth;
+                uchar* destLine = img.scanLine(y);
+                for (int x = 0; x < nWidth; ++x) {
+                    uchar grayValue = srcLine[x];
+                    destLine[x * 3]     = grayValue; // B 通道
+                    destLine[x * 3 + 1] = grayValue; // G 通道
+                    destLine[x * 3 + 2] = grayValue; // R 通道
                 }
-            } else {
-                memcpy( OutImage.bits(), buff, nWidth * nHeight );  // 直接复制图像数据
             }
+            OutImage = img;
+        } else {
+            qDebug() << "Unsupported pixel type:" << pixelType;
+            OutImage = QImage();
         }
     } catch (GenICam::GenericException &e) {  // 捕获异常
         qDebug() << "CopyToImage Error:" << QString(e.GetDescription());  // 打印错误信息
@@ -129,6 +136,17 @@ int SBaslerCameraControl::OpenCamera(QString cameraSN)  // 打开指定序列号
         cInfo.SetSerialNumber(str);  // 设置序列号
         m_basler.Attach(CTlFactory::GetInstance().CreateDevice(cInfo));  // 创建并附加摄像头设备
         m_basler.Open();  // 打开摄像头
+
+        // 设置像素格式为BayerGB8
+        INodeMap& nodeMap = m_basler.GetNodeMap();
+        CEnumerationPtr pixelFormat(nodeMap.GetNode("PixelFormat"));
+        if (GenApi::IsWritable(pixelFormat)) {
+            pixelFormat->FromString("BayerGB8");
+            qDebug() << "Pixel format set to BayerGB8";
+        } else {
+            qDebug() << "Failed to set pixel format to BayerGB8";
+        }
+
         getFeatureTriggerSourceType();  // 获取触发源类型
         m_isOpen = true;  // 设置为已打开状态
     } catch (GenICam::GenericException &e) {  // 捕获异常
@@ -136,7 +154,7 @@ int SBaslerCameraControl::OpenCamera(QString cameraSN)  // 打开指定序列号
         m_isOpen = false;  // 设置为未打开状态
         return -2;  // 返回错误代码
     }
-    return 0;  // 返回成功
+    return 0;
 }
 
 int SBaslerCameraControl::CloseCamera()  // 关闭摄像头
@@ -163,7 +181,8 @@ void SBaslerCameraControl::setExposureTime(double time)  // 设置曝光时间
 
 int SBaslerCameraControl::getExposureTime()  // 获取曝光时间
 {
-    return QString::number(GetCamera(Type_Basler_ExposureTimeAbs)).toInt();  // 获取并返回摄像头的曝光时间
+    // return QString::number(GetCamera(Type_Basler_ExposureTimeAbs)).toInt();  // 获取并返回摄像头的曝光时间
+    return GetCamera(Type_Basler_ExposureTimeAbs);  // 获取并返回摄像头的曝光时间
 }
 
 int SBaslerCameraControl::getExposureTimeMin()  // 获取最小曝光时间
@@ -367,19 +386,19 @@ long SBaslerCameraControl::GrabImage(QImage &image, int timeout)  // 从摄像�
             return -5;  // 返回错误代码
         }
         if (ptrGrabResult->GrabSucceeded()) {  // 如果抓取成功
-            qDebug() << "what: ptrGrabResult GrabSucceeded";  // 打印成功信息
             if (!ptrGrabResult.IsValid()) {  // 如果抓取结果无效
-                OutputDebugString("GrabResult not Valid Error\n");  // 打印无效结果错误
+                OutputDebugString(L"GrabResult not Valid Error\n");  // 打印无效结果错误
                 return -1;  // 返回错误代码
             }
             EPixelType pixelType = ptrGrabResult->GetPixelType();  // 获取图像像素类型
+
             switch (pixelType) {  // 根据像素类型进行处理
-            case PixelType_Mono8: {  // 如果是单通道灰度图像
+            case PixelType_Mono8:{  // 如果是单通道灰度图像
                 CopyToImage(ptrGrabResult, image);  // 复制图像数据到 QImage
             } break;
-            case PixelType_BayerRG8: {  // 如果是 Bayer 格式图像
-                qDebug() << "what: PixelType_BayerRG8";  // 打印信息
-            } break;
+            case PixelType_BayerGB8: { 
+                CopyToImage(ptrGrabResult, image);
+            }  break;
             default:
                 qDebug() << "what: default";  // 默认情况
                 break;
@@ -392,7 +411,7 @@ long SBaslerCameraControl::GrabImage(QImage &image, int timeout)  // 从摄像�
         qDebug() << "GrabImage Error:" << QString(e.GetDescription());  // 打印错误信息
         return -2;  // 返回错误代码
     } catch(...) {  // 捕获其他未知异常
-        OutputDebugString("ZP 11 Shot GetParam Try 12 No know Error\n");  // 打印错误信息
+        OutputDebugString(L"ZP 11 Shot GetParam Try 12 No know Error\n");  // 打印错误信息
         return -1;  // 返回错误代码
     }
     return 0;  // 返回成功

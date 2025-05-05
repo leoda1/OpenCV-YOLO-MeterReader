@@ -105,7 +105,16 @@
         "codecvt": "cpp",
         "source_location": "cpp",
         "typeindex": "cpp",
-        "qstring": "cpp"
+        "qstring": "cpp",
+        "qevent": "cpp",
+        "qtgui": "cpp",
+        "qtcore": "cpp",
+        "qgridlayout": "cpp",
+        "qlineedit": "cpp",
+        "qpushbutton": "cpp",
+        "coroutine": "cpp",
+        "resumable": "cpp",
+        "qlabel": "cpp"
     },
-    "C_Cpp.default.compilerPath": "cl.exe",
+    "C_Cpp.default.compilerPath": "e:\\vs IDE\\VC\\Tools\\MSVC\\14.29.30133\\bin\\Hostx64\\x64\\cl.exe",
 }

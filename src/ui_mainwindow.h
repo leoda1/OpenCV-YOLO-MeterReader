@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'mainwindow.ui'
 **
-** Created by: Qt User Interface Compiler version 5.15.2
+** Created by: Qt User Interface Compiler version 6.6.3
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -54,25 +54,25 @@ public:
     void setupUi(QMainWindow *MainWindow)
     {
         if (MainWindow->objectName().isEmpty())
-            MainWindow->setObjectName(QString::fromUtf8("MainWindow"));
+            MainWindow->setObjectName("MainWindow");
         MainWindow->resize(846, 656);
         MainWindow->setMinimumSize(QSize(739, 0));
         centralWidget = new QWidget(MainWindow);
-        centralWidget->setObjectName(QString::fromUtf8("centralWidget"));
+        centralWidget->setObjectName("centralWidget");
         gridLayout_3 = new QGridLayout(centralWidget);
         gridLayout_3->setSpacing(6);
         gridLayout_3->setContentsMargins(11, 11, 11, 11);
-        gridLayout_3->setObjectName(QString::fromUtf8("gridLayout_3"));
+        gridLayout_3->setObjectName("gridLayout_3");
         widget_pic = new QWidget(centralWidget);
-        widget_pic->setObjectName(QString::fromUtf8("widget_pic"));
+        widget_pic->setObjectName("widget_pic");
         widget_pic->setMinimumSize(QSize(641, 0));
         gridLayout = new QGridLayout(widget_pic);
         gridLayout->setSpacing(0);
         gridLayout->setContentsMargins(11, 11, 11, 11);
-        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
+        gridLayout->setObjectName("gridLayout");
         gridLayout->setContentsMargins(0, 0, 0, 0);
         label = new QLabel(widget_pic);
-        label->setObjectName(QString::fromUtf8("label"));
+        label->setObjectName("label");
         label->setStyleSheet(QString::fromUtf8("background-color: rgb(170, 255, 255);"));
         label->setAlignment(Qt::AlignBottom|Qt::AlignRight|Qt::AlignTrailing);
 
@@ -82,93 +82,93 @@ public:
         gridLayout_3->addWidget(widget_pic, 0, 0, 1, 1);
 
         widget_2 = new QWidget(centralWidget);
-        widget_2->setObjectName(QString::fromUtf8("widget_2"));
+        widget_2->setObjectName("widget_2");
         gridLayout_2 = new QGridLayout(widget_2);
         gridLayout_2->setSpacing(6);
         gridLayout_2->setContentsMargins(11, 11, 11, 11);
-        gridLayout_2->setObjectName(QString::fromUtf8("gridLayout_2"));
-        verticalSpacer = new QSpacerItem(20, 40, QSizePolicy::Minimum, QSizePolicy::Expanding);
+        gridLayout_2->setObjectName("gridLayout_2");
+        verticalSpacer = new QSpacerItem(20, 40, QSizePolicy::Policy::Minimum, QSizePolicy::Policy::Expanding);
 
         gridLayout_2->addItem(verticalSpacer, 4, 0, 1, 1);
 
         comboBox_CFMode = new QComboBox(widget_2);
         comboBox_CFMode->addItem(QString());
         comboBox_CFMode->addItem(QString());
-        comboBox_CFMode->setObjectName(QString::fromUtf8("comboBox_CFMode"));
+        comboBox_CFMode->setObjectName("comboBox_CFMode");
 
         gridLayout_2->addWidget(comboBox_CFMode, 12, 0, 1, 1);
 
         label_exTime = new QLabel(widget_2);
-        label_exTime->setObjectName(QString::fromUtf8("label_exTime"));
+        label_exTime->setObjectName("label_exTime");
         label_exTime->setAlignment(Qt::AlignCenter);
 
         gridLayout_2->addWidget(label_exTime, 0, 0, 1, 1);
 
         pushButton_getExTime = new QPushButton(widget_2);
-        pushButton_getExTime->setObjectName(QString::fromUtf8("pushButton_getExTime"));
+        pushButton_getExTime->setObjectName("pushButton_getExTime");
 
         gridLayout_2->addWidget(pushButton_getExTime, 1, 0, 1, 1);
 
         pushButton_GetMode = new QPushButton(widget_2);
-        pushButton_GetMode->setObjectName(QString::fromUtf8("pushButton_GetMode"));
+        pushButton_GetMode->setObjectName("pushButton_GetMode");
 
         gridLayout_2->addWidget(pushButton_GetMode, 6, 0, 1, 1);
 
         pushButton_SetExTime = new QPushButton(widget_2);
-        pushButton_SetExTime->setObjectName(QString::fromUtf8("pushButton_SetExTime"));
+        pushButton_SetExTime->setObjectName("pushButton_SetExTime");
 
         gridLayout_2->addWidget(pushButton_SetExTime, 3, 0, 1, 1);
 
         label_Mode = new QLabel(widget_2);
-        label_Mode->setObjectName(QString::fromUtf8("label_Mode"));
+        label_Mode->setObjectName("label_Mode");
         label_Mode->setAlignment(Qt::AlignCenter);
 
         gridLayout_2->addWidget(label_Mode, 5, 0, 1, 1);
 
         lineEdit_SetMode = new QLineEdit(widget_2);
-        lineEdit_SetMode->setObjectName(QString::fromUtf8("lineEdit_SetMode"));
+        lineEdit_SetMode->setObjectName("lineEdit_SetMode");
 
         gridLayout_2->addWidget(lineEdit_SetMode, 7, 0, 1, 1);
 
         pushButton_CFMode = new QPushButton(widget_2);
-        pushButton_CFMode->setObjectName(QString::fromUtf8("pushButton_CFMode"));
+        pushButton_CFMode->setObjectName("pushButton_CFMode");
 
         gridLayout_2->addWidget(pushButton_CFMode, 11, 0, 1, 1);
 
         lineEdit_exTime = new QLineEdit(widget_2);
-        lineEdit_exTime->setObjectName(QString::fromUtf8("lineEdit_exTime"));
+        lineEdit_exTime->setObjectName("lineEdit_exTime");
 
         gridLayout_2->addWidget(lineEdit_exTime, 2, 0, 1, 1);
 
         pushButton_SetMode = new QPushButton(widget_2);
-        pushButton_SetMode->setObjectName(QString::fromUtf8("pushButton_SetMode"));
+        pushButton_SetMode->setObjectName("pushButton_SetMode");
 
         gridLayout_2->addWidget(pushButton_SetMode, 8, 0, 1, 1);
 
         label_CFMode = new QLabel(widget_2);
-        label_CFMode->setObjectName(QString::fromUtf8("label_CFMode"));
+        label_CFMode->setObjectName("label_CFMode");
 
         gridLayout_2->addWidget(label_CFMode, 10, 0, 1, 1);
 
         pushButtonRotate = new QPushButton(widget_2);
-        pushButtonRotate->setObjectName(QString::fromUtf8("pushButtonRotate"));
+        pushButtonRotate->setObjectName("pushButtonRotate");
 
         gridLayout_2->addWidget(pushButtonRotate, 16, 0, 1, 1);
 
         pushButton_Start = new QPushButton(widget_2);
-        pushButton_Start->setObjectName(QString::fromUtf8("pushButton_Start"));
+        pushButton_Start->setObjectName("pushButton_Start");
 
         gridLayout_2->addWidget(pushButton_Start, 14, 0, 1, 1);
 
-        verticalSpacer_3 = new QSpacerItem(20, 40, QSizePolicy::Minimum, QSizePolicy::Expanding);
+        verticalSpacer_3 = new QSpacerItem(20, 40, QSizePolicy::Policy::Minimum, QSizePolicy::Policy::Expanding);
 
         gridLayout_2->addItem(verticalSpacer_3, 13, 0, 1, 1);
 
-        verticalSpacer_2 = new QSpacerItem(20, 40, QSizePolicy::Minimum, QSizePolicy::Expanding);
+        verticalSpacer_2 = new QSpacerItem(20, 40, QSizePolicy::Policy::Minimum, QSizePolicy::Policy::Expanding);
 
         gridLayout_2->addItem(verticalSpacer_2, 9, 0, 1, 1);
 
-        verticalSpacer_4 = new QSpacerItem(20, 40, QSizePolicy::Minimum, QSizePolicy::Expanding);
+        verticalSpacer_4 = new QSpacerItem(20, 40, QSizePolicy::Policy::Minimum, QSizePolicy::Policy::Expanding);
 
         gridLayout_2->addItem(verticalSpacer_4, 15, 0, 1, 1);
 
@@ -176,7 +176,7 @@ public:
         gridLayout_3->addWidget(widget_2, 0, 1, 1, 1);
 
         label_size = new QLabel(centralWidget);
-        label_size->setObjectName(QString::fromUtf8("label_size"));
+        label_size->setObjectName("label_size");
         label_size->setMinimumSize(QSize(0, 30));
 
         gridLayout_3->addWidget(label_size, 1, 0, 1, 1);
