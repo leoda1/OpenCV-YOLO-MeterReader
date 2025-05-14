@@ -1,47 +1,72 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include <QDebug>
+#include <QMessageBox>
 
-MainWindow::MainWindow(QWidget *parent) :
-    QMainWindow(parent),
-    ui(new Ui::MainWindow)
+namespace {
+constexpr auto kStartText  = u8"开始采集";
+constexpr auto kStopText   = u8"停止采集";
+}
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent),
+      ui(new Ui::MainWindow),
+      m_control(std::make_unique<SBaslerCameraControl>(this))
 {
     ui->setupUi(this);
-    m_control = new SBaslerCameraControl(this);
+    ui->labelPreview->setScaledContents(true);
+
+    initConnections();
     m_control->initSome();
-    connect(m_control, &SBaslerCameraControl::sigCurrentImage, [=](QImage img){
-        if (!img.isNull()) {
-            QPixmap pix = QPixmap::fromImage(img);
-            ui->label->setPixmap(pix); 
-            ui->widget_pic->setFixedSize(pix.size());
-        } else {
-            qDebug() << "Received invalid image!";
-        }
-    });
-    connect(m_control, &SBaslerCameraControl::sigSizeChange, [=](QSize size){
-        // 默认大小641,494
-        ui->label_size->setText(QString("\345\260\272\345\257\270:%0*%1").arg(QString::number(size.width())).arg(QString::number(size.height()))); // 尺寸
-        ui->widget_pic->setFixedSize(size);
-        this->setMaximumSize(641, 494);
-        // this->resize(size.width(), size.height());
-    });
-    m_control->OpenCamera(m_control->cameras().first());
-    m_control->StartAcquire();
+
+    const QStringList cams = m_control->cameras();
+    if (cams.isEmpty()) {
+        QMessageBox::critical(this, tr("错误"), tr("未检测到 Basler 相机！"));
+        return;
+    }
+
+    if (m_control->OpenCamera(cams.first()) != 0) {
+        QMessageBox::critical(this, tr("错误"), tr("打开相机失败！"));
+        return;
+    }
 }
 
 MainWindow::~MainWindow()
 {
-    m_control->deleteAll();
     delete ui;
+}
+
+void MainWindow::initConnections()
+{
+    using namespace std::placeholders;
+    connect(m_control.get(), &SBaslerCameraControl::sigCurrentImage,
+            this, &MainWindow::slotUpdateCurrentImage, Qt::QueuedConnection);
+
+    connect(m_control.get(), &SBaslerCameraControl::sigSizeChange,
+            this, &MainWindow::slotCameraSizeChanged, Qt::QueuedConnection);
+}
+
+void MainWindow::slotUpdateCurrentImage(const QImage& img)
+{
+    if (img.isNull()) {
+        qWarning() << "slotUpdateCurrentImage: received null image";
+        return;
+    }
+    QPixmap pix = QPixmap::fromImage(img);
+    ui->labelPreview->setPixmap(pix);
+    ui->labelPreview->setFixedSize(pix.size());        // 解决只显示左上角的问题
+}
+
+void MainWindow::slotCameraSizeChanged(const QSize& size)
+{
+    ui->label_size->setText(QStringLiteral("尺寸：%1 x %2")
+                            .arg(size.width()).arg(size.height()));
+    this->setMaximumSize(size + QSize(60, 60));        // 预留边框空间
 }
 
 void MainWindow::on_pushButton_getExTime_clicked()
 {
-    if (m_control) {
-        ui->label_exTime->setText(QString::number(m_control->getExposureTime()));
-    } else {
-        qDebug() << "Camera control object is not initialized.";
-    }
+    ui->label_exTime->setText(QString::number(m_control->getExposureTime()));
 }
 
 void MainWindow::on_pushButton_SetExTime_clicked()
@@ -71,12 +96,15 @@ void MainWindow::on_comboBox_CFMode_activated(int index)
 
 void MainWindow::on_pushButton_Start_clicked()
 {
-    if(ui->pushButton_Start->text() == "\345\274\200\345\247\213\351\207\207\351\233\206") { //open collect
-        m_control->StartAcquire();
-        ui->pushButton_Start->setText("\347\273\223\346\235\237\351\207\207\351\233\206");// end collect
+    if (!m_acquiring) {
+        if (m_control->StartAcquire() == 0) {
+            m_acquiring = true;
+            ui->pushButton_Start->setText(kStopText);
+        }
     } else {
         m_control->StopAcquire();
-        ui->pushButton_Start->setText("\345\274\200\345\247\213\351\207\207\351\233\206");// open collect
+        m_acquiring = false;
+        ui->pushButton_Start->setText(kStartText);
     }
 }
 

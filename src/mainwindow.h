@@ -15,7 +15,7 @@ class MainWindow : public QMainWindow
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
+    ~MainWindow() override;
 
 private slots:
     void on_pushButton_getExTime_clicked();
@@ -25,9 +25,14 @@ private slots:
     void on_pushButton_CFMode_clicked();
     void on_comboBox_CFMode_activated(int index);
     void on_pushButton_Start_clicked();
+
+    void slotUpdateCurrentImage(const QImage& img);
+    void slotCameraSizeChanged(const QSize& size);
 private:
-    Ui::MainWindow *ui;
-    SBaslerCameraControl* m_control = Q_NULLPTR;
+    void initConnections();
+    Ui::MainWindow *ui = nullptr;
+    std::unique_ptr<SBaslerCameraControl> m_control; // 相机控制
+    bool m_acquiring = false;                        // 是否正在采集
 };
 
 #endif // MAINWINDOW_H

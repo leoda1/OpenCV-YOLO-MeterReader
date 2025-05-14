@@ -1,61 +1,59 @@
 cmake_minimum_required(VERSION 3.16)
 project(InstrumentDashboard)
+
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_BUILD_TYPE debug)          # 设置编译类型为 debug 或者 Release
-set(CMAKE_AUTOMOC ON)                  # 启用自动 MOC（Meta-Object Compiler），用于 Qt 的信号槽机制
-set(CMAKE_INCLUDE_CURRENT_DIR ON)      # 包含当前目录
+set(CMAKE_BUILD_TYPE debug)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
 set(CMAKE_PREFIX_PATH "E:/QT/6.6.3/msvc2019_64/lib/cmake/Qt6" ${CMAKE_PREFIX_PATH})
-# add_definitions ( -Wall )
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
-find_package(Boost COMPONENTS log log_setup thread filesystem system thread)
-# 添加 Pylon,QT的 include 和库路径
+set(PYLON_ROOT "C:/Program Files/Basler/pylon 8")
+list(APPEND CMAKE_PREFIX_PATH "${PYLON_ROOT}")
+
 include_directories(
-    ${CMAKE_SOURCE_DIR}                   # 包含源代码目录
-    ${CMAKE_CURRENT_BINARY_DIR}           # 包含当前二进制目录
-    "C:/Program Files/Basler/pylon 8/Development/include"       # Pylon include 路径
-    "E:/opencv/build/include"             # OpenCV include 路径
-    Qt6::Core Qt6::Gui Qt6::Widgets       # Qt 模块
+    ${CMAKE_SOURCE_DIR}/src
+    "${PYLON_ROOT}/Development/include"
+    "E:/opencv/build/include"
+    Qt6::Core Qt6::Gui Qt6::Widgets
 )
 
 link_directories(
-    "C:/Program Files/Basler/pylon 8/Runtime/x64"
-    "C:/Program Files/Basler/pylon 8/Development/lib/x64"
+    "${PYLON_ROOT}/Runtime/x64"
+    "${PYLON_ROOT}/Development/lib/x64"
 )
 
 # 获取 Qt6 Core 库的实际文件路径
 get_target_property(QtCore_location Qt6::Core LOCATION)
 
-# 设置源文件
 set(SOURCES
     src/main.cpp
     src/mainwindow.cpp
     src/grab_images2.cpp
+    src/mainwindow.ui
 )
 
-# 设置头文件
-set(HEADERS
+set(INC
+    src/mainwindow.h
     src/grab_images2.h
 )
 
-# 设置 Qt 使用的 UI 文件
-set(UI_FILES
+set(UI
     src/mainwindow.ui
 )
 qt6_wrap_ui(UIS ${UI_FILES})
+qt6_wrap_cpp(MOCS src/mainwindow.h)
 
-set(UI_MOCS
-    src/mainwindow.h
-    src/ui_mainwindow.h
-)
-qt6_wrap_cpp(MOCS ${UI_MOCS})
+add_executable(${PROJECT_NAME} ${SOURCES} ${INC} ${UIS} ${MOCS})
 
-add_executable(InstrumentDashboard ${SOURCES} ${HEADERS} ${UI_FILES} ${UIS} ${MOCS})
-
-# 链接 Pylon 库、OpenCV 库和 Qt 库
-target_link_libraries(InstrumentDashboard Qt6::Core Qt6::Gui Qt6::Widgets
-    ${PYLON_LIBRARY}
-    ${Boost_THREAD_LIBRARY}
-    ${Boost_SYSTEM_LIBRARY}
+target_link_libraries(${PROJECT_NAME}
+    Qt6::Core Qt6::Gui Qt6::Widgets
     ${OpenCV_LIBS}  # OpenCV 库
 )
+
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${PYLON_ROOT}/Runtime/x64"
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>)
