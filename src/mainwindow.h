@@ -1,38 +1,81 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
+#include <pylon/PylonIncludes.h>
+#include <pylon/usb/BaslerUsbCamera.h>
 #include <QMainWindow>
-#include "grab_images2.h"
+#include <opencv2/highgui.hpp>
+
+#include <QEvent>
+#include <QDebug>
 #include <QtGui>
+#include <QtCore>
+#include <QScreen>
+
+#include "settings.h"
+
 
 namespace Ui {
 class MainWindow;
 }
+
+enum ConvolutionType {
+/* Return the full convolution, including border */
+  CONVOLUTION_FULL,
+
+/* Return only the part that corresponds to the original image */
+  CONVOLUTION_SAME,
+
+/* Return only the submatrix containing elements that were not influenced by the border */
+  CONVOLUTION_VALID
+};
+
+using namespace cv;
 
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow() override;
+    explicit MainWindow(QWidget *parent = 0);
+    ~MainWindow();
+    void init();
+protected:
+    bool eventFilter(QObject *obj, QEvent *event);
+    virtual void closeEvent (QCloseEvent *event);
+
+private:
+    Ui::MainWindow *ui;
+    Pylon::CInstantCamera m_camera;
+    Pylon::CPylonUsbTLParams usbCameraParam;
+    GenApi::INodeMap *m_nodemap;
+    QString FullNameOfSelectedDevice;
+    Settings *saveSettings = new Settings();
+    QJsonObject json;
+
+    int imageSaved = 0;
+    bool isAlgoAreaOpened = false;
+
+    void setButtons(bool inPreview);
+    void setNoCamera();
+    void readJson();
+    void temporal_LSI();
+    Mat spatial_LSI(Mat speckle,int m);
+
+
 
 private slots:
-    void on_pushButton_getExTime_clicked();
-    void on_pushButton_SetExTime_clicked();
-    void on_pushButton_SetMode_clicked();
-    void on_pushButton_GetMode_clicked();
-    void on_pushButton_CFMode_clicked();
-    void on_comboBox_CFMode_activated(int index);
-    void on_pushButton_Start_clicked();
+    void startPreview();
+    void refresh();
+    void setting();
+    void about();
+    void singleGrab();
+    void multiGrab();
+    void conv2(const Mat &img, const Mat& kernel, ConvolutionType type, Mat& dest);
+    void algoArea();
+    void spatial_LSI_Matlab();
 
-    void slotUpdateCurrentImage(const QImage& img);
-    void slotCameraSizeChanged(const QSize& size);
-private:
-    void initConnections();
-    Ui::MainWindow *ui = nullptr;
-    std::unique_ptr<SBaslerCameraControl> m_control; // 相机控制
-    bool m_acquiring = false;                        // 是否正在采集
 };
+
 
 #endif // MAINWINDOW_H

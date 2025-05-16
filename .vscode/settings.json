@@ -114,7 +114,9 @@
         "qpushbutton": "cpp",
         "coroutine": "cpp",
         "resumable": "cpp",
-        "qlabel": "cpp"
+        "qlabel": "cpp",
+        "qtwidgets": "cpp",
+        "qdialog": "cpp"
     },
     "C_Cpp.default.compilerPath": "e:\\vs IDE\\VC\\Tools\\MSVC\\14.29.30133\\bin\\Hostx64\\x64\\cl.exe",
 }

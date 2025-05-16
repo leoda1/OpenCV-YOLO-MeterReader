@@ -2,3 +2,6 @@ build/
 .qt/
 .vscode/
 .gitignore
+ref/
+ref2/
+test/
