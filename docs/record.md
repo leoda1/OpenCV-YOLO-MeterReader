@@ -89,3 +89,8 @@ cmake --build build
 #### 2.2.2 YoloV8-Pose定位指针关键点来实现指针识别
 &emsp;&emsp;Nanodet+YoloV8-Pose实现指针仪表的实时检测。
 
+
+
+// 1. 软件界面逻辑 放大缩小
+// 2. 指针参数
+

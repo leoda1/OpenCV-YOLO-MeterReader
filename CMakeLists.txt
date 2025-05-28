@@ -35,12 +35,14 @@ set(SOURCES
     src/mainwindow.cpp
     src/settings.cpp
     src/settingdialog.cpp
+    # src/Opencv_hp.cpp
 )
 
 set(INC
     src/mainwindow.h
     src/settings.h
     src/settingdialog.h
+    # src/Opencv_hp.h
 )
 
 set(UI
@@ -66,3 +68,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_SOURCE_DIR}/images"
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/images)
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "E:/opencv/build/x64/vc16/bin"
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>)

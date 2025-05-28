@@ -11,6 +11,7 @@
 
 #include <stdlib.h>
 #include "settingdialog.h"
+// #include "Opencv_hp.h"
 
 using namespace Pylon;
 using namespace GenApi;
@@ -36,6 +37,9 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->actionCollectSingle,SIGNAL(triggered()),this,SLOT(singleGrab()));
     connect(ui->actionCollectMulti,SIGNAL(triggered()),this,SLOT(multiGrab()));
     connect(ui->actionSpaceAlgo,SIGNAL(triggered()),this,SLOT(spatial_LSI_Matlab()));
+    connect(ui->pushResetZero, &QPushButton::clicked, this, &MainWindow::onResetZero);      // 归位按钮 - 清除零位
+    connect(ui->pushCaptureZero, &QPushButton::clicked, this, &MainWindow::onCaptureZero);  // 采集零位按钮 - 记录零位角度
+    // connect(ui->pushGetDelta, &QPushButton::clicked, this, &MainWindow::onGetDelta);        // 获取角度按钮 - 计算角度差 
 
     QToolBar *mytoolbar = new QToolBar(this);
     mytoolbar->addAction(ui->actionCloseAlgo);
@@ -354,8 +358,9 @@ void MainWindow::startPreview(){
                 fc.Convert(image, ptrGrabResult);
                 openCvImage = cv::Mat(ptrGrabResult->GetHeight(), ptrGrabResult->GetWidth(), CV_8UC3, (uint8_t *) image.GetBuffer());
                 cvtColor(openCvImage, openCvImage, cv::COLOR_BGR2RGB);
+                m_lastRgb = openCvImage.clone();
 
-                // 已经是裁剪后的图像，直接显示
+                // 显示原始图像
                 QImage qtImage(openCvImage.data, openCvImage.cols, openCvImage.rows, openCvImage.step, QImage::Format_RGB888);
                 ui->srcDisplay->setPixmap(QPixmap::fromImage(qtImage));
                 ui->srcDisplay->update();
@@ -368,13 +373,13 @@ void MainWindow::startPreview(){
                 ui->sizeValue->setText(QString("W:%1 H:%2").arg(ui->srcDisplay->width()).arg(ui->srcDisplay->height()));
                 ui->fpsValue->setText(QString("%1").arg(round(Rate->GetValue(true))));
 
-                if(!ui->destDisplay->isHidden()){
-                    cvtColor(openCvImage, openCvGrayImage, COLOR_RGB2GRAY);
-                    openCvGrayImage = spatial_LSI(openCvImage, 5);
-                    QImage destImage(openCvGrayImage.data, openCvGrayImage.cols, openCvGrayImage.rows, openCvGrayImage.step, QImage::Format_RGB32);
-                    ui->destDisplay->setPixmap(QPixmap::fromImage(destImage.scaled(ui->destDisplay->width(), ui->destDisplay->height())));
-                    ui->destDisplay->update();
-                }
+                // if(!ui->destDisplay->isHidden()){
+                //     cvtColor(openCvImage, openCvGrayImage, cv::COLOR_RGB2GRAY);
+                //     openCvGrayImage = spatial_LSI(openCvImage,5);
+                //     QImage destImage(openCvGrayImage.data, openCvGrayImage.cols, openCvGrayImage.rows, openCvGrayImage.step, QImage::Format_RGB32);
+                //     ui->destDisplay->setPixmap(QPixmap::fromImage(destImage.scaled(ui->destDisplay->width(), ui->destDisplay->height())));
+                //     ui->destDisplay->update();
+                // }
             }
             else
             {
@@ -388,6 +393,8 @@ void MainWindow::startPreview(){
         qDebug() << "错误: " << e.GetDescription();
     }
 }
+
+
 void MainWindow::setButtons(bool inPreview){
     ui->actionPreview->setEnabled(!inPreview);
     ui->actionCollectSingle->setEnabled(true);
@@ -606,32 +613,46 @@ void MainWindow::temporal_LSI(){
 
 }
 
-Mat MainWindow::spatial_LSI(Mat speckle,int m){
-
-    speckle.convertTo(speckle, CV_32FC1);
-
-    int n = m;
-
-    Mat spatial_masker = Mat::ones(m,n,CV_32FC1)/(m*n);
-    Mat resultSum;
-    conv2(speckle,spatial_masker,CONVOLUTION_SAME,resultSum);
-
-    Mat resultSqure;
-    Mat speckeSqure;
-    cv::pow(speckle,2,speckeSqure);
-
-    conv2(speckeSqure,spatial_masker,CONVOLUTION_SAME,resultSqure);
-
-    Mat tmp;
-    cv::pow(resultSum,2,tmp);
-
-    Mat trueResult;
-    cv::divide((resultSqure - tmp)*1.0,tmp,trueResult);
-
-    imshow("myWindow",abs( trueResult )*10);
-    trueResult = abs( trueResult );
-    return trueResult;
-
+Mat MainWindow::spatial_LSI(Mat speckle, int m){
+    Mat enhanced;
+    
+    // 转换为灰度图（如果不是）
+    if(speckle.channels() == 3) {
+        cvtColor(speckle, enhanced, COLOR_BGR2GRAY);
+    } else {
+        enhanced = speckle.clone();
+    }
+    
+    // 1. 直方图均衡化增强对比度
+    equalizeHist(enhanced, enhanced);
+    
+    // 2. 高斯滤波去噪
+    GaussianBlur(enhanced, enhanced, Size(3, 3), 0);
+    
+    // 3. 锐化处理，突出边缘
+    Mat kernel = (Mat_<float>(3,3) << 
+                  0, -1, 0,
+                  -1, 5, -1,
+                  0, -1, 0);
+    filter2D(enhanced, enhanced, -1, kernel);
+    
+    // 4. 对比度拉伸
+    Mat enhanced_norm;
+    normalize(enhanced, enhanced_norm, 0, 255, NORM_MINMAX);
+    
+    // 5. 轻微的边缘检测增强
+    Mat edges;
+    Canny(enhanced_norm, edges, 30, 90);
+    
+    // 6. 将边缘信息融合回原图
+    Mat result;
+    addWeighted(enhanced_norm, 0.8, edges, 0.2, 0, result);
+    
+    // 转换为3通道以便显示
+    Mat result_bgr;
+    cvtColor(result, result_bgr, COLOR_GRAY2BGR);
+    
+    return result_bgr;
 }
 
 
@@ -691,45 +712,427 @@ void MainWindow::algoArea(){
     const int deskW = QGuiApplication::primaryScreen()->geometry().width();
     if(isAlgoAreaOpened){
         isAlgoAreaOpened = false;
-        ui->actionCloseAlgo->setText("关闭算法");
+        ui->actionCloseAlgo->setText("关闭识别角度");
 
         int w = bigSize.width();
 
         setGeometry(
-                     ceil((deskW - w)/2),
-                     50,
-                    w,
-                    this->height()
-                    );
+            ceil((deskW - w)/2),
+            50,
+            w,
+            this->height()
+        );
 
         setFixedSize(w,this->height());
         ui->destDisplay->setHidden(false);
 
         int h = (ui->destDisplay->width() * atoi( saveSettings->height.c_str() ) / atoi( saveSettings->width.c_str()));
         ui->destDisplay->setGeometry(ui->destDisplay->geometry().x(),ui->srcDisplay->geometry().y(), ui->destDisplay->width(),h);
-		ui->srcFrame->setGeometry(ui->srcFrame->geometry().x(), ui->srcFrame->geometry().y(), 658, 531);
-		ui->srcHeader->resize(658, ui->srcHeader->size().height());
-		ui->srcBottomhorizontalLayout->setGeometry(QRect(0, ui->srcBottomhorizontalLayout->geometry().y(), 658, ui->srcHeader->size().height()));
-		ui->srcHeader->resize(658, ui->srcHeader->size().height());
+        ui->srcFrame->setGeometry(ui->srcFrame->geometry().x(), ui->srcFrame->geometry().y(), 658, 531);
+        ui->srcHeader->resize(658, ui->srcHeader->size().height());
+        ui->srcBottomhorizontalLayout->setGeometry(QRect(0, ui->srcBottomhorizontalLayout->geometry().y(), 658, ui->srcHeader->size().height()));
+        ui->srcHeader->resize(658, ui->srcHeader->size().height());
 
     }else{
         isAlgoAreaOpened = true;
-        ui->actionCloseAlgo->setText("打开算法");
+        ui->actionCloseAlgo->setText("识别角度");
 
         int w = smallSize.width() + 20;
         setGeometry(
-                     ceil((deskW - w)/2),
-                     50,
-                    w,
-                    this->height()
-                    );
+            ceil((deskW - w)/2),
+            50,
+            w,
+            this->height()
+        );
 
         setFixedSize(w,this->height());
         ui->destDisplay->setHidden(true);
-		ui->srcFrame->setGeometry(ui->srcFrame->geometry().x(), ui->srcFrame->geometry().y(), 658, 531);
-		ui->srcBottomhorizontalLayout->setGeometry(QRect(0, ui->srcBottomhorizontalLayout->geometry().y(), 658, ui->srcHeader->size().height()));
-		ui->srcHeader->resize(658, ui->srcHeader->size().height());
+        ui->srcFrame->setGeometry(ui->srcFrame->geometry().x(), ui->srcFrame->geometry().y(), 658, 531);
+        ui->srcBottomhorizontalLayout->setGeometry(QRect(0, ui->srcBottomhorizontalLayout->geometry().y(), 658, ui->srcHeader->size().height()));
+        ui->srcHeader->resize(658, ui->srcHeader->size().height());
+    }
+}
 
 
+void MainWindow::onCaptureZero()
+{
+    qDebug() << "开始测量角度差...";
+    
+    if (!m_hasZero) {
+        QMessageBox::information(this, "提示", "请先点击『归位』按钮设定零位");
+        return;
+    }
+
+    if (m_lastRgb.empty()) {
+        QMessageBox::warning(this, "提示", "还没有获取到图像，请确保预览正在运行");
+        return;
+    }
+
+    try {
+        cv::Mat frame;
+        cv::cvtColor(m_lastRgb, frame, cv::COLOR_RGB2BGR);
+
+        highPreciseDetector det(frame);
+        if (det.getLine().empty()) {
+            QMessageBox::warning(this, "提示", "未检测到指针");
+            return;
+        }
+        
+        double now = det.getAngle();
+        if (now == -999) {
+            QMessageBox::warning(this, "错误", "计算角度失败");
+            return;
+        }
+
+        // 计算角度差
+        double delta = now - m_zeroAngle;
+        if (delta > 180)  delta -= 360;
+        if (delta < -180) delta += 360;
+
+        qDebug() << "零位:" << m_zeroAngle << "当前:" << now << "角度差:" << delta;
+
+        ui->labelAngle->setText(
+            QString("零位: %1°\n当前: %2°\n角度差: %3°")
+                .arg(m_zeroAngle, 0, 'f', 2)
+                .arg(now, 0, 'f', 2)
+                .arg(delta, 0, 'f', 2));
+
+        // 右侧显示检测示意图
+        det.showScale1Result();
+        cv::Mat vis = det.visual();
+        cv::cvtColor(vis, vis, cv::COLOR_BGR2RGB);
+        QImage q(vis.data, vis.cols, vis.rows, vis.step, QImage::Format_RGB888);
+        ui->destDisplay->setPixmap(QPixmap::fromImage(q)
+                                   .scaled(ui->destDisplay->size(),
+                                           Qt::KeepAspectRatio,
+                                           Qt::SmoothTransformation));
+        
+    } catch (const std::exception& e) {
+        qDebug() << "测量角度时发生异常:" << e.what();
+        QMessageBox::critical(this, "错误", QString("测量角度失败: %1").arg(e.what()));
+    } catch (...) {
+        qDebug() << "测量角度时发生未知异常";
+        QMessageBox::critical(this, "错误", "测量角度时发生未知错误");
+    }
+}
+
+// 改进后的 grabOneFrame 函数
+bool MainWindow::grabOneFrame(cv::Mat& outBgr)
+{
+    if (m_lastRgb.empty()) {
+        qDebug() << "m_lastRgb 为空";
+        QMessageBox::warning(this, "提示", "还没取到第一帧，请稍等或重新开始预览");
+        return false;
+    }
+    
+    try {
+        cv::cvtColor(m_lastRgb, outBgr, cv::COLOR_RGB2BGR);
+        qDebug() << "成功获取一帧，尺寸:" << outBgr.cols << "x" << outBgr.rows;
+        return true;
+    } catch (const std::exception& e) {
+        qDebug() << "颜色转换失败:" << e.what();
+        return false;
+    }
+}
+
+
+// 修复 onResetZero() 函数
+void MainWindow::onResetZero()
+{
+    qDebug() << "开始重置零位...";
+    
+    // 检查是否有可用的图像
+    if (m_lastRgb.empty()) {
+        QMessageBox::warning(this, "提示", "还没有获取到图像，请确保预览正在运行");
+        return;
+    }
+    
+    try {
+        // 转换为BGR格式用于检测
+        cv::Mat frame;
+        cv::cvtColor(m_lastRgb, frame, cv::COLOR_RGB2BGR);
+        
+        qDebug() << "图像尺寸:" << frame.cols << "x" << frame.rows;
+        
+        // 创建检测器
+        highPreciseDetector det(frame);
+        
+        // 检查是否检测到必要的元素
+        if (det.getCircles().empty() && det.getLine().empty()) {
+            QMessageBox::warning(this, "提示", "未检测到表盘或指针，请调整相机位置或光照条件");
+            return;
+        }
+        
+        // 获取角度
+        double angle = det.getAngle();
+        if (angle == -999) {
+            QMessageBox::warning(this, "错误", "无法计算角度，请确保指针清晰可见");
+            return;
+        }
+        
+        // 设置零位
+        m_zeroAngle = angle;
+        m_hasZero = true;
+        
+        qDebug() << "零位设置成功，角度:" << m_zeroAngle;
+        
+        // 更新界面显示
+        ui->labelAngle->setText(QString("零位已设置: %1°").arg(angle, 0, 'f', 2));
+        
+        // 显示检测结果到右侧区域
+        det.showScale1Result();
+        cv::Mat vis = det.visual();
+        cv::cvtColor(vis, vis, cv::COLOR_BGR2RGB);
+        QImage q(vis.data, vis.cols, vis.rows, vis.step, QImage::Format_RGB888);
+        ui->destDisplay->setPixmap(QPixmap::fromImage(q)
+                                   .scaled(ui->destDisplay->size(),
+                                           Qt::KeepAspectRatio,
+                                           Qt::SmoothTransformation));
+        
+        QMessageBox::information(this, "成功", QString("零位设置成功！\n当前角度: %1°").arg(angle, 0, 'f', 2));
+        
+    } catch (const std::exception& e) {
+        qDebug() << "重置零位时发生异常:" << e.what();
+        QMessageBox::critical(this, "错误", QString("重置零位失败: %1").arg(e.what()));
+    } catch (...) {
+        qDebug() << "重置零位时发生未知异常";
+        QMessageBox::critical(this, "错误", "重置零位时发生未知错误");
+    }
+}
+
+void MainWindow::runAlgoOnce()
+{
+    cv::Mat rgbFrame;                 // 取当前一帧（RGB）
+    if (!grabOneFrame(rgbFrame)) {    // 你已有的同步抓帧函数
+        ui->labelAngle->setText("取帧失败");
+        return;
+    }
+
+    try {
+        cv::Mat bgr;
+        cv::cvtColor(rgbFrame, bgr, cv::COLOR_RGB2BGR);
+
+        highPreciseDetector det(bgr);
+        if (det.getCircles().empty() || det.getLine().empty())
+            throw std::runtime_error("未检测到表盘或指针");
+
+        double angle = det.getAngle();          // 角度
+        det.showScale1Result();
+        cv::Mat vis = det.visual();             // 可视化结果
+
+        cv::Mat enhanced = spatial_LSI(bgr, 5);
+        cv::Mat mix;
+        cv::addWeighted(vis, 0.7, enhanced, 0.3, 0, mix);
+
+        cv::cvtColor(mix, mix, cv::COLOR_BGR2RGB);
+        QImage img(mix.data, mix.cols, mix.rows, mix.step, QImage::Format_RGB888);
+        ui->destDisplay->setPixmap(QPixmap::fromImage(
+                img).scaled(ui->destDisplay->size(),
+                             Qt::KeepAspectRatio,
+                             Qt::SmoothTransformation));
+
+        // 更新角度标签
+        if (angle != -999) {
+            QString txt;
+            if (m_hasZero) {
+                double delta = angle - m_zeroAngle;
+                if (delta > 180)  delta -= 360;
+                if (delta < -180) delta += 360;
+                txt = QString("零位: %1°\n当前: %2°\n角度差: %3°")
+                        .arg(m_zeroAngle, 0, 'f', 2)
+                        .arg(angle, 0, 'f', 2)
+                        .arg(delta, 0, 'f', 2);
+            } else {
+                txt = QString("当前角度: %1°").arg(angle, 0, 'f', 2);
+            }
+            ui->labelAngle->setText(txt);
+        }
+    }
+    catch (const std::exception &e) {
+        qDebug() << "识别错误:" << e.what();
+        cv::Mat gray;
+        cv::cvtColor(rgbFrame, gray, cv::COLOR_RGB2GRAY);
+        cv::Mat lsi = spatial_LSI(gray, 5);
+        QImage img(lsi.data, lsi.cols, lsi.rows, lsi.step, QImage::Format_Grayscale8);
+        ui->destDisplay->setPixmap(QPixmap::fromImage(
+                img).scaled(ui->destDisplay->size(),
+                             Qt::KeepAspectRatio,
+                             Qt::SmoothTransformation));
+        ui->labelAngle->setText("未检测到表盘或指针");
+    }
+}
+
+// highPreciseDetector 类的实现 - 添加到 mainwindow.cpp 文件中
+
+highPreciseDetector::highPreciseDetector(const cv::Mat& image) : m_angle(-999) {
+    if (image.empty()) {
+        qDebug() << "输入图像为空";
+        return;
+    }
+    
+    // 复制输入图像
+    m_image = image.clone();
+    m_visual = image.clone();
+    
+    try {
+        // 检测圆形和直线
+        detectCircles();
+        detectLines();
+        
+        // 计算角度
+        if (!m_circles.empty() && !m_lines.empty()) {
+            calculateAngle();
+        }
+    } catch (const std::exception& e) {
+        qDebug() << "检测过程中出错:" << e.what();
+    }
+}
+
+void highPreciseDetector::detectCircles() {
+    cv::Mat gray;
+    if (m_image.channels() == 3) {
+        cv::cvtColor(m_image, gray, cv::COLOR_BGR2GRAY);
+    } else {
+        gray = m_image.clone();
+    }
+    
+    // 使用高斯模糊减少噪声
+    cv::GaussianBlur(gray, gray, cv::Size(9, 9), 2, 2);
+    
+    // 使用HoughCircles检测圆形
+    std::vector<cv::Vec3f> circles;
+    cv::HoughCircles(gray, circles, cv::HOUGH_GRADIENT, 1, gray.rows/16, 100, 30, 1, 0);
+    
+    // 选择最大的圆作为表盘
+    if (!circles.empty()) {
+        cv::Vec3f maxCircle = circles[0];
+        float maxRadius = maxCircle[2];
+        
+        for (const auto& circle : circles) {
+            if (circle[2] > maxRadius) {
+                maxCircle = circle;
+                maxRadius = circle[2];
+            }
+        }
+        
+        m_circles.push_back(maxCircle);
+        qDebug() << "检测到表盘: 中心(" << maxCircle[0] << "," << maxCircle[1] << ") 半径:" << maxRadius;
+    } else {
+        qDebug() << "未检测到圆形表盘";
+    }
+}
+
+void highPreciseDetector::detectLines() {
+    cv::Mat gray, edges;
+    if (m_image.channels() == 3) {
+        cv::cvtColor(m_image, gray, cv::COLOR_BGR2GRAY);
+    } else {
+        gray = m_image.clone();
+    }
+    
+    // 边缘检测
+    cv::Canny(gray, edges, 50, 150, 3);
+    
+    // 使用HoughLinesP检测直线
+    std::vector<cv::Vec4i> lines;
+    cv::HoughLinesP(edges, lines, 1, CV_PI/180, 50, 50, 10);
+    
+    if (!lines.empty()) {
+        // 如果检测到表盘，选择距离表盘中心最近的直线作为指针
+        if (!m_circles.empty()) {
+            cv::Point2f center(m_circles[0][0], m_circles[0][1]);
+            cv::Vec4i bestLine;
+            double minDist = std::numeric_limits<double>::max();
+            
+            for (const auto& line : lines) {
+                cv::Point2f lineCenter((line[0] + line[2])/2.0f, (line[1] + line[3])/2.0f);
+                double dist = cv::norm(center - lineCenter);
+                
+                if (dist < minDist) {
+                    minDist = dist;
+                    bestLine = line;
+                }
+            }
+            
+            if (minDist < m_circles[0][2]) { // 确保直线在表盘内
+                m_lines.push_back(bestLine);
+                qDebug() << "检测到指针: (" << bestLine[0] << "," << bestLine[1] << ") 到 (" << bestLine[2] << "," << bestLine[3] << ")";
+            }
+        } else {
+            // 如果没有检测到表盘，选择最长的直线
+            cv::Vec4i longestLine;
+            double maxLength = 0;
+            
+            for (const auto& line : lines) {
+                double length = sqrt(pow(line[2] - line[0], 2) + pow(line[3] - line[1], 2));
+                if (length > maxLength) {
+                    maxLength = length;
+                    longestLine = line;
+                }
+            }
+            
+            if (maxLength > 0) {
+                m_lines.push_back(longestLine);
+                qDebug() << "检测到最长直线作为指针";
+            }
+        }
+    } else {
+        qDebug() << "未检测到直线";
+    }
+}
+
+void highPreciseDetector::calculateAngle() {
+    if (m_lines.empty()) {
+        m_angle = -999;
+        return;
+    }
+    
+    cv::Vec4i line = m_lines[0];
+    
+    // 计算直线的角度（相对于水平方向）
+    double dx = line[2] - line[0];
+    double dy = line[3] - line[1];
+    
+    // 使用atan2计算角度，结果范围是 -π 到 π
+    double angle_rad = atan2(dy, dx);
+    
+    // 转换为度数，范围 -180 到 180
+    double angle_deg = angle_rad * 180.0 / CV_PI;
+    
+    // 转换为 0 到 360 度范围
+    if (angle_deg < 0) {
+        angle_deg += 360;
+    }
+    
+    m_angle = angle_deg;
+    qDebug() << "计算得到角度:" << m_angle << "度";
+}
+
+void highPreciseDetector::showScale1Result() {
+    m_visual = m_image.clone();
+    
+    // 绘制检测到的圆形
+    for (const auto& circle : m_circles) {
+        cv::Point center(cvRound(circle[0]), cvRound(circle[1]));
+        int radius = cvRound(circle[2]);
+        // 绘制圆心
+        cv::circle(m_visual, center, 3, cv::Scalar(0, 255, 0), -1, 8, 0);
+        // 绘制圆周
+        cv::circle(m_visual, center, radius, cv::Scalar(255, 0, 0), 2, 8, 0);
+    }
+    
+    // 绘制检测到的直线
+    for (const auto& line : m_lines) {
+        cv::line(m_visual, 
+                cv::Point(line[0], line[1]), 
+                cv::Point(line[2], line[3]), 
+                cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+    }
+    
+    // 添加角度文本
+    if (m_angle != -999) {
+        std::string angleText = "Angle: " + std::to_string(m_angle) + "°";
+        cv::putText(m_visual, angleText, cv::Point(10, 30), 
+                   cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 0), 2);
     }
 }
