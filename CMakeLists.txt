@@ -35,24 +35,27 @@ set(SOURCES
     src/mainwindow.cpp
     src/settings.cpp
     src/settingdialog.cpp
-    # src/Opencv_hp.cpp
 )
 
 set(INC
     src/mainwindow.h
     src/settings.h
     src/settingdialog.h
-    # src/Opencv_hp.h
 )
 
 set(UI
     src/mainwindow.ui
     src/settingdialog.ui
 )
+
+set(RESOURCES
+    src/images.qrc
+)
+
 qt6_wrap_ui(UIS ${UI_FILES})
 qt6_wrap_cpp(MOCS src/mainwindow.h src/settings.h src/settingdialog.h)
 
-add_executable(${PROJECT_NAME} ${SOURCES} ${INC} ${UIS} ${MOCS})
+add_executable(${PROJECT_NAME} ${SOURCES} ${INC} ${UIS} ${MOCS} ${RESOURCES})
 
 target_link_libraries(${PROJECT_NAME}
     Qt6::Core Qt6::Gui Qt6::Widgets
@@ -68,6 +71,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_SOURCE_DIR}/images"
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/images)
+
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "E:/opencv/build/x64/vc16/bin"

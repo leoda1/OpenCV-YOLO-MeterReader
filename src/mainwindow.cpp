@@ -28,6 +28,7 @@ MainWindow::MainWindow(QWidget *parent) :
     ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    ui->mainToolBar->setIconSize(QSize(48, 48));
     ui->centralWidget->installEventFilter(this);
 
     connect(ui->actionPreview,SIGNAL(triggered()),this,SLOT(startPreview()));
@@ -43,6 +44,7 @@ MainWindow::MainWindow(QWidget *parent) :
 
     QToolBar *mytoolbar = new QToolBar(this);
     mytoolbar->addAction(ui->actionCloseAlgo);
+    mytoolbar->setIconSize(QSize(48, 48));
     addToolBar(Qt::RightToolBarArea,mytoolbar);
     connect(ui->actionCloseAlgo,SIGNAL(triggered()),this,SLOT(algoArea()));
 
@@ -59,17 +61,20 @@ MainWindow::~MainWindow()
 }
 
 void MainWindow::init(){
-    ui->sizeValue->setText("");
-    ui->scaleValue->setText("");
-    ui->collectionValue->setText("");
-    ui->fpsValue->setText("");
-//    ui->destAlriValue->setText("");
+ui->sizeValue->setText("等待连接...");
+    ui->scaleValue->setText("等待连接...");
+    ui->collectionValue->setText("0");
+    ui->fpsValue->setText("0");
+    ui->labelAngle->setText("等待检测...");
+    
     ui->actionPreview->setEnabled(false);
 
+    ui->srcDisplay->setText("请连接相机并点击预览");
+    ui->srcDisplay->setAlignment(Qt::AlignCenter);
+    ui->destDisplay->setText("算法检测结果将显示在这里");
+    ui->destDisplay->setAlignment(Qt::AlignCenter);
 
     refresh();
-
-//    CBaslerUsbCamera
 }
 
 void MainWindow::refresh(){
@@ -96,17 +101,6 @@ void MainWindow::refresh(){
              m_camera.Attach(CTlFactory::GetInstance().CreateFirstDevice(info));
              m_camera.Open();
              startPreview();
-             //         for(uint i=0;i<dList.size();i++){
-             //             FullNameOfSelectedDevice = QString(dList[i].GetFriendlyName());
-             //             try
-             //             {
-             //                 CDeviceInfo info;
-             //                 info.SetFriendlyName(FullNameOfSelectedDevice.toStdString().c_str());
-             //                 m_camera.Attach(CTlFactory::GetInstance().CreateFirstDevice(info));
-
-             //                 m_camera.Open();
-             //                 usbCameraParam.Attach(&m_camera.GetNodeMap());
-             //                 startPreview();
          }
          catch(GenICam::GenericException &e)
          {
@@ -116,140 +110,6 @@ void MainWindow::refresh(){
      }
 }
 
-
-void MainWindow::readJson(){
-
-}
-
-
-
-// void MainWindow::startPreview(){
-//     setButtons(true);
-//     if(m_camera.IsGrabbing()){
-//         m_camera.StopGrabbing();
-//     }
-
-//     try
-//     {
-//         INodeMap& nodemap = m_camera.GetNodeMap();
-
-//         CIntegerPtr Width (nodemap.GetNode("Width"));
-//         CIntegerPtr Height (nodemap.GetNode("Height"));
-//         CFloatPtr Rate( nodemap.GetNode("AcquisitionFrameRate") );
-//         //Acquisition frame rate of the camera in frames per second.
-//         CBooleanPtr AcquisitionFrameRateEnable( nodemap.GetNode("AcquisitionFrameRateEnable") );
-//         AcquisitionFrameRateEnable->FromString("true");
-//         CFloatPtr ExposureTime( nodemap.GetNode("ExposureTime"));
-
-
-//         Width->FromString(saveSettings->width);
-//         Height->FromString(saveSettings->height);
-//         ExposureTime->FromString(saveSettings->exposureTime);
-//         Rate->FromString(saveSettings->acquisitionFrameRate);
-//         //Exposure time of the camera in microseconds.
-
-//         if(!saveSettings->myattr.isEmpty()){
-
-//             if(saveSettings->type == 0){
-//             CIntegerPtr Attr( nodemap.GetNode(saveSettings->myattr.toUtf8().constData()) );
-//             Attr->FromString(saveSettings->myvalue.toUtf8().constData());
-//             }else if(saveSettings->type == 1){
-//             CFloatPtr Attr( nodemap.GetNode(saveSettings->myattr.toUtf8().constData()) );
-//             Attr->FromString(saveSettings->myvalue.toUtf8().constData());
-//             }else if(saveSettings->type == 2){
-//             CBooleanPtr Attr( nodemap.GetNode(saveSettings->myattr.toUtf8().constData()) );
-//             Attr->FromString(saveSettings->myvalue.toUtf8().constData());
-//             }else if(saveSettings->type == 3){
-//             CStringPtr Attr( nodemap.GetNode(saveSettings->myattr.toUtf8().constData()) );
-//             Attr->FromString(saveSettings->myvalue.toUtf8().constData());
-//             }
-//         }
-
-
-//         // 获取图像的原始尺寸
-//         int originalWidth = Width->GetValue();
-//         int originalHeight = Height->GetValue();
-
-//         // 计算裁剪区域：从图像中心裁剪出所需的区域
-//         int cropWidth = QString::fromStdString(saveSettings->width.c_str()).toInt();  // 使用设置的宽度
-//         int cropHeight = QString::fromStdString(saveSettings->height.c_str()).toInt(); // 使用设置的高度
-
-//         int cropX = (originalWidth - cropWidth) / 2; // 计算从中心开始裁剪的 X 坐标
-//         int cropY = (originalHeight - cropHeight) / 2; // 计算从中心开始裁剪的 Y 坐标
-
-
-
-//         CImageFormatConverter fc;
-//         fc.OutputPixelFormat = PixelType_BGR8packed;
-//         CPylonImage image;
-
-//         // This smart pointer will receive the grab result data.
-//         CGrabResultPtr ptrGrabResult;
-
-//         m_camera.StartGrabbing(GrabStrategy_LatestImageOnly);
-
-//         cv::Mat openCvImage;
-//         cv::Mat openCvGrayImage;
-//         int64_t i = 0;
-
-//         while(m_camera.IsGrabbing())
-//         {
-//             m_camera.RetrieveResult( 5000, ptrGrabResult, TimeoutHandling_ThrowException);
-
-//             if (ptrGrabResult->GrabSucceeded())
-//             {
-//                 fc.Convert(image, ptrGrabResult);
-//                 openCvImage= cv::Mat(ptrGrabResult->GetHeight(), ptrGrabResult->GetWidth(), CV_8UC3, (uint8_t *) image.GetBuffer());
-//                 cvtColor(openCvImage, openCvImage, cv::COLOR_BGR2RGB);
-
-//                 cv::Rect cropRect(cropX, cropY, cropWidth, cropHeight);
-//                 cv::Mat croppedImage = openCvImage(cropRect);
-//                 QImage qtImage(croppedImage.data, croppedImage.cols, croppedImage.rows, croppedImage.step, QImage::Format_RGB888);
-//                 // QImage qtImage(openCvImage.data,openCvImage.cols,openCvImage.rows,openCvImage.step,QImage::Format_RGB888);
-//                 ui->srcDisplay->setPixmap(QPixmap::fromImage(qtImage));
-//                 ui->srcDisplay->update();
-//                 ui->collectionValue->setText(QString("%1").arg(ptrGrabResult->GetBlockID()));
-
-//                 float wScale = roundf( ui->srcDisplay->width()*100.0/Width->GetValue() )/100.0;
-//                 float hScale = roundf( ui->srcDisplay->height()*100.0/Height->GetValue()) / 100.0;
-
-//                 ui->scaleValue->setText(QString("W:%1 H:%2").arg(wScale).arg(hScale));
-//                 ui->sizeValue->setText(QString("W:%1 H:%2").arg(ui->srcDisplay->width()).arg(ui->srcDisplay->height()));
-//                 ui->fpsValue->setText(QString("%1").arg( round( Rate->GetValue(true) ) ));
-
-//                 /*
-//                 if(saveSettings->algo == Algorithm_AIHE::GRAY){
-//                 cvtColor(openCvImage, openCvGrayImage, COLOR_RGB2GRAY);
-//                 QImage destImage(openCvGrayImage.data,openCvGrayImage.cols,openCvGrayImage.rows,openCvGrayImage.step,QImage::Format_Indexed8);
-//                 ui->destDisplay->setPixmap(QPixmap::fromImage(destImage));
-//                 ui->destDisplay->update();
-//                 ui->destAlriValue->setText("灰度图");
-//                 }else if(saveSettings->algo == Algorithm_AIHE::SPACE){
-
-//                 }
-//                 */
-
-//                 if(!ui->destDisplay->isHidden()){
-//                     cvtColor(openCvImage, openCvGrayImage, COLOR_RGB2GRAY);
-//                     openCvGrayImage = spatial_LSI(openCvImage,5);
-//                     QImage destImage(openCvGrayImage.data,openCvGrayImage.cols,openCvGrayImage.rows,openCvGrayImage.step,QImage::Format_RGB32);
-//                     ui->destDisplay->setPixmap(QPixmap::fromImage(destImage.scaled(ui->destDisplay->width(),ui->destDisplay->height())));
-//                     ui->destDisplay->update();
-//                 }
-
-//             }
-//             else
-//             {
-//                 cout << "Error: " << ptrGrabResult->GetErrorCode() << " " << ptrGrabResult->GetErrorDescription() << endl;
-//             }
-//             qApp->processEvents();
-
-//         }
-//     }
-//     catch (GenICam::GenericException &e){
-//     QMessageBox::warning(this,"",e.GetDescription(),QMessageBox::Cancel,QMessageBox::Accepted);
-//     }
-// }
 
 void MainWindow::startPreview(){
     setButtons(true);
@@ -710,6 +570,7 @@ void MainWindow::spatial_LSI_Matlab(){
 
 void MainWindow::algoArea(){
     const int deskW = QGuiApplication::primaryScreen()->geometry().width();
+    
     if(isAlgoAreaOpened){
         isAlgoAreaOpened = false;
         ui->actionCloseAlgo->setText("关闭识别角度");
