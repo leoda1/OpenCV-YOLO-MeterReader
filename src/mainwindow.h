@@ -12,9 +12,9 @@
 #include <QtGui>
 #include <QtCore>
 #include <QScreen>
+#include <memory>
 
 #include "settings.h"
-// #include "Opencv_hp.h"
 
 namespace Ui {
 class MainWindow;
@@ -38,12 +38,12 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget *parent = 0);
+    explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
     void init();
 protected:
-    bool eventFilter(QObject *obj, QEvent *event);
-    virtual void closeEvent (QCloseEvent *event);
+    bool eventFilter(QObject *obj, QEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
 
 private:
     Ui::MainWindow *ui;
@@ -51,11 +51,14 @@ private:
     Pylon::CPylonUsbTLParams usbCameraParam;
     GenApi::INodeMap *m_nodemap;
     QString FullNameOfSelectedDevice;
-    Settings *saveSettings = new Settings();
+    // Settings *saveSettings = new Settings();
+    std::unique_ptr<Settings> saveSettings;
     QJsonObject json;
-
     int imageSaved = 0;
     bool isAlgoAreaOpened = false;
+
+    QSize smallSize;
+    QSize bigSize;
 
     void setButtons(bool inPreview);
     void setNoCamera();
@@ -66,9 +69,11 @@ private:
     // angel
     bool   m_hasZero   = false;
     double m_zeroAngle = 0.0;
+    Mat m_lastRgb;
+
     bool grabOneFrame(cv::Mat &outBar);
     void runAlgoOnce();
-    Mat m_lastRgb;
+    static void conv2(const Mat &img, const Mat& kernel, ConvolutionType type, Mat& dest);
     
 
 private slots:
@@ -78,11 +83,10 @@ private slots:
     void about();
     void singleGrab();
     void multiGrab();
-    void conv2(const Mat &img, const Mat& kernel, ConvolutionType type, Mat& dest);
     void algoArea();
     void spatial_LSI_Matlab();
-    void onCaptureZero();  // 采集角度
-    void onResetZero();     // 归位
+    void onCaptureZero();
+    void onResetZero();
 
 };
 
@@ -95,9 +99,11 @@ private:
     double m_angle;
     
 public:
-    highPreciseDetector(const cv::Mat& image);
-    std::vector<cv::Vec3f> getCircles() const { return m_circles; }
-    std::vector<cv::Vec4i> getLine() const { return m_lines; }
+    explicit highPreciseDetector(const cv::Mat& image);
+    ~highPreciseDetector() = default;
+
+    const std::vector<cv::Vec3f>& getCircles() const { return m_circles; }
+    const std::vector<cv::Vec4i>& getLine() const { return m_lines; }
     double getAngle() const { return m_angle; }
     void showScale1Result();
     cv::Mat visual() const { return m_visual; }

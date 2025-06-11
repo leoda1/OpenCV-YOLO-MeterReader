@@ -20,44 +20,55 @@ using namespace cv;
 
 #define APP_NAME "CameraView"
 
-QSize smallSize;
-QSize bigSize;
-
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
-    ui(new Ui::MainWindow)
+    ui(new Ui::MainWindow),
+    saveSettings(std::make_unique<Settings>())
 {
     ui->setupUi(this);
     ui->mainToolBar->setIconSize(QSize(48, 48));
     ui->centralWidget->installEventFilter(this);
 
-    connect(ui->actionPreview,SIGNAL(triggered()),this,SLOT(startPreview()));
-    connect(ui->actionRefresh,SIGNAL(triggered()),this,SLOT(refresh()));
-    connect(ui->actionSetting,SIGNAL(triggered()),this,SLOT(setting()));
-    connect(ui->actionAbout,SIGNAL(triggered()),this,SLOT(about()));
-    connect(ui->actionCollectSingle,SIGNAL(triggered()),this,SLOT(singleGrab()));
-    connect(ui->actionCollectMulti,SIGNAL(triggered()),this,SLOT(multiGrab()));
-    connect(ui->actionSpaceAlgo,SIGNAL(triggered()),this,SLOT(spatial_LSI_Matlab()));
-    connect(ui->pushResetZero, &QPushButton::clicked, this, &MainWindow::onResetZero);      // 归位按钮 - 清除零位
-    connect(ui->pushCaptureZero, &QPushButton::clicked, this, &MainWindow::onCaptureZero);  // 采集零位按钮 - 记录零位角度
-    // connect(ui->pushGetDelta, &QPushButton::clicked, this, &MainWindow::onGetDelta);        // 获取角度按钮 - 计算角度差 
+    connect(ui->actionPreview, &QAction::triggered, this, &MainWindow::startPreview);
+    connect(ui->actionRefresh, &QAction::triggered, this, &MainWindow::refresh);
+    connect(ui->actionSetting, &QAction::triggered, this, &MainWindow::setting);
+    connect(ui->actionAbout, &QAction::triggered, this, &MainWindow::about);
+    connect(ui->actionCollectSingle, &QAction::triggered, this, &MainWindow::singleGrab);
+    connect(ui->actionCollectMulti, &QAction::triggered, this, &MainWindow::multiGrab);
+    connect(ui->actionSpaceAlgo, &QAction::triggered, this, &MainWindow::spatial_LSI_Matlab);
+    connect(ui->pushResetZero, &QPushButton::clicked, this, &MainWindow::onResetZero);
+    connect(ui->pushCaptureZero, &QPushButton::clicked, this, &MainWindow::onCaptureZero);
 
     QToolBar *mytoolbar = new QToolBar(this);
     mytoolbar->addAction(ui->actionCloseAlgo);
     mytoolbar->setIconSize(QSize(48, 48));
     addToolBar(Qt::RightToolBarArea,mytoolbar);
-    connect(ui->actionCloseAlgo,SIGNAL(triggered()),this,SLOT(algoArea()));
+    connect(ui->actionCloseAlgo, &QAction::triggered, this, &MainWindow::algoArea);
 
     smallSize = QSize(750,this->height());
     bigSize = this->size();
-
-
     algoArea();
 }
 
 MainWindow::~MainWindow()
 {
+    // 确保相机资源正确释放
+    try {
+        if (m_camera.IsGrabbing()) {
+            m_camera.StopGrabbing();
+        }
+        if (m_camera.IsOpen()) {
+            m_camera.Close();
+        }
+        // m_camera.DetachDevice(); // 在Close()之后会自动detach
+    } catch (const std::exception& e) {
+        qDebug() << "析构函数中关闭相机时发生异常:" << e.what();
+    } catch (...) {
+        qDebug() << "析构函数中关闭相机时发生未知异常";
+    }
+    
     delete ui;
+    // saveSettings会被智能指针自动释放，不需要手动delete
 }
 
 void MainWindow::init(){
@@ -306,16 +317,20 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 
 void MainWindow::setting(){
-    if(!(FullNameOfSelectedDevice.length() > 0)){
-        QMessageBox::warning(this,APP_NAME,"请插入Basler相机",QMessageBox::Cancel,QMessageBox::Accepted);
+    if (FullNameOfSelectedDevice.length() <= 0) {
+        QMessageBox::warning(this, APP_NAME, "请插入Basler相机", QMessageBox::Cancel, QMessageBox::Accepted);
         return;
     }
-    qDebug() << "启动调试";
-    SettingDialog *dialog = new SettingDialog(this);
-    dialog->setSettings(saveSettings);
+    
+    qDebug() << "启动设置对话框";
+    
+    auto dialog = std::make_unique<SettingDialog>(this);
+    dialog->setSettings(saveSettings.get());  // 传递指针
+    
     int result = dialog->exec();
-    if(result == QDialog::Accepted){
-        saveSettings = dialog->getSaveSettings();
+    if (result == QDialog::Accepted) {
+        // 复制设置
+        *saveSettings = *(dialog->getSaveSettings());
         startPreview();
     }
 }
@@ -379,95 +394,72 @@ void MainWindow::singleGrab(){
 
 
 void MainWindow::multiGrab(){
-    if(m_camera.IsGrabbing()){
-        m_camera.StopGrabbing();
-    }
-    SettingDialog *dialog = new SettingDialog(this);
-    dialog->setSettings(saveSettings);
+    auto dialog = std::make_unique<SettingDialog>(this);
+    dialog->setSettings(saveSettings.get());
+    
     int result = dialog->exec();
-    if(result == QDialog::Accepted){
-        saveSettings = dialog->getSaveSettings();
-
-        try
-         {
-             INodeMap& nodemap = m_camera.GetNodeMap();
-
-             CIntegerPtr Width (nodemap.GetNode("Width"));
-             CIntegerPtr Height (nodemap.GetNode("Height"));
-             CFloatPtr Rate( nodemap.GetNode("AcquisitionFrameRate") );
-             //Acquisition frame rate of the camera in frames per second.
-             CBooleanPtr AcquisitionFrameRateEnable( nodemap.GetNode("AcquisitionFrameRateEnable") );
-             AcquisitionFrameRateEnable->FromString("true");
-             CFloatPtr ExposureTime( nodemap.GetNode("ExposureTime") );
-
-
-             Width->FromString(saveSettings->width);
-             Height->FromString(saveSettings->height);
-             ExposureTime->FromString(saveSettings->exposureTime);
-             Rate->FromString(saveSettings->acquisitionFrameRate);
-             //Exposure time of the camera in microseconds.
-
-//             CImageFormatConverter fc;
-//             fc.OutputPixelFormat = PixelType_BGR8packed;
-
-             // This smart pointer will receive the grab result data.
-             CGrabResultPtr ptrGrabResult;
-
-             m_camera.StartGrabbing(GrabStrategy_LatestImageOnly);
-
-             //创建目录
-             QDir saveDir(saveSettings->FilePath);
-             saveDir.mkdir("multi");
-
-             QProgressDialog dialog;
-             connect(&dialog,SIGNAL(canceled()),this,SLOT(startPreview()));
-             dialog.setRange(0,saveSettings->image2save);
-             dialog.setLabelText(QString("save %1 picture").arg(imageSaved));
-             dialog.show();
-
-             while(m_camera.IsGrabbing())
-             {
-                 m_camera.RetrieveResult( 5000, ptrGrabResult, TimeoutHandling_ThrowException);
-
-                 if (ptrGrabResult->GrabSucceeded())
-                 {
-                       //TODO 修改文件名
-                       QString filePath = saveSettings->FilePath + "/multi/" + saveSettings->FilePrefix + QString::number(imageSaved);
-
-                       if(saveSettings->format == ImageFileFormat_Tiff){
-                           filePath += ".tiff";
-                       }else if(saveSettings->format == ImageFileFormat_Png){
-                           filePath += ".png";
-                       }
-
-                       CImagePersistence::Save( saveSettings->format, filePath.toUtf8().constData(), ptrGrabResult);
-                       imageSaved++;
-                       dialog.setLabelText(QString("save %1 picture").arg(imageSaved));
-                       dialog.setValue(imageSaved);
-                       if(imageSaved > saveSettings->image2save) {
-                            m_camera.StopGrabbing();
-                            imageSaved = 0;
-                       }
-                 }
-                 else
-                 {
-                     cout << "Error: " << ptrGrabResult->GetErrorCode() << " " << ptrGrabResult->GetErrorDescription() << endl;
-                 }
-                 qApp->processEvents();
-
-             }
-         }
-         catch (GenICam::GenericException &e){
-            QMessageBox::warning(this,"",e.GetDescription(),QMessageBox::Cancel,QMessageBox::Accepted);
-        }
-
-        startPreview();
-
-    }else{
-        startPreview();
+    if (result == QDialog::Accepted) {
+        *saveSettings = *(dialog->getSaveSettings());
     }
-}
+    try {
+        INodeMap& nodemap = m_camera.GetNodeMap();
 
+        CIntegerPtr Width (nodemap.GetNode("Width"));
+        CIntegerPtr Height (nodemap.GetNode("Height"));
+        CFloatPtr Rate( nodemap.GetNode("AcquisitionFrameRate") );
+        //Acquisition frame rate of the camera in frames per second.
+        CBooleanPtr AcquisitionFrameRateEnable( nodemap.GetNode("AcquisitionFrameRateEnable") );
+        AcquisitionFrameRateEnable->FromString("true");
+        CFloatPtr ExposureTime( nodemap.GetNode("ExposureTime") );
+
+
+        Width->FromString(saveSettings->width);
+        Height->FromString(saveSettings->height);
+        ExposureTime->FromString(saveSettings->exposureTime);
+        Rate->FromString(saveSettings->acquisitionFrameRate);
+        CGrabResultPtr ptrGrabResult;
+
+        m_camera.StartGrabbing(GrabStrategy_LatestImageOnly);
+
+        QDir saveDir(saveSettings->FilePath);
+        saveDir.mkdir("multi");
+
+        QProgressDialog dialog;
+        connect(&dialog, &QProgressDialog::canceled, this, &MainWindow::startPreview);
+        dialog.setRange(0,saveSettings->image2save);
+        dialog.setLabelText(QString("save %1 picture").arg(imageSaved));
+        dialog.show();
+
+        while(m_camera.IsGrabbing()) {
+            m_camera.RetrieveResult( 5000, ptrGrabResult, TimeoutHandling_ThrowException);
+            if (ptrGrabResult->GrabSucceeded()) {
+                QString filePath = saveSettings->FilePath + "/multi/" + saveSettings->FilePrefix + QString::number(imageSaved);
+
+                if(saveSettings->format == ImageFileFormat_Tiff){
+                    filePath += ".tiff";
+                } else if (saveSettings->format == ImageFileFormat_Png) {
+                    filePath += ".png";
+                }
+
+                CImagePersistence::Save( saveSettings->format, filePath.toUtf8().constData(), ptrGrabResult);
+                imageSaved++;
+                dialog.setLabelText(QString("save %1 picture").arg(imageSaved));
+                dialog.setValue(imageSaved);
+                if (imageSaved > saveSettings->image2save) {
+                    m_camera.StopGrabbing();
+                    imageSaved = 0;
+                }
+            } else {
+                cout << "Error: " << ptrGrabResult->GetErrorCode() << " " << ptrGrabResult->GetErrorDescription() << endl;
+            }
+            qApp->processEvents();
+        }
+    }
+    catch (GenICam::GenericException &e) {
+        QMessageBox::warning(this, "", e.GetDescription(), QMessageBox::Cancel, QMessageBox::Accepted);
+    }
+    startPreview();
+}
 
 void MainWindow::temporal_LSI(){
 
@@ -516,7 +508,7 @@ Mat MainWindow::spatial_LSI(Mat speckle, int m){
 }
 
 
-void MainWindow::conv2(const Mat &img, const Mat& kernel, ConvolutionType type, Mat& dest){
+void MainWindow::conv2(const Mat &img, const Mat& kernel, ConvolutionType type, Mat& dest) {
       Mat source = img;
       if(CONVOLUTION_FULL == type) {
         source = Mat();
