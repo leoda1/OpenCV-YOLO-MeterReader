@@ -15,6 +15,7 @@
 #include <memory>
 
 #include "settings.h"
+#include "dialmarkdialog.h"
 
 namespace Ui {
 class MainWindow;
@@ -87,6 +88,7 @@ private slots:
     void spatial_LSI_Matlab();
     void onCaptureZero();
     void onResetZero();
+    void showDialMarkDialog();
 
 };
 

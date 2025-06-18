@@ -35,7 +35,7 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->actionAbout, &QAction::triggered, this, &MainWindow::about);
     connect(ui->actionCollectSingle, &QAction::triggered, this, &MainWindow::singleGrab);
     connect(ui->actionCollectMulti, &QAction::triggered, this, &MainWindow::multiGrab);
-    connect(ui->actionSpaceAlgo, &QAction::triggered, this, &MainWindow::spatial_LSI_Matlab);
+    connect(ui->actionSpaceAlgo, &QAction::triggered, this, &MainWindow::showDialMarkDialog);
     connect(ui->pushResetZero, &QPushButton::clicked, this, &MainWindow::onResetZero);
     connect(ui->pushCaptureZero, &QPushButton::clicked, this, &MainWindow::onCaptureZero);
 
@@ -813,6 +813,14 @@ void MainWindow::runAlgoOnce()
                              Qt::SmoothTransformation));
         ui->labelAngle->setText("未检测到表盘或指针");
     }
+}
+
+void MainWindow::showDialMarkDialog()
+{
+    qDebug() << "打开表盘标注对话框";
+    
+    auto dialog = std::make_unique<DialMarkDialog>(this);
+    dialog->exec();
 }
 
 // highPreciseDetector 类的实现 - 添加到 mainwindow.cpp 文件中
