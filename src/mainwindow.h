@@ -56,6 +56,7 @@ private:
     std::unique_ptr<Settings> saveSettings;
     QJsonObject json;
     int imageSaved = 0;
+    int currentCapturedCount = 0;
     bool isAlgoAreaOpened = false;
 
     QSize smallSize;
@@ -66,6 +67,7 @@ private:
     void readJson();
     void temporal_LSI();
     Mat spatial_LSI(Mat speckle,int m);
+    void updateCollectionDisplay();
 
     // angel
     bool   m_hasZero   = false;

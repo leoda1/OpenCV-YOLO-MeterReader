@@ -20,6 +20,11 @@
 #include <QSpinBox>
 #include <QGroupBox>
 #include <QListWidget>
+#include <QFontComboBox>
+#include <QRubberBand>
+#include <QMenu>
+#include <QCheckBox>
+#include <QInputDialog>
 
 namespace Ui {
 class DialMarkDialog;
@@ -31,10 +36,14 @@ struct TextAnnotation {
     QString text;
     QColor color;
     int fontSize;
+    QString fontFamily;
+    bool isBold;
+    bool isItalic;
     bool isSelected;
     QRect boundingRect;
     
-    TextAnnotation() : color(Qt::red), fontSize(12), isSelected(false) {}
+    TextAnnotation() : color(Qt::red), fontSize(12), fontFamily("SimHei"), 
+                      isBold(false), isItalic(false), isSelected(false) {}
 };
 
 // 自定义图片显示标签类，支持鼠标交互
@@ -45,34 +54,87 @@ class AnnotationLabel : public QLabel
 public:
     explicit AnnotationLabel(QWidget *parent = nullptr);
     void setImage(const QPixmap &pixmap);
-    void addTextAnnotation(const QPoint &pos, const QString &text, const QColor &color, int fontSize);
+    void addTextAnnotation(const QPoint &pos, const QString &text, const QColor &color, 
+                          int fontSize, const QString &fontFamily = "SimHei", 
+                          bool isBold = false, bool isItalic = false);
+    void addRectAnnotation(const QRect &rect, const QString &text, const QColor &color, 
+                          int fontSize, const QString &fontFamily = "SimHei", 
+                          bool isBold = false, bool isItalic = false);
     void clearAnnotations();
     void setCurrentColor(const QColor &color) { m_currentColor = color; }
     void setCurrentFontSize(int size) { m_currentFontSize = size; }
+    void setCurrentFontFamily(const QString &family) { m_currentFontFamily = family; }
+    void setCurrentBold(bool bold) { m_currentBold = bold; }
+    void setCurrentItalic(bool italic) { m_currentItalic = italic; }
     void setAnnotationMode(bool enabled) { m_annotationMode = enabled; }
+    void setDragMode(bool enabled) { m_dragMode = enabled; }
     const QList<TextAnnotation>& getAnnotations() const { return m_annotations; }
     void removeSelectedAnnotation();
-    void updateSelectedAnnotation(const QString &text, const QColor &color, int fontSize);
+    void removeAnnotationAt(int index);
+    void updateSelectedAnnotation(const QString &text, const QColor &color, int fontSize, 
+                                 const QString &fontFamily, bool isBold = false, bool isItalic = false);
+    QPixmap getAnnotatedImage() const;
+    int getSelectedAnnotation() const { return m_selectedAnnotation; }
 
 protected:
     void paintEvent(QPaintEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
 signals:
     void annotationClicked(int index);
     void annotationAdded(const QPoint &pos);
+    void rectAnnotationAdded(const QRect &rect);
+    void annotationRightClicked(int index, const QPoint &globalPos);
 
 private:
     QPixmap m_originalPixmap;
     QList<TextAnnotation> m_annotations;
     QColor m_currentColor;
     int m_currentFontSize;
+    QString m_currentFontFamily;
+    bool m_currentBold;
+    bool m_currentItalic;
     bool m_annotationMode;
+    bool m_dragMode;
     int m_selectedAnnotation;
+    
+    // 拖拽相关
+    QPoint m_dragStartPoint;
+    QPoint m_dragEndPoint;
+    bool m_isDragging;
+    QRubberBand *m_rubberBand;
     
     void updateDisplay();
     int findAnnotationAt(const QPoint &pos);
+    void updateBoundingRect(TextAnnotation &annotation);
+    QString showTextInputDialog(const QString &currentText = "");
+};
+
+// 右键菜单对话框
+class AnnotationPropertiesDialog : public QDialog
+{
+    Q_OBJECT
+
+public:
+    explicit AnnotationPropertiesDialog(const TextAnnotation &annotation, QWidget *parent = nullptr);
+    TextAnnotation getAnnotation() const;
+
+private:
+    QLineEdit *m_textEdit;
+    QPushButton *m_colorButton;
+    QSpinBox *m_fontSizeSpinBox;
+    QFontComboBox *m_fontComboBox;
+    QCheckBox *m_boldCheckBox;
+    QCheckBox *m_italicCheckBox;
+    
+    QColor m_currentColor;
+    
+    void updateColorButton();
+    void chooseColor();
 };
 
 class DialMarkDialog : public QDialog
@@ -87,14 +149,22 @@ private slots:
     void loadDialImage();
     void chooseColor();
     void onFontSizeChanged(int size);
+    void onFontFamilyChanged(const QString &family);
+    void onBoldChanged(bool bold);
+    void onItalicChanged(bool italic);
     void onAnnotationClicked(int index);
     void onAnnotationAdded(const QPoint &pos);
+    void onRectAnnotationAdded(const QRect &rect);
+    void onAnnotationRightClicked(int index, const QPoint &globalPos);
     void removeAnnotation();
+    void removeSelectedAnnotation();
     void clearAllAnnotations();
     void saveAnnotations();
     void loadAnnotations();
     void onTextChanged();
     void updateAnnotationList();
+    void exportImage();
+    void toggleDragMode();
 
 private:
     Ui::DialMarkDialog *ui;
@@ -102,12 +172,17 @@ private:
     QScrollArea *m_scrollArea;
     QPushButton *m_colorButton;
     QSpinBox *m_fontSizeSpinBox;
+    QFontComboBox *m_fontComboBox;
+    QCheckBox *m_boldCheckBox;
+    QCheckBox *m_italicCheckBox;
     QLineEdit *m_textEdit;
     QListWidget *m_annotationList;
     QPushButton *m_removeButton;
     QPushButton *m_clearButton;
     QPushButton *m_saveButton;
     QPushButton *m_loadButton;
+    QPushButton *m_exportButton;
+    QPushButton *m_dragModeButton;
     
     QColor m_currentColor;
     
@@ -115,6 +190,7 @@ private:
     void setupToolbar();
     void updateColorButton();
     void loadDialImageFromFile();
+    void showAnnotationProperties(int index);
 };
 
 #endif // DIALMARKDIALOG_H 

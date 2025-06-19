@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1087</width>
-    <height>618</height>
+    <width>1231</width>
+    <height>626</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -55,10 +55,10 @@
      </rect>
     </property>
     <property name="frameShape">
-     <enum>QFrame::Shape::StyledPanel</enum>
+     <enum>QFrame::StyledPanel</enum>
     </property>
     <property name="frameShadow">
-     <enum>QFrame::Shadow::Raised</enum>
+     <enum>QFrame::Raised</enum>
     </property>
     <widget class="QWidget" name="layoutWidget">
      <property name="geometry">
@@ -85,7 +85,7 @@
          <string>预览区域</string>
         </property>
         <property name="alignment">
-         <set>Qt::AlignmentFlag::AlignCenter</set>
+         <set>Qt::AlignCenter</set>
         </property>
        </widget>
       </item>
@@ -117,10 +117,19 @@
       <item>
        <layout class="QHBoxLayout" name="srcBottomhorizontalLayout">
         <property name="spacing">
-         <number>0</number>
+         <number>20</number>
+        </property>
+        <property name="leftMargin">
+         <number>10</number>
+        </property>
+        <property name="rightMargin">
+         <number>10</number>
         </property>
         <item>
          <layout class="QHBoxLayout" name="sizehorizontalLayout">
+          <property name="spacing">
+           <number>5</number>
+          </property>
           <item>
            <widget class="QLabel" name="sizeLabel">
             <property name="text">
@@ -178,6 +187,9 @@
         </item>
         <item>
          <layout class="QHBoxLayout" name="fpshorizontalLayout">
+          <property name="spacing">
+           <number>5</number>
+          </property>
           <item>
            <widget class="QLabel" name="fpsLabel">
             <property name="text">
@@ -199,47 +211,119 @@
      </layout>
     </widget>
    </widget>
-   <widget class="QWidget" name="layoutWidget">
+   <widget class="QWidget" name="angleControlWidget">
     <property name="geometry">
      <rect>
-      <x>690</x>
-      <y>520</y>
-      <width>321</width>
-      <height>20</height>
+      <x>680</x>
+      <y>490</y>
+      <width>441</width>
+      <height>50</height>
      </rect>
     </property>
-    <layout class="QHBoxLayout" name="horizontalLayout">
-     <item>
-      <widget class="QPushButton" name="pushCaptureZero">
-       <property name="text">
-        <string>采集</string>
-       </property>
-      </widget>
-     </item>
+    <property name="visible">
+     <bool>true</bool>
+    </property>
+    <layout class="QHBoxLayout" name="angleLayout">
+     <property name="spacing">
+      <number>15</number>
+     </property>
+     <property name="margin" stdset="0">
+      <number>5</number>
+     </property>
      <item>
       <widget class="QPushButton" name="pushResetZero">
+       <property name="minimumSize">
+        <size>
+         <width>60</width>
+         <height>40</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>60</width>
+         <height>40</height>
+        </size>
+       </property>
+       <property name="font">
+        <font>
+         <pointsize>10</pointsize>
+         <bold>true</bold>
+        </font>
+       </property>
        <property name="text">
         <string>归位</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="pushGetDelta">
-       <property name="text">
-        <string>当前角度</string>
-       </property>
-       <property name="iconSize">
+      <widget class="QPushButton" name="pushCaptureZero">
+       <property name="minimumSize">
         <size>
-         <width>24</width>
-         <height>24</height>
+         <width>60</width>
+         <height>40</height>
         </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>60</width>
+         <height>40</height>
+        </size>
+       </property>
+       <property name="font">
+        <font>
+         <pointsize>10</pointsize>
+         <bold>true</bold>
+        </font>
+       </property>
+       <property name="text">
+        <string>采集</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="angleLabel">
+       <property name="font">
+        <font>
+         <pointsize>11</pointsize>
+         <bold>true</bold>
+        </font>
+       </property>
+       <property name="text">
+        <string>当前角度:</string>
        </property>
       </widget>
      </item>
      <item>
       <widget class="QLabel" name="labelAngle">
+       <property name="minimumSize">
+        <size>
+         <width>200</width>
+         <height>40</height>
+        </size>
+       </property>
+       <property name="font">
+        <font>
+         <pointsize>11</pointsize>
+         <bold>false</bold>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">QLabel {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    padding: 8px;
+    color: #333;
+}</string>
+       </property>
        <property name="text">
-        <string>TextLabel</string>
+        <string>等待检测...</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+       <property name="wordWrap">
+        <bool>true</bool>
        </property>
       </widget>
      </item>
@@ -251,8 +335,8 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1087</width>
-     <height>18</height>
+     <width>1231</width>
+     <height>22</height>
     </rect>
    </property>
   </widget>
@@ -276,7 +360,7 @@
   <widget class="QStatusBar" name="statusBar"/>
   <action name="actionPreview">
    <property name="icon">
-    <iconset>
+    <iconset resource="images.qrc">
      <normaloff>:/images/play_32x32.png</normaloff>:/images/play_32x32.png</iconset>
    </property>
    <property name="text">
@@ -288,7 +372,7 @@
   </action>
   <action name="actionCollectSingle">
    <property name="icon">
-    <iconset>
+    <iconset resource="images.qrc">
      <normaloff>:/images/OneShot.png</normaloff>:/images/OneShot.png</iconset>
    </property>
    <property name="text">
@@ -300,7 +384,7 @@
   </action>
   <action name="actionCollectMulti">
    <property name="icon">
-    <iconset>
+    <iconset resource="images.qrc">
      <normaloff>:/images/ContinuousShot.png</normaloff>:/images/ContinuousShot.png</iconset>
    </property>
    <property name="text">
@@ -312,7 +396,7 @@
   </action>
   <action name="actionSetting">
    <property name="icon">
-    <iconset>
+    <iconset resource="images.qrc">
      <normaloff>:/images/settings_32x32.png</normaloff>:/images/settings_32x32.png</iconset>
    </property>
    <property name="text">
@@ -324,7 +408,7 @@
   </action>
   <action name="actionAbout">
    <property name="icon">
-    <iconset>
+    <iconset resource="images.qrc">
      <normaloff>:/images/get_info_32x32.png</normaloff>:/images/get_info_32x32.png</iconset>
    </property>
    <property name="text">
@@ -336,7 +420,7 @@
   </action>
   <action name="actionRefresh">
    <property name="icon">
-    <iconset>
+    <iconset resource="images.qrc">
      <normaloff>:/images/refresh_32x32.png</normaloff>:/images/refresh_32x32.png</iconset>
    </property>
    <property name="text">

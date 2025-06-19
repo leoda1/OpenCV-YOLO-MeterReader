@@ -29,6 +29,29 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->mainToolBar->setIconSize(QSize(48, 48));
     ui->centralWidget->installEventFilter(this);
 
+    // 为重要的UI元素设置更大的字体
+    QFont bigFont = this->font();
+    bigFont.setPointSize(16);
+    
+    // 设置预览区域标题字体
+    ui->srcHeader->setFont(bigFont);
+    
+    // 设置状态标签字体
+    QFont statusFont = this->font();
+    statusFont.setPointSize(15);
+    ui->sizeLabel->setFont(statusFont);
+    ui->scaleLabel->setFont(statusFont);
+    ui->collectionLabel->setFont(statusFont);
+    ui->fpsLabel->setFont(statusFont);
+    ui->sizeValue->setFont(statusFont);
+    ui->scaleValue->setFont(statusFont);
+    ui->collectionValue->setFont(statusFont);
+    ui->fpsValue->setFont(statusFont);
+    ui->labelAngle->setFont(statusFont);
+    
+    // 按钮样式已在UI文件中设置，这里只需要确保字体一致性
+    // UI文件中已经设置了按钮的样式和字体
+
     connect(ui->actionPreview, &QAction::triggered, this, &MainWindow::startPreview);
     connect(ui->actionRefresh, &QAction::triggered, this, &MainWindow::refresh);
     connect(ui->actionSetting, &QAction::triggered, this, &MainWindow::setting);
@@ -47,6 +70,9 @@ MainWindow::MainWindow(QWidget *parent) :
 
     smallSize = QSize(750,this->height());
     bigSize = this->size();
+    
+    // 程序启动时隐藏角度检测区域
+    ui->angleControlWidget->setVisible(false);
     algoArea();
 }
 
@@ -74,7 +100,8 @@ MainWindow::~MainWindow()
 void MainWindow::init(){
 ui->sizeValue->setText("等待连接...");
     ui->scaleValue->setText("等待连接...");
-    ui->collectionValue->setText("0");
+    currentCapturedCount = 0;  // 初始化采集计数
+    updateCollectionDisplay();
     ui->fpsValue->setText("0");
     ui->labelAngle->setText("等待检测...");
     
@@ -89,6 +116,10 @@ ui->sizeValue->setText("等待连接...");
 }
 
 void MainWindow::refresh(){
+    
+    // 重置采集计数器
+    currentCapturedCount = 0;
+    updateCollectionDisplay();
 
     if(FullNameOfSelectedDevice.length() > 0){
         m_camera.Close();
@@ -235,8 +266,8 @@ void MainWindow::startPreview(){
                 QImage qtImage(openCvImage.data, openCvImage.cols, openCvImage.rows, openCvImage.step, QImage::Format_RGB888);
                 ui->srcDisplay->setPixmap(QPixmap::fromImage(qtImage));
                 ui->srcDisplay->update();
-                ui->collectionValue->setText(QString("%1").arg(ptrGrabResult->GetBlockID()));
-
+                // 在预览模式下显示当前已采集数量/设置的总数量
+                updateCollectionDisplay();
                 float wScale = roundf(ui->srcDisplay->width()*100.0/Width->GetValue())/100.0;
                 float hScale = roundf(ui->srcDisplay->height()*100.0/Height->GetValue())/100.0;
 
@@ -279,6 +310,11 @@ void MainWindow::setNoCamera(){
     ui->actionPreview->setEnabled(false);
     ui->actionCollectSingle->setEnabled(false);
     ui->actionCollectMulti->setEnabled(false);
+}
+
+void MainWindow::updateCollectionDisplay() {
+    // 显示当前已采集数量/设置的总数量
+    ui->collectionValue->setText(QString("%1/%2").arg(currentCapturedCount).arg(saveSettings->image2save));
 }
 
 bool MainWindow::eventFilter(QObject *obj, QEvent *event){
@@ -387,6 +423,9 @@ void MainWindow::singleGrab(){
         }else{
             flag = false;
             ui->srcDisplay->pixmap(Qt::ReturnByValue).save(filePath);
+            // 单张采集成功后增加计数并更新显示
+            currentCapturedCount++;
+            updateCollectionDisplay();
         }
     }
 
@@ -427,8 +466,11 @@ void MainWindow::multiGrab(){
         QProgressDialog dialog;
         connect(&dialog, &QProgressDialog::canceled, this, &MainWindow::startPreview);
         dialog.setRange(0,saveSettings->image2save);
-        dialog.setLabelText(QString("save %1 picture").arg(imageSaved));
+        dialog.setLabelText(QString("保存第 %1 张照片").arg(imageSaved));
         dialog.show();
+
+        // 重置连续采集的计数
+        int multiCaptureCount = 0;
 
         while(m_camera.IsGrabbing()) {
             m_camera.RetrieveResult( 5000, ptrGrabResult, TimeoutHandling_ThrowException);
@@ -443,9 +485,17 @@ void MainWindow::multiGrab(){
 
                 CImagePersistence::Save( saveSettings->format, filePath.toUtf8().constData(), ptrGrabResult);
                 imageSaved++;
-                dialog.setLabelText(QString("save %1 picture").arg(imageSaved));
+                multiCaptureCount++;
+                
+                // 更新进度对话框和采集数量显示
+                dialog.setLabelText(QString("保存第 %1 张照片").arg(imageSaved));
                 dialog.setValue(imageSaved);
-                if (imageSaved > saveSettings->image2save) {
+                
+                // 更新主界面的采集数量显示
+                currentCapturedCount++;
+                updateCollectionDisplay();
+                
+                if (imageSaved >= saveSettings->image2save) {
                     m_camera.StopGrabbing();
                     imageSaved = 0;
                 }
@@ -563,12 +613,17 @@ void MainWindow::spatial_LSI_Matlab(){
 void MainWindow::algoArea(){
     const int deskW = QGuiApplication::primaryScreen()->geometry().width();
     
+    // 设置窗口更新模式，减少闪动
+    this->setUpdatesEnabled(false);
+    
     if(isAlgoAreaOpened){
+        // 关闭识别角度模式
         isAlgoAreaOpened = false;
         ui->actionCloseAlgo->setText("关闭识别角度");
 
         int w = bigSize.width();
 
+        // 先调整窗口大小和位置
         setGeometry(
             ceil((deskW - w)/2),
             50,
@@ -576,21 +631,29 @@ void MainWindow::algoArea(){
             this->height()
         );
 
-        setFixedSize(w,this->height());
+        setFixedSize(w, this->height());
+        
+        // 显示右侧检测结果区域和角度控制区域
         ui->destDisplay->setHidden(false);
+        ui->angleControlWidget->setVisible(true);
 
-        int h = (ui->destDisplay->width() * atoi( saveSettings->height.c_str() ) / atoi( saveSettings->width.c_str()));
-        ui->destDisplay->setGeometry(ui->destDisplay->geometry().x(),ui->srcDisplay->geometry().y(), ui->destDisplay->width(),h);
+        // 调整检测结果显示区域的尺寸和位置
+        int h = (ui->destDisplay->width() * atoi(saveSettings->height.c_str()) / atoi(saveSettings->width.c_str()));
+        ui->destDisplay->setGeometry(ui->destDisplay->geometry().x(), ui->srcDisplay->geometry().y(), ui->destDisplay->width(), h);
+        
+        // 调整源图像区域
         ui->srcFrame->setGeometry(ui->srcFrame->geometry().x(), ui->srcFrame->geometry().y(), 658, 531);
         ui->srcHeader->resize(658, ui->srcHeader->size().height());
         ui->srcBottomhorizontalLayout->setGeometry(QRect(0, ui->srcBottomhorizontalLayout->geometry().y(), 658, ui->srcHeader->size().height()));
-        ui->srcHeader->resize(658, ui->srcHeader->size().height());
 
     }else{
+        // 打开识别角度模式
         isAlgoAreaOpened = true;
         ui->actionCloseAlgo->setText("识别角度");
 
         int w = smallSize.width() + 20;
+        
+        // 先调整窗口大小和位置
         setGeometry(
             ceil((deskW - w)/2),
             50,
@@ -598,12 +661,21 @@ void MainWindow::algoArea(){
             this->height()
         );
 
-        setFixedSize(w,this->height());
+        setFixedSize(w, this->height());
+        
+        // 隐藏右侧检测结果区域和角度控制区域
         ui->destDisplay->setHidden(true);
+        ui->angleControlWidget->setVisible(false);
+        
+        // 调整源图像区域
         ui->srcFrame->setGeometry(ui->srcFrame->geometry().x(), ui->srcFrame->geometry().y(), 658, 531);
         ui->srcBottomhorizontalLayout->setGeometry(QRect(0, ui->srcBottomhorizontalLayout->geometry().y(), 658, ui->srcHeader->size().height()));
         ui->srcHeader->resize(658, ui->srcHeader->size().height());
     }
+    
+    // 重新启用窗口更新
+    this->setUpdatesEnabled(true);
+    this->update();
 }
 
 
