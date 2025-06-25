@@ -42,7 +42,7 @@ struct TextAnnotation {
     bool isSelected;
     QRect boundingRect;
     
-    TextAnnotation() : color(Qt::red), fontSize(12), fontFamily("SimHei"), 
+    TextAnnotation() : color(Qt::red), fontSize(12), fontFamily("黑体"), 
                       isBold(false), isItalic(false), isSelected(false) {}
 };
 
@@ -55,10 +55,10 @@ public:
     explicit AnnotationLabel(QWidget *parent = nullptr);
     void setImage(const QPixmap &pixmap);
     void addTextAnnotation(const QPoint &pos, const QString &text, const QColor &color, 
-                          int fontSize, const QString &fontFamily = "SimHei", 
+                          int fontSize, const QString &fontFamily = "黑体", 
                           bool isBold = false, bool isItalic = false);
     void addRectAnnotation(const QRect &rect, const QString &text, const QColor &color, 
-                          int fontSize, const QString &fontFamily = "SimHei", 
+                          int fontSize, const QString &fontFamily = "黑体", 
                           bool isBold = false, bool isItalic = false);
     void clearAnnotations();
     void setCurrentColor(const QColor &color) { m_currentColor = color; }
@@ -66,8 +66,6 @@ public:
     void setCurrentFontFamily(const QString &family) { m_currentFontFamily = family; }
     void setCurrentBold(bool bold) { m_currentBold = bold; }
     void setCurrentItalic(bool italic) { m_currentItalic = italic; }
-    void setAnnotationMode(bool enabled) { m_annotationMode = enabled; }
-    void setDragMode(bool enabled) { m_dragMode = enabled; }
     const QList<TextAnnotation>& getAnnotations() const { return m_annotations; }
     void removeSelectedAnnotation();
     void removeAnnotationAt(int index);
@@ -75,6 +73,7 @@ public:
                                  const QString &fontFamily, bool isBold = false, bool isItalic = false);
     QPixmap getAnnotatedImage() const;
     int getSelectedAnnotation() const { return m_selectedAnnotation; }
+    void setSelectedAnnotation(int index);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -83,11 +82,11 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void contextMenuEvent(QContextMenuEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
 
 signals:
     void annotationClicked(int index);
     void annotationAdded(const QPoint &pos);
-    void rectAnnotationAdded(const QRect &rect);
     void annotationRightClicked(int index, const QPoint &globalPos);
 
 private:
@@ -98,18 +97,21 @@ private:
     QString m_currentFontFamily;
     bool m_currentBold;
     bool m_currentItalic;
-    bool m_annotationMode;
-    bool m_dragMode;
     int m_selectedAnnotation;
     
-    // 拖拽相关
-    QPoint m_dragStartPoint;
-    QPoint m_dragEndPoint;
-    bool m_isDragging;
-    QRubberBand *m_rubberBand;
+    // 拖动相关
+    bool m_isDraggingAnnotation;
+    QPoint m_lastMousePos;
+    QPoint m_dragOffset;
+    
+    // 图片缩放和拖动相关
+    double m_scaleFactor;
+    QPoint m_imageOffset;
+    bool m_isDraggingImage;
+    QPoint m_lastPanPoint;
     
     void updateDisplay();
-    int findAnnotationAt(const QPoint &pos);
+    int findAnnotationAt(const QPoint &pos, const QRect &imageRect);
     void updateBoundingRect(TextAnnotation &annotation);
     QString showTextInputDialog(const QString &currentText = "");
 };
@@ -154,9 +156,7 @@ private slots:
     void onItalicChanged(bool italic);
     void onAnnotationClicked(int index);
     void onAnnotationAdded(const QPoint &pos);
-    void onRectAnnotationAdded(const QRect &rect);
     void onAnnotationRightClicked(int index, const QPoint &globalPos);
-    void removeAnnotation();
     void removeSelectedAnnotation();
     void clearAllAnnotations();
     void saveAnnotations();
@@ -164,7 +164,6 @@ private slots:
     void onTextChanged();
     void updateAnnotationList();
     void exportImage();
-    void toggleDragMode();
 
 private:
     Ui::DialMarkDialog *ui;
@@ -182,7 +181,6 @@ private:
     QPushButton *m_saveButton;
     QPushButton *m_loadButton;
     QPushButton *m_exportButton;
-    QPushButton *m_dragModeButton;
     
     QColor m_currentColor;
     

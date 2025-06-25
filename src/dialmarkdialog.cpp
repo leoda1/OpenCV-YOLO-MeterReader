@@ -10,30 +10,45 @@
 #include <QDebug>
 #include <QInputDialog>
 
-// AnnotationLabel 实现
 AnnotationLabel::AnnotationLabel(QWidget *parent)
     : QLabel(parent)
     , m_currentColor(Qt::red)
     , m_currentFontSize(12)
-    , m_currentFontFamily("SimHei")
+    , m_currentFontFamily("黑体")
     , m_currentBold(false)
     , m_currentItalic(false)
-    , m_annotationMode(true)
-    , m_dragMode(false)
     , m_selectedAnnotation(-1)
-    , m_isDragging(false)
-    , m_rubberBand(nullptr)
+    , m_isDraggingAnnotation(false)
+    , m_scaleFactor(1.0)
+    , m_imageOffset(0, 0)
+    , m_isDraggingImage(false)
 {
     setMinimumSize(400, 300);
     setAlignment(Qt::AlignCenter);
     setStyleSheet("border: 1px solid gray;");
-    setCursor(Qt::CrossCursor);
+    setCursor(Qt::ArrowCursor);
     setContextMenuPolicy(Qt::DefaultContextMenu);
 }
 
 void AnnotationLabel::setImage(const QPixmap &pixmap)
 {
     m_originalPixmap = pixmap;
+    // 重置缩放和偏移
+    m_scaleFactor = 1.0;
+    m_imageOffset = QPoint(0, 0);
+    
+    // 如果图片太大，自动缩小到合适尺寸
+    if (!pixmap.isNull()) {
+        QSize labelSize = size();
+        QSize pixmapSize = pixmap.size();
+        
+        if (pixmapSize.width() > labelSize.width() || pixmapSize.height() > labelSize.height()) {
+            double scaleX = (double)labelSize.width() / pixmapSize.width();
+            double scaleY = (double)labelSize.height() / pixmapSize.height();
+            m_scaleFactor = qMin(scaleX, scaleY) * 0.9; // 留一些边距
+        }
+    }
+    
     updateDisplay();
 }
 
@@ -122,11 +137,14 @@ QPixmap AnnotationLabel::getAnnotatedImage() const
     // 绘制所有标注
     for (const TextAnnotation &annotation : m_annotations) {
         QFont font(annotation.fontFamily);
-        font.setPointSize(annotation.fontSize);
+        int scaledFontSize = qMax(1, (int)(annotation.fontSize / m_scaleFactor));
+        font.setPointSize(scaledFontSize);
         font.setBold(annotation.isBold);
         font.setItalic(annotation.isItalic);
         painter.setFont(font);
         painter.setPen(annotation.color);
+        
+        // 标注位置是相对于原始图片的坐标，直接使用
         painter.drawText(annotation.position, annotation.text);
     }
     
@@ -135,12 +153,23 @@ QPixmap AnnotationLabel::getAnnotatedImage() const
 
 void AnnotationLabel::paintEvent(QPaintEvent *event)
 {
-    QLabel::paintEvent(event);
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
     
     if (m_originalPixmap.isNull()) return;
     
-    QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing);
+    // 计算图片显示位置
+    QSize scaledSize(m_originalPixmap.width() * m_scaleFactor, 
+                    m_originalPixmap.height() * m_scaleFactor);
+    QRect imageRect;
+    imageRect.setSize(scaledSize);
+    
+    // 居中显示并应用偏移
+    imageRect.moveCenter(rect().center() + m_imageOffset);
+    
+    // 绘制图片
+    QPixmap scaledPixmap = m_originalPixmap.scaled(scaledSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    painter.drawPixmap(imageRect, scaledPixmap);
     
     // 绘制所有标注
     for (int i = 0; i < m_annotations.size(); ++i) {
@@ -153,20 +182,21 @@ void AnnotationLabel::paintEvent(QPaintEvent *event)
         painter.setFont(font);
         painter.setPen(annotation.color);
         
+        // 标注位置是相对于原始图片的坐标，需要映射到当前显示位置
+        QPoint displayPos = imageRect.topLeft() + QPoint(
+            annotation.position.x() * m_scaleFactor,
+            annotation.position.y() * m_scaleFactor
+        );
+        
         // 如果是选中的标注，添加背景
         if (i == m_selectedAnnotation) {
-            painter.fillRect(annotation.boundingRect, QColor(255, 255, 0, 100));
+            QFontMetrics fm(font);
+            QRect textRect = fm.boundingRect(annotation.text);
+            textRect.moveTopLeft(displayPos - QPoint(0, textRect.height()));
+            painter.fillRect(textRect.adjusted(-2, -2, 2, 2), QColor(255, 255, 0, 100));
         }
         
-        painter.drawText(annotation.position, annotation.text);
-    }
-    
-    // 绘制拖拽框
-    if (m_isDragging && m_dragMode) {
-        QPen pen(Qt::red, 2, Qt::DashLine);
-        painter.setPen(pen);
-        QRect dragRect(m_dragStartPoint, m_dragEndPoint);
-        painter.drawRect(dragRect.normalized());
+        painter.drawText(displayPos, annotation.text);
     }
 }
 
@@ -175,40 +205,48 @@ void AnnotationLabel::mousePressEvent(QMouseEvent *event)
     if (event->button() == Qt::LeftButton) {
         QPoint clickPos = event->pos();
         
-        if (m_dragMode) {
-            // 拖拽模式：开始拖拽
-            m_isDragging = true;
-            m_dragStartPoint = clickPos;
-            m_dragEndPoint = clickPos;
-        } else if (m_annotationMode) {
-            // 点击模式：检查是否点击了现有标注
-            int annotationIndex = findAnnotationAt(clickPos);
-            if (annotationIndex >= 0) {
-                // 取消之前的选择
-                if (m_selectedAnnotation >= 0) {
-                    m_annotations[m_selectedAnnotation].isSelected = false;
-                }
-                
-                m_selectedAnnotation = annotationIndex;
-                m_annotations[annotationIndex].isSelected = true;
+        // 计算图片显示区域
+        QSize scaledSize(m_originalPixmap.width() * m_scaleFactor, 
+                        m_originalPixmap.height() * m_scaleFactor);
+        QRect imageRect;
+        imageRect.setSize(scaledSize);
+        imageRect.moveCenter(rect().center() + m_imageOffset);
+        
+        // 检查是否点击了现有标注
+        int annotationIndex = findAnnotationAt(clickPos, imageRect);
+        if (annotationIndex >= 0) {
+            // 取消之前的选择
+            if (m_selectedAnnotation >= 0) {
+                m_annotations[m_selectedAnnotation].isSelected = false;
+            }
+            
+            m_selectedAnnotation = annotationIndex;
+            m_annotations[annotationIndex].isSelected = true;
+            
+            // 准备拖动标注
+            m_isDraggingAnnotation = true;
+            m_lastMousePos = clickPos;
+            
+            updateDisplay();
+            emit annotationClicked(annotationIndex);
+        } else if (imageRect.contains(clickPos)) {
+            // 点击在图片上，准备拖动图片
+            m_isDraggingImage = true;
+            m_lastPanPoint = clickPos;
+            setCursor(Qt::ClosedHandCursor);
+            
+            // 取消标注选择
+            if (m_selectedAnnotation >= 0) {
+                m_annotations[m_selectedAnnotation].isSelected = false;
+                m_selectedAnnotation = -1;
                 updateDisplay();
-                emit annotationClicked(annotationIndex);
-            } else {
-                // 点击空白区域，弹出输入对话框添加新标注
-                if (m_selectedAnnotation >= 0) {
-                    m_annotations[m_selectedAnnotation].isSelected = false;
-                    m_selectedAnnotation = -1;
-                    updateDisplay();
-                }
-                
-                QString text = showTextInputDialog();
-                if (!text.isEmpty()) {
-                    addTextAnnotation(clickPos, text, m_currentColor, 
-                                    m_currentFontSize, m_currentFontFamily, 
-                                    m_currentBold, m_currentItalic);
-                    // 通知主窗口更新列表
-                    emit annotationAdded(clickPos);
-                }
+            }
+        } else {
+            // 点击空白区域，取消选择
+            if (m_selectedAnnotation >= 0) {
+                m_annotations[m_selectedAnnotation].isSelected = false;
+                m_selectedAnnotation = -1;
+                updateDisplay();
             }
         }
     }
@@ -218,9 +256,21 @@ void AnnotationLabel::mousePressEvent(QMouseEvent *event)
 
 void AnnotationLabel::mouseMoveEvent(QMouseEvent *event)
 {
-    if (m_isDragging && m_dragMode) {
-        m_dragEndPoint = event->pos();
-        update(); // 重绘以显示拖拽框
+    if (m_isDraggingAnnotation && m_selectedAnnotation >= 0) {
+        // 拖动选中的标注
+        QPoint delta = event->pos() - m_lastMousePos;
+        // 将像素位移转换为原始图片坐标的位移
+        QPoint deltaInOriginal = QPoint(delta.x() / m_scaleFactor, delta.y() / m_scaleFactor);
+        m_annotations[m_selectedAnnotation].position += deltaInOriginal;
+        updateBoundingRect(m_annotations[m_selectedAnnotation]);
+        m_lastMousePos = event->pos();
+        updateDisplay();
+    } else if (m_isDraggingImage) {
+        // 拖动图片
+        QPoint delta = event->pos() - m_lastPanPoint;
+        m_imageOffset += delta;
+        m_lastPanPoint = event->pos();
+        updateDisplay();
     }
     
     QLabel::mouseMoveEvent(event);
@@ -228,26 +278,14 @@ void AnnotationLabel::mouseMoveEvent(QMouseEvent *event)
 
 void AnnotationLabel::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton && m_isDragging && m_dragMode) {
-        m_isDragging = false;
-        
-        QRect dragRect(m_dragStartPoint, m_dragEndPoint);
-        dragRect = dragRect.normalized();
-        
-        // 只有当拖拽区域足够大时才创建标注
-        if (dragRect.width() > 10 && dragRect.height() > 10) {
-            // 弹出文本输入对话框
-            QString text = showTextInputDialog();
-            if (!text.isEmpty()) {
-                addTextAnnotation(dragRect.center(), text, m_currentColor, 
-                                m_currentFontSize, m_currentFontFamily, 
-                                m_currentBold, m_currentItalic);
-                // 通知主窗口更新列表
-                emit rectAnnotationAdded(dragRect);
-            }
+    if (event->button() == Qt::LeftButton) {
+        if (m_isDraggingAnnotation) {
+            m_isDraggingAnnotation = false;
         }
-        
-        update(); // 清除拖拽框
+        if (m_isDraggingImage) {
+            m_isDraggingImage = false;
+            setCursor(Qt::ArrowCursor);
+        }
     }
     
     QLabel::mouseReleaseEvent(event);
@@ -266,12 +304,54 @@ QString AnnotationLabel::showTextInputDialog(const QString &currentText)
 // 添加右键菜单
 void AnnotationLabel::contextMenuEvent(QContextMenuEvent *event)
 {
-    int annotationIndex = findAnnotationAt(event->pos());
-    if (annotationIndex >= 0) {
-        emit annotationRightClicked(annotationIndex, event->globalPos());
-    }
+    QPoint clickPos = event->pos();
     
-    QLabel::contextMenuEvent(event);
+    // 计算图片显示区域
+    QSize scaledSize(m_originalPixmap.width() * m_scaleFactor, 
+                    m_originalPixmap.height() * m_scaleFactor);
+    QRect imageRect;
+    imageRect.setSize(scaledSize);
+    imageRect.moveCenter(rect().center() + m_imageOffset);
+    
+    int annotationIndex = findAnnotationAt(clickPos, imageRect);
+    
+    QMenu menu(this);
+    
+    if (annotationIndex >= 0) {
+        // 右键点击已有标注
+        QAction *editAction = menu.addAction("编辑标注");
+        QAction *deleteAction = menu.addAction("删除标注");
+        
+        QAction *selectedAction = menu.exec(event->globalPos());
+        
+        if (selectedAction == editAction) {
+            emit annotationRightClicked(annotationIndex, event->globalPos());
+        } else if (selectedAction == deleteAction) {
+            removeAnnotationAt(annotationIndex);
+            emit annotationAdded(clickPos); // 通知更新列表
+        }
+    } else if (imageRect.contains(clickPos)) {
+        // 右键点击图片区域
+        QAction *createAction = menu.addAction("创建新标注");
+        
+        QAction *selectedAction = menu.exec(event->globalPos());
+        
+        if (selectedAction == createAction) {
+            QString text = showTextInputDialog();
+            if (!text.isEmpty()) {
+                // 将显示坐标转换为原始图片坐标
+                QPoint imagePos = QPoint(
+                    (clickPos.x() - imageRect.left()) / m_scaleFactor,
+                    (clickPos.y() - imageRect.top()) / m_scaleFactor
+                );
+                addTextAnnotation(imagePos, text, m_currentColor, 
+                                m_currentFontSize, m_currentFontFamily, 
+                                m_currentBold, m_currentItalic);
+                // 通知主窗口更新列表
+                emit annotationAdded(clickPos);
+            }
+        }
+    }
 }
 
 // 添加删除指定索引标注的功能
@@ -291,7 +371,14 @@ void AnnotationLabel::removeAnnotationAt(int index)
 void AnnotationLabel::mouseDoubleClickEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
-        int annotationIndex = findAnnotationAt(event->pos());
+        // 计算图片显示区域
+        QSize scaledSize(m_originalPixmap.width() * m_scaleFactor, 
+                        m_originalPixmap.height() * m_scaleFactor);
+        QRect imageRect;
+        imageRect.setSize(scaledSize);
+        imageRect.moveCenter(rect().center() + m_imageOffset);
+        
+        int annotationIndex = findAnnotationAt(event->pos(), imageRect);
         if (annotationIndex >= 0) {
             // 双击编辑标注
             bool ok;
@@ -315,19 +402,79 @@ void AnnotationLabel::mouseDoubleClickEvent(QMouseEvent *event)
 void AnnotationLabel::updateDisplay()
 {
     if (!m_originalPixmap.isNull()) {
-        setPixmap(m_originalPixmap.scaled(size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        QSize scaledSize(m_originalPixmap.width() * m_scaleFactor, 
+                        m_originalPixmap.height() * m_scaleFactor);
+        setPixmap(m_originalPixmap.scaled(scaledSize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
     }
     update();
 }
 
-int AnnotationLabel::findAnnotationAt(const QPoint &pos)
+int AnnotationLabel::findAnnotationAt(const QPoint &pos, const QRect &imageRect)
 {
     for (int i = m_annotations.size() - 1; i >= 0; --i) {
-        if (m_annotations[i].boundingRect.contains(pos)) {
+        // 计算标注在当前缩放和偏移下的显示位置
+        QPoint displayPos = imageRect.topLeft() + QPoint(
+            m_annotations[i].position.x() * m_scaleFactor,
+            m_annotations[i].position.y() * m_scaleFactor
+        );
+        
+        // 计算文本边界框
+        QFont font(m_annotations[i].fontFamily);
+        font.setPointSize(m_annotations[i].fontSize);
+        font.setBold(m_annotations[i].isBold);
+        font.setItalic(m_annotations[i].isItalic);
+        QFontMetrics fm(font);
+        QRect textRect = fm.boundingRect(m_annotations[i].text);
+        textRect.moveTopLeft(displayPos - QPoint(0, textRect.height()));
+        textRect = textRect.adjusted(-2, -2, 2, 2);
+        
+        if (textRect.contains(pos)) {
             return i;
         }
     }
     return -1;
+}
+
+void AnnotationLabel::setSelectedAnnotation(int index)
+{
+    // 取消之前的选择
+    if (m_selectedAnnotation >= 0 && m_selectedAnnotation < m_annotations.size()) {
+        m_annotations[m_selectedAnnotation].isSelected = false;
+    }
+    
+    // 设置新的选择
+    if (index >= 0 && index < m_annotations.size()) {
+        m_selectedAnnotation = index;
+        m_annotations[index].isSelected = true;
+    } else {
+        m_selectedAnnotation = -1;
+    }
+    
+    updateDisplay();
+}
+
+// 添加鼠标滚轮缩放功能
+void AnnotationLabel::wheelEvent(QWheelEvent *event)
+{
+    if (m_originalPixmap.isNull()) return;
+    
+    // 获取滚轮方向
+    int delta = event->angleDelta().y();
+    double scaleFactor = 1.15;
+    
+    if (delta > 0) {
+        // 放大
+        m_scaleFactor *= scaleFactor;
+    } else {
+        // 缩小
+        m_scaleFactor /= scaleFactor;
+    }
+    
+    // 限制缩放范围
+    m_scaleFactor = qMax(0.1, qMin(5.0, m_scaleFactor));
+    
+    updateDisplay();
+    event->accept();
 }
 
 // DialMarkDialog 实现
@@ -413,7 +560,7 @@ void DialMarkDialog::setupUI()
     m_fontComboBox = new QFontComboBox(textGroup);
     m_fontComboBox->setFont(panelFont);
     m_fontComboBox->setMinimumHeight(28);
-    m_fontComboBox->setCurrentText("SimHei"); // 默认黑体
+    m_fontComboBox->setCurrentText("黑体"); // 默认黑体
     fontFamilyLayout->addWidget(m_fontComboBox);
     textLayout->addLayout(fontFamilyLayout);
     
@@ -466,7 +613,6 @@ void DialMarkDialog::setupUI()
     buttonLayout->setSpacing(8);
     buttonLayout->setContentsMargins(12, 12, 12, 12);
     
-    m_dragModeButton = new QPushButton("拖拽模式", buttonGroup);
     m_removeButton = new QPushButton("删除选中标注", buttonGroup);
     m_clearButton = new QPushButton("清除所有标注", buttonGroup);
     m_saveButton = new QPushButton("保存标注", buttonGroup);
@@ -474,18 +620,13 @@ void DialMarkDialog::setupUI()
     m_exportButton = new QPushButton("导出图片", buttonGroup);
     
     // 设置按钮样式和字体
-    QList<QPushButton*> buttons = {m_dragModeButton, m_removeButton, m_clearButton, m_saveButton, m_loadButton, m_exportButton};
+    QList<QPushButton*> buttons = {m_removeButton, m_clearButton, m_saveButton, m_loadButton, m_exportButton};
     for (QPushButton* button : buttons) {
         button->setFont(panelFont);
         button->setMinimumHeight(32);
         button->setStyleSheet("QPushButton { padding: 5px 10px; border: 1px solid #ccc; border-radius: 3px; } QPushButton:hover { background-color: #e0e0e0; }");
     }
     
-    // 拖拽模式按钮可以切换状态
-    m_dragModeButton->setCheckable(true);
-    m_dragModeButton->setStyleSheet("QPushButton { padding: 5px 10px; border: 1px solid #ccc; border-radius: 3px; } QPushButton:hover { background-color: #e0e0e0; } QPushButton:checked { background-color: #007acc; color: white; }");
-    
-    buttonLayout->addWidget(m_dragModeButton);
     buttonLayout->addWidget(m_removeButton);
     buttonLayout->addWidget(m_clearButton);
     buttonLayout->addWidget(m_saveButton);
@@ -512,11 +653,8 @@ void DialMarkDialog::setupUI()
             this, &DialMarkDialog::onAnnotationClicked);
     connect(m_imageLabel, &AnnotationLabel::annotationAdded, 
             this, &DialMarkDialog::onAnnotationAdded);
-    connect(m_imageLabel, &AnnotationLabel::rectAnnotationAdded,
-            this, &DialMarkDialog::onRectAnnotationAdded);
     connect(m_imageLabel, &AnnotationLabel::annotationRightClicked,
             this, &DialMarkDialog::onAnnotationRightClicked);
-    connect(m_dragModeButton, &QPushButton::toggled, this, &DialMarkDialog::toggleDragMode);
     connect(m_removeButton, &QPushButton::clicked, this, &DialMarkDialog::removeSelectedAnnotation);
     connect(m_clearButton, &QPushButton::clicked, this, &DialMarkDialog::clearAllAnnotations);
     connect(m_saveButton, &QPushButton::clicked, this, &DialMarkDialog::saveAnnotations);
@@ -530,6 +668,12 @@ void DialMarkDialog::setupUI()
                 int index = m_annotationList->row(item);
                 showAnnotationProperties(index);
             });
+    
+    // 确保字体设置为默认黑体
+    m_fontComboBox->setCurrentText("黑体");
+    m_imageLabel->setCurrentFontFamily("黑体");
+    m_imageLabel->setCurrentFontSize(12);
+    m_imageLabel->setCurrentColor(m_currentColor);
 }
 
 void DialMarkDialog::setupToolbar()
@@ -573,6 +717,15 @@ void DialMarkDialog::chooseColor()
         m_currentColor = color;
         m_imageLabel->setCurrentColor(color);
         updateColorButton();
+        
+        // 如果有选中的标注，实时更新
+        int selected = m_imageLabel->getSelectedAnnotation();
+        if (selected >= 0) {
+            m_imageLabel->updateSelectedAnnotation(m_textEdit->text(), color, 
+                                                  m_fontSizeSpinBox->value(), m_fontComboBox->currentText(),
+                                                  m_boldCheckBox->isChecked(), m_italicCheckBox->isChecked());
+            updateAnnotationList();
+        }
     }
 }
 
@@ -589,21 +742,53 @@ void DialMarkDialog::updateColorButton()
 void DialMarkDialog::onFontSizeChanged(int size)
 {
     m_imageLabel->setCurrentFontSize(size);
+    // 如果有选中的标注，实时更新
+    int selected = m_imageLabel->getSelectedAnnotation();
+    if (selected >= 0) {
+        m_imageLabel->updateSelectedAnnotation(m_textEdit->text(), m_currentColor, 
+                                              size, m_fontComboBox->currentText(),
+                                              m_boldCheckBox->isChecked(), m_italicCheckBox->isChecked());
+        updateAnnotationList();
+    }
 }
 
 void DialMarkDialog::onFontFamilyChanged(const QString &family)
 {
     m_imageLabel->setCurrentFontFamily(family);
+    // 如果有选中的标注，实时更新
+    int selected = m_imageLabel->getSelectedAnnotation();
+    if (selected >= 0) {
+        m_imageLabel->updateSelectedAnnotation(m_textEdit->text(), m_currentColor, 
+                                              m_fontSizeSpinBox->value(), family,
+                                              m_boldCheckBox->isChecked(), m_italicCheckBox->isChecked());
+        updateAnnotationList();
+    }
 }
 
 void DialMarkDialog::onBoldChanged(bool bold)
 {
     m_imageLabel->setCurrentBold(bold);
+    // 如果有选中的标注，实时更新
+    int selected = m_imageLabel->getSelectedAnnotation();
+    if (selected >= 0) {
+        m_imageLabel->updateSelectedAnnotation(m_textEdit->text(), m_currentColor, 
+                                              m_fontSizeSpinBox->value(), m_fontComboBox->currentText(),
+                                              bold, m_italicCheckBox->isChecked());
+        updateAnnotationList();
+    }
 }
 
 void DialMarkDialog::onItalicChanged(bool italic)
 {
     m_imageLabel->setCurrentItalic(italic);
+    // 如果有选中的标注，实时更新
+    int selected = m_imageLabel->getSelectedAnnotation();
+    if (selected >= 0) {
+        m_imageLabel->updateSelectedAnnotation(m_textEdit->text(), m_currentColor, 
+                                              m_fontSizeSpinBox->value(), m_fontComboBox->currentText(),
+                                              m_boldCheckBox->isChecked(), italic);
+        updateAnnotationList();
+    }
 }
 
 void DialMarkDialog::onAnnotationClicked(int index)
@@ -622,19 +807,15 @@ void DialMarkDialog::onAnnotationClicked(int index)
             
             // 更新列表选择
             m_annotationList->setCurrentRow(index);
+            
+            // 在图像上选中对应的标注
+            m_imageLabel->setSelectedAnnotation(index);
         }
     }
 }
 
 void DialMarkDialog::onAnnotationAdded(const QPoint &pos)
 {
-    // 这个函数现在已经不使用了，标注添加直接在AnnotationLabel中处理
-    updateAnnotationList();
-}
-
-void DialMarkDialog::onRectAnnotationAdded(const QRect &rect)
-{
-    // 这个函数现在已经不使用了，拖拽标注添加直接在AnnotationLabel中处理
     updateAnnotationList();
 }
 
@@ -643,19 +824,13 @@ void DialMarkDialog::onAnnotationRightClicked(int index, const QPoint &globalPos
     showAnnotationProperties(index);
 }
 
-void DialMarkDialog::removeAnnotation()
-{
-    int currentRow = m_annotationList->currentRow();
-    if (currentRow >= 0) {
-        m_imageLabel->removeAnnotationAt(currentRow);
-        updateAnnotationList();
-    }
-}
-
 void DialMarkDialog::removeSelectedAnnotation()
 {
-    m_imageLabel->removeSelectedAnnotation();
-    updateAnnotationList();
+    int selectedRow = m_annotationList->currentRow();
+    if (selectedRow >= 0) {
+        m_imageLabel->removeAnnotationAt(selectedRow);
+        updateAnnotationList();
+    }
 }
 
 void DialMarkDialog::showAnnotationProperties(int index)
@@ -757,7 +932,7 @@ void DialMarkDialog::loadAnnotations()
                 QString fontFamily = annotationObj["fontFamily"].toString();
                 bool isBold = annotationObj["isBold"].toBool();
                 bool isItalic = annotationObj["isItalic"].toBool();
-                if (fontFamily.isEmpty()) fontFamily = "SimHei"; // 默认黑体
+                if (fontFamily.isEmpty()) fontFamily = "黑体"; // 默认黑体
                 
                 m_imageLabel->addTextAnnotation(pos, text, color, fontSize, fontFamily, isBold, isItalic);
             }
@@ -773,9 +948,8 @@ void DialMarkDialog::loadAnnotations()
 void DialMarkDialog::onTextChanged()
 {
     // 当文本框内容改变时，如果有选中的标注，更新它
-    const QList<TextAnnotation>& annotations = m_imageLabel->getAnnotations();
-    int selected = m_annotationList->currentRow();
-    if (selected >= 0 && selected < annotations.size()) {
+    int selected = m_imageLabel->getSelectedAnnotation();
+    if (selected >= 0) {
         m_imageLabel->updateSelectedAnnotation(m_textEdit->text(), m_currentColor, 
                                               m_fontSizeSpinBox->value(), m_fontComboBox->currentText(),
                                               m_boldCheckBox->isChecked(), m_italicCheckBox->isChecked());
@@ -786,8 +960,8 @@ void DialMarkDialog::onTextChanged()
 void DialMarkDialog::exportImage()
 {
     QString fileName = QFileDialog::getSaveFileName(this,
-        "导出标注图片", "annotated_dial.png", 
-        "图片文件 (*.png *.jpg *.jpeg *.bmp *.tiff)");
+        "导出标注图片", "annotated_dial.tiff", 
+        "TIFF 图片 (*.tiff);;PNG 图片 (*.png);;JPEG 图片 (*.jpg);;BMP 图片 (*.bmp);;所有图片 (*.png *.jpg *.jpeg *.bmp *.tiff)");
     
     if (!fileName.isEmpty()) {
         QPixmap annotatedImage = m_imageLabel->getAnnotatedImage();
@@ -800,22 +974,6 @@ void DialMarkDialog::exportImage()
         } else {
             QMessageBox::warning(this, "错误", "没有可导出的图片");
         }
-    }
-}
-
-void DialMarkDialog::toggleDragMode()
-{
-    bool dragMode = m_dragModeButton->isChecked();
-    m_imageLabel->setDragMode(dragMode);
-    m_imageLabel->setAnnotationMode(!dragMode);
-    
-    // 更新按钮文本
-    if (dragMode) {
-        m_dragModeButton->setText("点击模式");
-        m_imageLabel->setCursor(Qt::CrossCursor);
-    } else {
-        m_dragModeButton->setText("拖拽模式");
-        m_imageLabel->setCursor(Qt::CrossCursor);
     }
 }
 
