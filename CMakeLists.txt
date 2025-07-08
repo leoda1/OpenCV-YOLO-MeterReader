@@ -36,6 +36,7 @@ set(SOURCES
     src/settings.cpp
     src/settingdialog.cpp
     src/dialmarkdialog.cpp
+    src/errortabledialog.cpp
 )
 
 set(INC
@@ -43,6 +44,7 @@ set(INC
     src/settings.h
     src/settingdialog.h
     src/dialmarkdialog.h
+    src/errortabledialog.h
 )
 
 set(UI
@@ -55,7 +57,7 @@ set(RESOURCES
 )
 
 qt6_wrap_ui(UIS ${UI_FILES})
-qt6_wrap_cpp(MOCS src/mainwindow.h src/settings.h src/settingdialog.h src/dialmarkdialog.h)
+qt6_wrap_cpp(MOCS src/mainwindow.h src/settings.h src/settingdialog.h src/dialmarkdialog.h src/errortabledialog.h)
 
 add_executable(${PROJECT_NAME} ${SOURCES} ${INC} ${UIS} ${MOCS} ${RESOURCES})
 

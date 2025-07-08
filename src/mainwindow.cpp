@@ -59,6 +59,7 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->actionCollectSingle, &QAction::triggered, this, &MainWindow::singleGrab);
     connect(ui->actionCollectMulti, &QAction::triggered, this, &MainWindow::multiGrab);
     connect(ui->actionSpaceAlgo, &QAction::triggered, this, &MainWindow::showDialMarkDialog);
+    connect(ui->actionErrorTable, &QAction::triggered, this, &MainWindow::showErrorTableDialog);
     connect(ui->pushResetZero, &QPushButton::clicked, this, &MainWindow::onResetZero);
     connect(ui->pushCaptureZero, &QPushButton::clicked, this, &MainWindow::onCaptureZero);
 
@@ -893,6 +894,32 @@ void MainWindow::showDialMarkDialog()
     
     auto dialog = std::make_unique<DialMarkDialog>(this);
     dialog->exec();
+}
+
+void MainWindow::showErrorTableDialog()
+{
+    qDebug() << "打开误差检测表格";
+    
+    try {
+        // 每次创建新的对话框实例，避免重用导致的问题
+        auto dialog = new ErrorTableDialog(this);
+        
+        // 设置对话框关闭时自动删除
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        
+        // 显示对话框
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
+        
+        qDebug() << "误差检测表格创建成功";
+    } catch (const std::exception& e) {
+        qDebug() << "创建误差检测表格异常:" << e.what();
+        QMessageBox::warning(this, "错误", QString("无法打开误差检测表格: %1").arg(e.what()));
+    } catch (...) {
+        qDebug() << "创建误差检测表格未知异常";
+        QMessageBox::warning(this, "错误", "无法打开误差检测表格");
+    }
 }
 
 // highPreciseDetector 类的实现 - 添加到 mainwindow.cpp 文件中

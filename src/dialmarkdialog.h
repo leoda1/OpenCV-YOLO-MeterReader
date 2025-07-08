@@ -116,7 +116,6 @@ private:
     QString showTextInputDialog(const QString &currentText = "");
 };
 
-// 右键菜单对话框
 class AnnotationPropertiesDialog : public QDialog
 {
     Q_OBJECT

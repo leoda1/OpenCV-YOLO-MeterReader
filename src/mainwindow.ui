@@ -356,6 +356,7 @@
    <addaction name="actionAbout"/>
    <addaction name="separator"/>
    <addaction name="actionSpaceAlgo"/>
+   <addaction name="actionErrorTable"/>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
   <action name="actionPreview">
@@ -435,6 +436,14 @@
   <action name="actionCloseAlgo">
    <property name="text">
     <string>关闭算法</string>
+   </property>
+  </action>
+  <action name="actionErrorTable">
+   <property name="text">
+    <string>误差检测表格</string>
+   </property>
+   <property name="toolTip">
+    <string>压力表误差检测表格</string>
    </property>
   </action>
  </widget>

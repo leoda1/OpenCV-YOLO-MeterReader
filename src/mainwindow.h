@@ -16,6 +16,7 @@
 
 #include "settings.h"
 #include "dialmarkdialog.h"
+#include "errortabledialog.h"
 
 namespace Ui {
 class MainWindow;
@@ -91,6 +92,7 @@ private slots:
     void onCaptureZero();
     void onResetZero();
     void showDialMarkDialog();
+    void showErrorTableDialog();
 
 };
 
