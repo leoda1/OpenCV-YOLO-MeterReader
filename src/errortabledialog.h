@@ -24,6 +24,7 @@
 #include <QJsonArray>
 #include <QStandardPaths>
 #include <QCheckBox>
+#include <QTimer>
 
 // 检测点数据结构
 struct DetectionPoint {
@@ -84,7 +85,7 @@ private slots:
     void saveConfig();
     void loadConfig();
     void onTableCellClicked(int row, int column);
-    void onManualAngleInput();
+    void onDataTableCellChanged(int row, int column);
     void validateAndCheckErrors();
 
 private:
@@ -114,7 +115,6 @@ private:
     QTableWidget *m_dataTable;
     QLabel *m_currentPointLabel;
     QComboBox *m_directionCombo;
-    QPushButton *m_manualInputBtn;
     
     // 误差分析结果
     QGroupBox *m_analysisGroup;
