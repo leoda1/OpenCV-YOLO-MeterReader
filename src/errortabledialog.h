@@ -72,6 +72,9 @@ public:
     
     // 设置当前测量的压力点
     void setCurrentPressurePoint(double pressure);
+    
+    // 设置表盘类型
+    void setDialType(const QString &dialType);
 
 private slots:
     void onConfigChanged();
@@ -81,9 +84,9 @@ private slots:
     void clearAllData();
     void calculateErrors();
     void exportToExcel();
-    void exportToText();
+    // void exportToText();  // 用户要求移除
     void saveConfig();
-    void loadConfig();
+    // void loadConfig();    // 用户要求移除
     void onTableCellClicked(int row, int column);
     void onDataTableCellChanged(int row, int column);
     void validateAndCheckErrors();
@@ -125,9 +128,9 @@ private:
     QPushButton *m_clearBtn;
     QPushButton *m_calculateBtn;
     QPushButton *m_exportExcelBtn;
-    QPushButton *m_exportTextBtn;
+    // QPushButton *m_exportTextBtn;  // 用户要求移除
     QPushButton *m_saveConfigBtn;
-    QPushButton *m_loadConfigBtn;
+    // QPushButton *m_loadConfigBtn;   // 用户要求移除
     QPushButton *m_closeBtn;
     
     // 数据
@@ -135,6 +138,7 @@ private:
     QList<DetectionPoint> m_detectionData;
     int m_currentPressureIndex;
     bool m_isForwardDirection;
+    bool m_dialTypeSet;
     
     // 私有方法
     void setupUI();
@@ -161,6 +165,8 @@ private:
     
     void saveConfigToFile(const QString &fileName);
     void loadConfigFromFile(const QString &fileName);
+    void autoLoadPreviousData();
+    void checkAndLoadPreviousData();
 };
 
 #endif // ERRORTABLEDIALOG_H 

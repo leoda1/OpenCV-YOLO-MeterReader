@@ -8,5 +8,7 @@
         <file>../images/Preview_32x32.png</file>
         <file>../images/get_info_32x32.png</file>
         <file>../images/play_32x32.png</file>
+        <file>../images/biaopan.png</file>
+        <file>../images/excle.png</file>
     </qresource>
 </RCC>

@@ -429,7 +429,14 @@
    </property>
   </action>
   <action name="actionSpaceAlgo">
+   <property name="icon">
+    <iconset resource="images.qrc">
+     <normaloff>:/images/biaopan.png</normaloff>:/images/biaopan.png</iconset>
+   </property>
    <property name="text">
+    <string>绘制表盘</string>
+   </property>
+   <property name="toolTip">
     <string>绘制表盘</string>
    </property>
   </action>
@@ -439,11 +446,15 @@
    </property>
   </action>
   <action name="actionErrorTable">
+   <property name="icon">
+    <iconset resource="images.qrc">
+     <normaloff>:/images/excle.png</normaloff>:/images/excle.png</iconset>
+   </property>
    <property name="text">
     <string>误差检测表格</string>
    </property>
    <property name="toolTip">
-    <string>压力表误差检测表格</string>
+    <string>导出excle</string>
    </property>
   </action>
  </widget>

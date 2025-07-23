@@ -687,12 +687,10 @@ void DialMarkDialog::loadDialImageFromFile()
     
     // 首先尝试从应用程序目录加载
     if (!QFile::exists(imagePath)) {
-        // 如果应用程序目录没有，尝试相对路径
         imagePath = "images/70-01.tif";
     }
     
     if (!QFile::exists(imagePath)) {
-        // 如果还是找不到，让用户选择文件
         imagePath = QFileDialog::getOpenFileName(this,
             "选择表盘图片", "", "图片文件 (*.png *.jpg *.jpeg *.tif *.tiff *.bmp)");
     }

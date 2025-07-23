@@ -69,6 +69,9 @@ MainWindow::MainWindow(QWidget *parent) :
     addToolBar(Qt::RightToolBarArea,mytoolbar);
     connect(ui->actionCloseAlgo, &QAction::triggered, this, &MainWindow::algoArea);
 
+    // 设置表盘类型选择器
+    setupDialTypeSelector();
+
     smallSize = QSize(750,this->height());
     bigSize = this->size();
     
@@ -907,10 +910,14 @@ void MainWindow::showErrorTableDialog()
         // 设置对话框关闭时自动删除
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         
-        // 显示对话框
+        // 根据当前选择的表盘类型设置默认配置
+        if (!m_currentDialType.isEmpty()) {
+            dialog->setDialType(m_currentDialType);
+        }
+        
+        // 显示对话框，但不强制置顶
         dialog->show();
-        dialog->raise();
-        dialog->activateWindow();
+        // 不调用 raise() 和 activateWindow()，让用户可以自由切换窗口焦点
         
         qDebug() << "误差检测表格创建成功";
     } catch (const std::exception& e) {
@@ -920,6 +927,46 @@ void MainWindow::showErrorTableDialog()
         qDebug() << "创建误差检测表格未知异常";
         QMessageBox::warning(this, "错误", "无法打开误差检测表格");
     }
+}
+
+void MainWindow::setupDialTypeSelector()
+{
+    // 创建表盘类型选择标签和下拉框
+    m_dialTypeLabel = new QLabel("表盘类型:", this);
+    m_dialTypeCombo = new QComboBox(this);
+    
+    // 添加表盘类型选项
+    m_dialTypeCombo->addItem("YYQY-13");
+    m_dialTypeCombo->addItem("BYQ-19");
+    
+    // 设置默认选择
+    m_dialTypeCombo->setCurrentText("YYQY-13");
+    m_currentDialType = "YYQY-13";
+    
+    // 设置样式
+    QFont font = m_dialTypeLabel->font();
+    font.setPointSize(12);
+    font.setBold(true);
+    m_dialTypeLabel->setFont(font);
+    m_dialTypeCombo->setFont(font);
+    
+    m_dialTypeCombo->setMinimumWidth(120);
+    m_dialTypeCombo->setMaximumHeight(30);
+    
+    // 将控件添加到状态栏
+    ui->statusBar->addPermanentWidget(m_dialTypeLabel);
+    ui->statusBar->addPermanentWidget(m_dialTypeCombo);
+    
+    // 连接信号槽
+    connect(m_dialTypeCombo, &QComboBox::currentTextChanged, this, &MainWindow::onDialTypeChanged);
+}
+
+void MainWindow::onDialTypeChanged(const QString &dialType)
+{
+    m_currentDialType = dialType;
+    qDebug() << "表盘类型切换为:" << dialType;
+    
+    // 可以在这里添加其他需要根据表盘类型变化的逻辑
 }
 
 // highPreciseDetector 类的实现 - 添加到 mainwindow.cpp 文件中

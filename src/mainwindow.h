@@ -12,6 +12,8 @@
 #include <QtGui>
 #include <QtCore>
 #include <QScreen>
+#include <QComboBox>
+#include <QLabel>
 #include <memory>
 
 #include "settings.h"
@@ -62,6 +64,11 @@ private:
 
     QSize smallSize;
     QSize bigSize;
+    
+    // 表盘类型选择相关
+    QComboBox *m_dialTypeCombo;
+    QLabel *m_dialTypeLabel;
+    QString m_currentDialType;
 
     void setButtons(bool inPreview);
     void setNoCamera();
@@ -69,6 +76,7 @@ private:
     void temporal_LSI();
     Mat spatial_LSI(Mat speckle,int m);
     void updateCollectionDisplay();
+    void setupDialTypeSelector();
 
     // angel
     bool   m_hasZero   = false;
@@ -93,6 +101,7 @@ private slots:
     void onResetZero();
     void showDialMarkDialog();
     void showErrorTableDialog();
+    void onDialTypeChanged(const QString &dialType);
 
 };
 

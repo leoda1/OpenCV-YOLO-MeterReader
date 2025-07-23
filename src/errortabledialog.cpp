@@ -9,12 +9,19 @@ ErrorTableDialog::ErrorTableDialog(QWidget *parent)
     : QDialog(parent)
     , m_currentPressureIndex(0)
     , m_isForwardDirection(true)
+    , m_dialTypeSet(false)
 {
     qDebug() << "开始创建ErrorTableDialog";
     
     setWindowTitle("压力表误差检测表格");
-    // 修改为非模态窗口，避免阻塞主窗口
+    // 设置为非模态窗口，允许主窗口获得焦点
     setWindowModality(Qt::NonModal);
+    // 设置窗口标志，确保窗口独立且可以正常切换焦点
+    setWindowFlags(Qt::Window);
+    // 确保窗口不会强制激活
+    setAttribute(Qt::WA_ShowWithoutActivating, false);
+    // 不设置为总是置顶
+    setAttribute(Qt::WA_AlwaysShowToolTips, false);
     resize(1200, 800);
     
     // 初始化配置数据
@@ -25,7 +32,7 @@ ErrorTableDialog::ErrorTableDialog(QWidget *parent)
         setupUI();
         qDebug() << "setupUI完成";
         
-        // 延迟初始化数据
+                // 延迟初始化数据
         QTimer::singleShot(100, this, [this]() {
             qDebug() << "开始延迟初始化";
             try {
@@ -41,10 +48,18 @@ ErrorTableDialog::ErrorTableDialog(QWidget *parent)
                 updateDataTable();
                 qDebug() << "updateDataTable完成";
                 
+                // 界面初始化完成，等待setDialType调用
+                
                 qDebug() << "连接信号";
                 // 在所有UI初始化完成后再连接信号，避免递归问题
                 connect(m_detectionPointsTable, &QTableWidget::cellChanged, this, &ErrorTableDialog::onDetectionPointsChanged);
                 
+                // 连接配置参数的信号槽，使其能实时更新表格
+                connect(m_maxPressureSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onConfigChanged);
+                connect(m_maxAngleSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onConfigChanged);
+                connect(m_basicErrorLimitSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onConfigChanged);
+                connect(m_hysteresisErrorLimitSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onConfigChanged);
+                        
                 qDebug() << "延迟初始化完成";
             } catch (const std::exception& e) {
                 qDebug() << "延迟初始化异常:" << e.what();
@@ -175,19 +190,6 @@ void ErrorTableDialog::setupConfigArea()
     m_hysteresisErrorLimitSpin->setSingleStep(0.001);
     m_hysteresisErrorLimitSpin->setMaximumWidth(100);
     layout->addWidget(m_hysteresisErrorLimitSpin, 3, 3);
-    
-    // 暂时注释掉实时更新的信号连接，避免初始化时的递归问题
-    // 用户可以通过"计算误差"按钮手动更新
-    /*
-    connect(m_productModelEdit, &QLineEdit::textChanged, this, &ErrorTableDialog::onConfigChanged);
-    connect(m_productNameEdit, &QLineEdit::textChanged, this, &ErrorTableDialog::onConfigChanged);
-    connect(m_dialDrawingNoEdit, &QLineEdit::textChanged, this, &ErrorTableDialog::onConfigChanged);
-    connect(m_groupNoEdit, &QLineEdit::textChanged, this, &ErrorTableDialog::onConfigChanged);
-    connect(m_maxPressureSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onConfigChanged);
-    connect(m_maxAngleSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onConfigChanged);
-    connect(m_basicErrorLimitSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onConfigChanged);
-    connect(m_hysteresisErrorLimitSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onConfigChanged);
-    */
 }
 
 void ErrorTableDialog::setupDetectionPointsArea()
@@ -268,7 +270,8 @@ void ErrorTableDialog::setupDataArea()
     
     // 设置表格属性
     m_dataTable->setAlternatingRowColors(true);
-    m_dataTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_dataTable->setSelectionBehavior(QAbstractItemView::SelectItems);  // 改为选择单元格而不是整行
+    m_dataTable->setSelectionMode(QAbstractItemView::SingleSelection);   // 单选模式
     m_dataTable->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_dataTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     
@@ -310,37 +313,29 @@ void ErrorTableDialog::setupButtons()
     m_clearBtn = new QPushButton("清空");
     m_calculateBtn = new QPushButton("计算");
     m_exportExcelBtn = new QPushButton("导出Excel");
-    m_exportTextBtn = new QPushButton("导出文本");
-    m_saveConfigBtn = new QPushButton("保存");
-    m_loadConfigBtn = new QPushButton("加载");
+    m_saveConfigBtn = new QPushButton("自动保存");
     m_closeBtn = new QPushButton("关闭");
     
     // 设置按钮的最大宽度让界面更紧凑
     m_clearBtn->setMaximumWidth(60);
     m_calculateBtn->setMaximumWidth(60);
     m_exportExcelBtn->setMaximumWidth(80);
-    m_exportTextBtn->setMaximumWidth(80);
-    m_saveConfigBtn->setMaximumWidth(60);
-    m_loadConfigBtn->setMaximumWidth(60);
+    m_saveConfigBtn->setMaximumWidth(80);
     m_closeBtn->setMaximumWidth(60);
     
     m_buttonLayout->addWidget(m_clearBtn);
     m_buttonLayout->addWidget(m_calculateBtn);
     m_buttonLayout->addStretch();
     m_buttonLayout->addWidget(m_exportExcelBtn);
-    m_buttonLayout->addWidget(m_exportTextBtn);
     m_buttonLayout->addStretch();
     m_buttonLayout->addWidget(m_saveConfigBtn);
-    m_buttonLayout->addWidget(m_loadConfigBtn);
     m_buttonLayout->addStretch();
     m_buttonLayout->addWidget(m_closeBtn);
     
     connect(m_clearBtn, &QPushButton::clicked, this, &ErrorTableDialog::clearAllData);
     connect(m_calculateBtn, &QPushButton::clicked, this, &ErrorTableDialog::calculateErrors);
     connect(m_exportExcelBtn, &QPushButton::clicked, this, &ErrorTableDialog::exportToExcel);
-    connect(m_exportTextBtn, &QPushButton::clicked, this, &ErrorTableDialog::exportToText);
     connect(m_saveConfigBtn, &QPushButton::clicked, this, &ErrorTableDialog::saveConfig);
-    connect(m_loadConfigBtn, &QPushButton::clicked, this, &ErrorTableDialog::loadConfig);
     connect(m_closeBtn, &QPushButton::clicked, this, &QDialog::accept);
 }
 
@@ -409,18 +404,32 @@ void ErrorTableDialog::updateDetectionPointsTable()
             m_detectionPointsTable->setItem(i, 0, item);
         }
         
-        // 只有之前有连接才重新连接
-        if (wasConnected) {
-            connect(m_detectionPointsTable, &QTableWidget::cellChanged, this, &ErrorTableDialog::onDetectionPointsChanged);
-        }
+        // 强制重新连接信号（确保信号连接）
+        connect(m_detectionPointsTable, &QTableWidget::cellChanged, this, &ErrorTableDialog::onDetectionPointsChanged);
         
-        qDebug() << "更新检测数据";
-        // 更新检测数据
-        m_detectionData.clear();
-        for (double pressure : m_config.detectionPoints) {
-            DetectionPoint point;
-            point.pressure = pressure;
-            m_detectionData.append(point);
+        // 只有在检测数据为空或数量不匹配时才重新创建
+        if (m_detectionData.size() != m_config.detectionPoints.size()) {
+            qDebug() << "检测数据数量不匹配，重新创建检测数据";
+            
+            // 保存已有的测量数据
+            QMap<double, DetectionPoint> oldData;
+            for (const auto& point : m_detectionData) {
+                oldData[point.pressure] = point;
+            }
+            
+            // 重新创建检测数据
+            m_detectionData.clear();
+            for (double pressure : m_config.detectionPoints) {
+                DetectionPoint point;
+                point.pressure = pressure;
+                
+                // 如果之前有这个检测点的数据，则保留
+                if (oldData.contains(pressure)) {
+                    point = oldData[pressure];
+                }
+                
+                m_detectionData.append(point);
+            }
         }
         
         qDebug() << "updateDetectionPointsTable 完成，检测数据数量:" << m_detectionData.size();
@@ -609,14 +618,129 @@ void ErrorTableDialog::setCurrentPressurePoint(double pressure)
     }
 }
 
+void ErrorTableDialog::setDialType(const QString &dialType)
+{
+    qDebug() << "设置表盘类型:" << dialType;
+    
+    // 标记已经设置了表盘类型，防止自动加载覆盖
+    m_dialTypeSet = true;
+    
+    // 根据表盘类型设置默认配置
+    if (dialType == "YYQY-13") {
+        m_config.productModel = "YYQY-13";
+        m_config.productName = "";
+        m_config.detectionPoints.clear();
+        // YYQY-13默认6个检测点 (0, 0.6, 1.2, 1.8, 2.4, 3.0 MPa)
+        m_config.detectionPoints << 0.0 << 0.6 << 1.2 << 1.8 << 2.4 << 3.0;
+        m_config.maxPressure = 3.0;
+        m_config.maxAngle = 270.0;
+        m_config.basicErrorLimit = 0.1;
+        m_config.hysteresisErrorLimit = 0.15;
+    } else if (dialType == "BYQ-19") {
+        m_config.productModel = "BYQ-19";
+        m_config.productName = "标准压力表";
+        m_config.detectionPoints.clear();
+        // BYQ-19默认5个检测点 (0, 0.75, 1.5, 2.25, 3.0 MPa)
+        m_config.detectionPoints << 0.0 << 0.75 << 1.5 << 2.25 << 3.0;
+        m_config.maxPressure = 3.0;
+        m_config.maxAngle = 270.0;
+        m_config.basicErrorLimit = 0.075;  // 更严格的误差限值
+        m_config.hysteresisErrorLimit = 0.1;
+    }
+    
+    // 重新创建检测数据
+    m_detectionData.clear();
+    for (double pressure : m_config.detectionPoints) {
+        DetectionPoint point;
+        point.pressure = pressure;
+        m_detectionData.append(point);
+    }
+    
+    // 更新界面显示
+    updateUIFromConfig();
+    updateDetectionPointsTable();
+    updateDataTable();
+    validateAndCheckErrors();
+    
+    qDebug() << "表盘类型设置完成，检测点数量:" << m_config.detectionPoints.size() 
+             << "检测数据数量:" << m_detectionData.size();
+             
+    // 设置表盘类型后，检查是否需要自动加载之前的数据
+    checkAndLoadPreviousData();
+}
+
+void ErrorTableDialog::checkAndLoadPreviousData()
+{
+    QString fileName = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/PressureGauge_AutoSave.json";
+    
+    if (QFile::exists(fileName)) {
+        qDebug() << "发现自动保存文件，检查是否有相同表盘类型的数据:" << fileName;
+        try {
+            QFile file(fileName);
+            if (file.open(QIODevice::ReadOnly)) {
+                QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+                QJsonObject config = doc.object();
+                
+                // 检查保存的表盘类型是否与当前设置的相同
+                QString savedDialType = config["productModel"].toString();
+                if (savedDialType == m_config.productModel) {
+                    // 检查是否有有效的测量数据
+                    bool hasValidMeasurementData = config.contains("detectionData") && 
+                                                  config["detectionData"].toArray().size() > 0;
+                    
+                    if (hasValidMeasurementData) {
+                        qDebug() << "找到相同表盘类型的测量数据，询问是否加载";
+                        int ret = QMessageBox::question(this, "发现历史数据", 
+                                                        QString("发现 %1 的历史测量数据，是否加载？").arg(savedDialType),
+                                                        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+                        if (ret == QMessageBox::Yes) {
+                            loadConfigFromFile(fileName);
+                            qDebug() << "用户选择加载历史数据";
+                        } else {
+                            qDebug() << "用户选择不加载历史数据";
+                        }
+                    } else {
+                        qDebug() << "自动保存文件存在但无有效测量数据";
+                    }
+                } else {
+                    qDebug() << "保存的表盘类型(" << savedDialType << ")与当前类型(" << m_config.productModel << ")不匹配";
+                }
+            }
+        } catch (const std::exception& e) {
+            qDebug() << "检查历史数据失败:" << e.what();
+        }
+    } else {
+        qDebug() << "未找到自动保存文件";
+    }
+}
+
 void ErrorTableDialog::onConfigChanged()
 {
+    qDebug() << "配置参数发生变化";
+    
+    // 更新配置
     updateConfigFromUI();
+    
+    // 重新计算理论角度并更新数据表格
     updateDataTable();
+    
+    // 重新计算误差分析
+    validateAndCheckErrors();
+    
+    qDebug() << "配置更新完成";
 }
 
 void ErrorTableDialog::onDetectionPointsChanged()
 {
+    qDebug() << "检测点配置发生变化";
+    
+    // 保存当前的测量数据
+    QMap<double, DetectionPoint> oldData;
+    for (const auto& point : m_detectionData) {
+        oldData[point.pressure] = point;
+    }
+    
+    // 更新检测点配置
     m_config.detectionPoints.clear();
     
     for (int i = 0; i < m_detectionPointsTable->rowCount(); ++i) {
@@ -633,7 +757,27 @@ void ErrorTableDialog::onDetectionPointsChanged()
     // 排序检测点
     std::sort(m_config.detectionPoints.begin(), m_config.detectionPoints.end());
     
+    // 重建检测数据，保留已有的测量数据
+    m_detectionData.clear();
+    for (double pressure : m_config.detectionPoints) {
+        DetectionPoint point;
+        point.pressure = pressure;
+        
+        // 如果之前有这个检测点的数据，则保留
+        if (oldData.contains(pressure)) {
+            point = oldData[pressure];
+        }
+        
+        m_detectionData.append(point);
+    }
+    
+    // 更新界面
     updateDetectionPointsTable();
+    updateDataTable();
+    validateAndCheckErrors();
+    
+    qDebug() << "检测点配置更新完成，当前检测点数量:" << m_config.detectionPoints.size() 
+             << "检测数据数量:" << m_detectionData.size();
 }
 
 void ErrorTableDialog::addDetectionPoint()
@@ -642,7 +786,13 @@ void ErrorTableDialog::addDetectionPoint()
     double pressure = QInputDialog::getDouble(this, "添加检测点", "压力值(MPa):", 1.0, 0.0, 100.0, 1, &ok);
     if (ok) {
         m_config.detectionPoints.append(pressure);
-        updateDetectionPointsTable();
+        // 排序检测点
+        std::sort(m_config.detectionPoints.begin(), m_config.detectionPoints.end());
+        
+        // 手动触发检测点变化处理
+        onDetectionPointsChanged();
+        
+        qDebug() << "添加检测点:" << pressure << "当前检测点数量:" << m_config.detectionPoints.size();
     }
 }
 
@@ -688,33 +838,51 @@ void ErrorTableDialog::updateAnalysisText()
 
 QString ErrorTableDialog::formatAnalysisResult()
 {
-    QString result = "<h3>误差分析结果</h3>";
+    QString result = "<h3>误差检测结果</h3>";
     
-    // 基本信息
-    result += QString("<p><b>产品型号:</b> %1 &nbsp;&nbsp; <b>产品名称:</b> %2</p>").arg(m_config.productModel, m_config.productName);
-    result += QString("<p><b>满量程:</b> %1 MPa / %2° &nbsp;&nbsp; <b>基本误差限值:</b> ±%3 MPa &nbsp;&nbsp; <b>迟滞误差限值:</b> %4 MPa</p>")
-              .arg(m_config.maxPressure).arg(m_config.maxAngle).arg(m_config.basicErrorLimit).arg(m_config.hysteresisErrorLimit);
-    
-    // 误差限值转换为角度
-    double basicErrorAngle = (m_config.basicErrorLimit / m_config.maxPressure) * m_config.maxAngle;
-    double hysteresisErrorAngle = (m_config.hysteresisErrorLimit / m_config.maxPressure) * m_config.maxAngle;
-    
-    result += QString("<p><b>角度误差限值:</b> 基本误差 ±%1°, 迟滞误差 %2°</p>")
-              .arg(basicErrorAngle, 0, 'f', 1).arg(hysteresisErrorAngle, 0, 'f', 1);
-    
-    result += "<h4>检测结果:</h4>";
+    // 基本配置信息（简化显示）
+    result += QString("<p><b>型号:</b> %1 &nbsp;&nbsp; <b>限值:</b> 基本±%2MPa 迟滞%3MPa</p>")
+              .arg(m_config.productModel)
+              .arg(m_config.basicErrorLimit, 0, 'f', 3)
+              .arg(m_config.hysteresisErrorLimit, 0, 'f', 3);
     
     bool allPointsValid = true;
-    QStringList issues;
+    int validPointsCount = 0;
     
+    // 统计检测结果
     for (int i = 0; i < m_detectionData.size(); ++i) {
         const DetectionPoint &point = m_detectionData[i];
         
-        result += QString("<p><b>%1 MPa:</b> ").arg(point.pressure, 0, 'f', 1);
-        
         if (!point.hasForward && !point.hasBackward) {
-            result += "<span style='color: orange;'>无数据</span>";
-            continue;
+            continue; // 跳过无数据的点
+        }
+        
+        validPointsCount++;
+        double expectedAngle = pressureToAngle(point.pressure);
+        
+        // 检查基本误差
+        if (point.hasForward) {
+            double angleError = calculateAngleError(point.forwardAngle, expectedAngle);
+            double pressureError = std::abs(calculatePressureError(angleError));
+            
+            if (pressureError > m_config.basicErrorLimit) {
+                allPointsValid = false;
+                result += QString("<p style='color: red;'><b>%1 MPa 正行程:</b> 误差 %2 MPa <span style='font-weight: bold;'>超标</span></p>")
+                          .arg(point.pressure, 0, 'f', 1)
+                          .arg(pressureError, 0, 'f', 3);
+            }
+        }
+        
+        if (point.hasBackward) {
+            double angleError = calculateAngleError(point.backwardAngle, expectedAngle);
+            double pressureError = std::abs(calculatePressureError(angleError));
+            
+            if (pressureError > m_config.basicErrorLimit) {
+                allPointsValid = false;
+                result += QString("<p style='color: red;'><b>%1 MPa 反行程:</b> 误差 %2 MPa <span style='font-weight: bold;'>超标</span></p>")
+                          .arg(point.pressure, 0, 'f', 1)
+                          .arg(pressureError, 0, 'f', 3);
+            }
         }
         
         // 检查迟滞误差
@@ -722,90 +890,27 @@ QString ErrorTableDialog::formatAnalysisResult()
             double angleDiff = std::abs(point.forwardAngle - point.backwardAngle);
             double hysteresisErrorMPa = angleToPressure(angleDiff);
             
-            if (angleDiff <= hysteresisErrorAngle) {
-                result += QString("<span style='color: green;'>迟滞误差 %1° (%.3f MPa) ✓</span>")
-                          .arg(angleDiff, 0, 'f', 2).arg(hysteresisErrorMPa);
-            } else {
-                result += QString("<span style='color: red;'>迟滞误差 %1° (%.3f MPa) ✗</span>")
-                          .arg(angleDiff, 0, 'f', 2).arg(hysteresisErrorMPa);
+            if (hysteresisErrorMPa > m_config.hysteresisErrorLimit) {
                 allPointsValid = false;
-                issues << QString("%1 MPa 迟滞误差超标").arg(point.pressure, 0, 'f', 1);
+                result += QString("<p style='color: red;'><b>%1 MPa 迟滞:</b> 误差 %2 MPa <span style='font-weight: bold;'>超标</span></p>")
+                          .arg(point.pressure, 0, 'f', 1)
+                          .arg(hysteresisErrorMPa, 0, 'f', 3);
             }
         }
-        
-        // 检查基本误差
-        double expectedAngle = pressureToAngle(point.pressure);
-        
-        if (point.hasForward) {
-            double angleError = calculateAngleError(point.forwardAngle, expectedAngle);
-            double pressureError = calculatePressureError(angleError);
-            
-            if (std::abs(angleError) <= basicErrorAngle) {
-                result += QString(" 正行程 %1° (%.3f MPa) ✓")
-                          .arg(angleError, 0, 'f', 2).arg(pressureError);
-            } else {
-                result += QString(" <span style='color: red;'>正行程 %1° (%.3f MPa) ✗</span>")
-                          .arg(angleError, 0, 'f', 2).arg(pressureError);
-                allPointsValid = false;
-                issues << QString("%1 MPa 正行程基本误差超标").arg(point.pressure, 0, 'f', 1);
-            }
-        }
-        
-        if (point.hasBackward) {
-            double angleError = calculateAngleError(point.backwardAngle, expectedAngle);
-            double pressureError = calculatePressureError(angleError);
-            
-            if (std::abs(angleError) <= basicErrorAngle) {
-                result += QString(" 反行程 %1° (%.3f MPa) ✓")
-                          .arg(angleError, 0, 'f', 2).arg(pressureError);
-            } else {
-                result += QString(" <span style='color: red;'>反行程 %1° (%.3f MPa) ✗</span>")
-                          .arg(angleError, 0, 'f', 2).arg(pressureError);
-                allPointsValid = false;
-                issues << QString("%1 MPa 反行程基本误差超标").arg(point.pressure, 0, 'f', 1);
-            }
-        }
-        
-        result += "</p>";
     }
     
-    // 总结
-    result += "<h4>总结:</h4>";
-    if (allPointsValid) {
-        result += "<p style='color: green; font-weight: bold;'>✓ 所有检测点均符合误差要求，刻度盘可以制作</p>";
+    // 总结（简化显示）
+    if (validPointsCount == 0) {
+        result += "<p style='color: orange; font-size: 16px; font-weight: bold;'>⚠ 暂无测量数据</p>";
+    } else if (allPointsValid) {
+        result += "<p style='color: green; font-size: 16px; font-weight: bold;'>✓ 检测合格</p>";
+        result += QString("<p>已检测 %1 个点，均符合误差要求</p>").arg(validPointsCount);
     } else {
-        result += "<p style='color: red; font-weight: bold;'>✗ 存在误差超标项目，需要调整:</p>";
-        result += "<ul>";
-        for (const QString &issue : issues) {
-            result += QString("<li style='color: red;'>%1</li>").arg(issue);
-        }
-        result += "</ul>";
-        
-        // 建议调整方案
-        result += "<h4>建议调整方案:</h4>";
-        result += "<p>对于基本误差超标的检测点，可以调整刻度盘角度至正反行程角度的中间值来改善误差。</p>";
+        result += "<p style='color: red; font-size: 16px; font-weight: bold;'>✗ 检测不合格</p>";
+        result += "<p style='color: red;'>请调整超标检测点的刻度盘角度</p>";
     }
     
     return result;
-}
-
-void ErrorTableDialog::exportToText()
-{
-    QString fileName = QFileDialog::getSaveFileName(this, "导出文本文件", "", "文本文件 (*.txt)");
-    if (fileName.isEmpty()) return;
-    
-    QFile file(fileName);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, "错误", "无法创建文件");
-        return;
-    }
-    
-    QTextStream out(&file);
-    
-    QString data = generateExportData();
-    out << data;
-    
-    QMessageBox::information(this, "成功", "数据已导出到文本文件");
 }
 
 void ErrorTableDialog::exportToExcel()
@@ -966,17 +1071,14 @@ QString ErrorTableDialog::generateExportData()
 
 void ErrorTableDialog::saveConfig()
 {
-    QString fileName = QFileDialog::getSaveFileName(this, "保存配置", "", "配置文件 (*.json)");
-    if (!fileName.isEmpty()) {
+    // 自动保存到默认位置，不再弹出文件选择对话框
+    QString fileName = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/PressureGauge_AutoSave.json";
+    
+    try {
         saveConfigToFile(fileName);
-    }
-}
-
-void ErrorTableDialog::loadConfig()
-{
-    QString fileName = QFileDialog::getOpenFileName(this, "加载配置", "", "配置文件 (*.json)");
-    if (!fileName.isEmpty()) {
-        loadConfigFromFile(fileName);
+        QMessageBox::information(this, "成功", QString("数据已自动保存到:\n%1").arg(fileName));
+    } catch (const std::exception& e) {
+        QMessageBox::warning(this, "错误", QString("自动保存失败: %1").arg(e.what()));
     }
 }
 
@@ -998,14 +1100,27 @@ void ErrorTableDialog::saveConfigToFile(const QString &fileName)
     }
     config["detectionPoints"] = points;
     
+    // 保存测量数据
+    QJsonArray detectionData;
+    for (const DetectionPoint &point : m_detectionData) {
+        QJsonObject pointObj;
+        pointObj["pressure"] = point.pressure;
+        pointObj["forwardAngle"] = point.forwardAngle;
+        pointObj["backwardAngle"] = point.backwardAngle;
+        pointObj["hasForward"] = point.hasForward;
+        pointObj["hasBackward"] = point.hasBackward;
+        detectionData.append(pointObj);
+    }
+    config["detectionData"] = detectionData;
+    
     QJsonDocument doc(config);
     
     QFile file(fileName);
     if (file.open(QIODevice::WriteOnly)) {
         file.write(doc.toJson());
-        QMessageBox::information(this, "成功", "配置已保存");
+        qDebug() << "数据已保存到:" << fileName;
     } else {
-        QMessageBox::warning(this, "错误", "无法保存配置文件");
+        throw std::runtime_error("无法保存配置文件");
     }
 }
 
@@ -1013,8 +1128,7 @@ void ErrorTableDialog::loadConfigFromFile(const QString &fileName)
 {
     QFile file(fileName);
     if (!file.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, "错误", "无法读取配置文件");
-        return;
+        throw std::runtime_error("无法读取配置文件");
     }
     
     QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
@@ -1035,10 +1149,75 @@ void ErrorTableDialog::loadConfigFromFile(const QString &fileName)
         m_config.detectionPoints.append(value.toDouble());
     }
     
+    // 加载测量数据
+    m_detectionData.clear();
+    if (config.contains("detectionData")) {
+        QJsonArray detectionData = config["detectionData"].toArray();
+        for (const QJsonValue &value : detectionData) {
+            QJsonObject pointObj = value.toObject();
+            DetectionPoint point;
+            point.pressure = pointObj["pressure"].toDouble();
+            point.forwardAngle = pointObj["forwardAngle"].toDouble();
+            point.backwardAngle = pointObj["backwardAngle"].toDouble();
+            point.hasForward = pointObj["hasForward"].toBool();
+            point.hasBackward = pointObj["hasBackward"].toBool();
+            m_detectionData.append(point);
+        }
+    } else {
+        // 如果没有测量数据，创建空的检测点数据
+        for (double pressure : m_config.detectionPoints) {
+            DetectionPoint point;
+            point.pressure = pressure;
+            m_detectionData.append(point);
+        }
+    }
+    
     updateUIFromConfig();
     updateDetectionPointsTable();
+    updateDataTable();
+    validateAndCheckErrors();
     
-    QMessageBox::information(this, "成功", "配置已加载");
+    qDebug() << "配置和数据已从" << fileName << "加载完成";
+}
+
+void ErrorTableDialog::autoLoadPreviousData()
+{
+    // 如果已经通过setDialType设置了表盘类型，则不进行自动加载
+    if (m_dialTypeSet) {
+        qDebug() << "已设置表盘类型，跳过自动加载";
+        return;
+    }
+    
+    QString fileName = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/PressureGauge_AutoSave.json";
+    
+    if (QFile::exists(fileName)) {
+        qDebug() << "发现自动保存文件，检查是否有有效数据:" << fileName;
+        try {
+            QFile file(fileName);
+            if (file.open(QIODevice::ReadOnly)) {
+                QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+                QJsonObject config = doc.object();
+                
+                // 检查是否有有效的检测点数据或测量数据
+                bool hasValidDetectionPoints = config.contains("detectionPoints") && 
+                                             config["detectionPoints"].toArray().size() > 0;
+                bool hasValidMeasurementData = config.contains("detectionData") && 
+                                              config["detectionData"].toArray().size() > 0;
+                
+                if (hasValidDetectionPoints || hasValidMeasurementData) {
+                    loadConfigFromFile(fileName);
+                    qDebug() << "自动加载完成，有有效数据";
+                } else {
+                    qDebug() << "自动保存文件存在但无有效数据，保持当前默认配置";
+                }
+            }
+        } catch (const std::exception& e) {
+            qDebug() << "自动加载失败:" << e.what();
+            // 加载失败时使用默认配置，不显示错误信息
+        }
+    } else {
+        qDebug() << "未找到自动保存文件，保持当前默认配置";
+    }
 }
 
 void ErrorTableDialog::onTableCellClicked(int row, int column)
@@ -1047,6 +1226,15 @@ void ErrorTableDialog::onTableCellClicked(int row, int column)
         m_currentPressureIndex = row;
         double pressure = m_detectionData[row].pressure;
         m_currentPointLabel->setText(QString("当前检测点: %1 MPa").arg(pressure, 0, 'f', 1));
+        
+        // 根据点击的列设置测量方向
+        if (column == 2) {  // 正行程角度列
+            m_directionCombo->setCurrentIndex(0);  // 正行程
+            m_isForwardDirection = true;
+        } else if (column == 5) {  // 反行程角度列
+            m_directionCombo->setCurrentIndex(1);  // 反行程
+            m_isForwardDirection = false;
+        }
     }
 }
 
