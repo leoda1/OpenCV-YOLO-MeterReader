@@ -183,6 +183,35 @@ private:
     
     QColor m_currentColor;
     
+    // 表盘生成相关
+    QPixmap generateDialImage();
+    void drawTicksAndNumbers(QPainter& p, const QPointF& C, double outerR,
+                            double startDeg, double spanDeg,
+                            double vmax, double majorStep, int minorPerMajor);
+    void drawColorBandsOverTicks(QPainter& p, const QPointF& C, double outerR,
+                                 double startDeg, double spanDeg, double vmax);
+    void drawUnitMPa(QPainter& p, const QPointF& C, double outerR);
+    void saveGeneratedDial();
+    
+    // 表盘配置参数
+    struct DialConfig {
+        int imageSize = 800;           // 图片尺寸
+        int dialRadius = 350;          // 表盘半径
+        double startAngle = -135.0;    // 起始角度（度）
+        double endAngle = 135.0;       // 结束角度（度）
+        double maxPressure = 25.0;     // 最大压力值
+        QList<double> majorScales;     // 主刻度值
+        QList<double> minorScales;     // 次刻度值
+        QColor backgroundColor = Qt::white;
+        QColor dialColor = Qt::black;
+        QColor scaleColor = Qt::black;
+        QColor numberColor = Qt::black;
+    };
+    
+    DialConfig m_dialConfig;    
+    QPushButton *m_generateButton;  // 生成表盘按钮
+    QSpinBox *m_maxPressureSpin;    // 最大压力输入框
+
     void setupUI();
     void setupToolbar();
     void updateColorButton();

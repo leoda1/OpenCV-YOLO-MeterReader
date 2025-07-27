@@ -9,6 +9,8 @@
 #include <QDir>
 #include <QDebug>
 #include <QInputDialog>
+#include <QVector>
+#include <cmath>
 
 AnnotationLabel::AnnotationLabel(QWidget *parent)
     : QLabel(parent)
@@ -635,6 +637,52 @@ void DialMarkDialog::setupUI()
     
     controlLayout->addWidget(buttonGroup);
     
+    // 在控制面板中添加表盘生成按钮
+    QGroupBox *dialGroup = new QGroupBox("表盘生成", controlPanel);
+    dialGroup->setFont(panelFont);
+    QVBoxLayout *dialLayout = new QVBoxLayout(dialGroup);
+    dialLayout->setSpacing(8);
+    dialLayout->setContentsMargins(12, 12, 12, 12);
+    
+    m_generateButton = new QPushButton("生成新表盘", dialGroup);
+    m_generateButton->setFont(panelFont);
+    m_generateButton->setMinimumHeight(32);
+    dialLayout->addWidget(m_generateButton);
+    
+    // 添加表盘配置控件
+    QLabel *maxPressureLabel = new QLabel("最大压力(MPa):");
+    maxPressureLabel->setFont(panelFont);
+    dialLayout->addWidget(maxPressureLabel);
+    
+    m_maxPressureSpin = new QSpinBox(dialGroup);
+    m_maxPressureSpin->setRange(1, 100);
+    m_maxPressureSpin->setValue(25);
+    m_maxPressureSpin->setFont(panelFont);
+    dialLayout->addWidget(m_maxPressureSpin);
+    
+    // 添加保存表盘按钮
+    QPushButton *saveDialButton = new QPushButton("保存生成表盘", dialGroup);
+    saveDialButton->setFont(panelFont);
+    saveDialButton->setMinimumHeight(32);
+    dialLayout->addWidget(saveDialButton);
+    
+    // 连接信号
+    connect(m_generateButton, &QPushButton::clicked, this, [this]() {
+        m_dialConfig.maxPressure = m_maxPressureSpin->value();
+        QPixmap newDial = generateDialImage();
+        if (!newDial.isNull()) {
+            m_imageLabel->setImage(newDial);
+            qDebug() << "成功生成新表盘";
+        } else {
+            QMessageBox::warning(this, "错误", "生成表盘失败");
+        }
+    });
+    
+    connect(saveDialButton, &QPushButton::clicked, this, &DialMarkDialog::saveGeneratedDial);
+    
+    // 将表盘生成组添加到控制布局
+    controlLayout->addWidget(dialGroup);
+    
     controlLayout->addStretch();
     
     // 添加到主布局
@@ -683,28 +731,44 @@ void DialMarkDialog::setupToolbar()
 
 void DialMarkDialog::loadDialImageFromFile()
 {
-    QString imagePath = QApplication::applicationDirPath() + "/images/70-01.tif";
+    // 询问用户是否要生成新表盘
+    QMessageBox::StandardButton reply = QMessageBox::question(this, "选择操作", 
+        "是否要生成新的表盘图片？\n选择\"是\"生成新表盘，选择\"否\"加载现有图片。",
+        QMessageBox::Yes | QMessageBox::No);
     
-    // 首先尝试从应用程序目录加载
-    if (!QFile::exists(imagePath)) {
-        imagePath = "images/70-01.tif";
-    }
-    
-    if (!QFile::exists(imagePath)) {
-        imagePath = QFileDialog::getOpenFileName(this,
-            "选择表盘图片", "", "图片文件 (*.png *.jpg *.jpeg *.tif *.tiff *.bmp)");
-    }
-    
-    if (!imagePath.isEmpty()) {
-        QPixmap pixmap(imagePath);
-        if (!pixmap.isNull()) {
-            m_imageLabel->setImage(pixmap);
-            qDebug() << "成功加载表盘图片:" << imagePath;
+    if (reply == QMessageBox::Yes) {
+        // 生成新表盘
+        QPixmap newDial = generateDialImage();
+        if (!newDial.isNull()) {
+            m_imageLabel->setImage(newDial);
+            qDebug() << "成功生成新表盘";
         } else {
-            QMessageBox::warning(this, "错误", "无法加载图片文件: " + imagePath);
+            QMessageBox::warning(this, "错误", "生成表盘失败");
         }
     } else {
-        QMessageBox::information(this, "提示", "未选择图片文件");
+        // 加载现有图片（原有逻辑）
+        QString imagePath = QApplication::applicationDirPath() + "/images/70-01.tif";
+        
+        if (!QFile::exists(imagePath)) {
+            imagePath = "images/70-01.tif";
+        }
+        
+        if (!QFile::exists(imagePath)) {
+            imagePath = QFileDialog::getOpenFileName(this,
+                "选择表盘图片", "", "图片文件 (*.png *.jpg *.jpeg *.tif *.tiff *.bmp)");
+        }
+        
+        if (!imagePath.isEmpty()) {
+            QPixmap pixmap(imagePath);
+            if (!pixmap.isNull()) {
+                m_imageLabel->setImage(pixmap);
+                qDebug() << "成功加载表盘图片:" << imagePath;
+            } else {
+                QMessageBox::warning(this, "错误", "无法加载图片文件: " + imagePath);
+            }
+        } else {
+            QMessageBox::information(this, "提示", "未选择图片文件");
+        }
     }
 }
 
@@ -1081,4 +1145,181 @@ void AnnotationPropertiesDialog::chooseColor()
         m_currentColor = color;
         updateColorButton();
     }
-} 
+}
+
+static inline int deg16(double deg){ return int(std::round(deg*16.0)); }
+static inline QPointF pol2(const QPointF& c, double angDeg, double r){
+    const double a = qDegreesToRadians(angDeg);
+    return QPointF(c.x() + r*std::cos(a), c.y() - r*std::sin(a)); // y 轴向下
+}
+static inline double v2ang(double v, double vmax, double startDeg, double spanDeg){
+    return startDeg + (v/vmax)*spanDeg; // 角度均分
+}
+
+// ======= 主入口：生成表盘图 =======
+QPixmap DialMarkDialog::generateDialImage()
+{
+    const int S = m_dialConfig.imageSize;
+
+    QPixmap pm(S, S);
+    pm.fill(m_dialConfig.backgroundColor);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setRenderHint(QPainter::TextAntialiasing, true);
+
+    const double Rpx = m_dialConfig.dialRadius;   // ≈ R17.1 的像素值
+    // 【可选】把圆心稍微下移，让上半弧更接近画布上方
+    const QPointF C(S/2.0, S*0.42);
+
+    // 角度与量程
+    const double alpha    = 140.0;             // 图纸 α，可配
+    const double startDeg = 90.0 + alpha/2.0;  // 左上端（例如 160°）
+    const double spanDeg  = -alpha;  // = 图纸 α
+    const double vmax     = 50.0;    // 0–50 MPa
+    const double majorStep= 10.0;    // 数字刻度：0、10、…
+    const int    minorPer = 10;      // 1 MPa 一格
+
+    // ① 刻度与数字（先画）
+    drawTicksAndNumbers(p, C, Rpx, startDeg, spanDeg, vmax, majorStep, minorPer);
+    // ② 彩带（后画：覆盖在刻度上层）
+    drawColorBandsOverTicks(p, C, Rpx, startDeg, spanDeg, vmax);
+    // ③ 单位
+    drawUnitMPa(p, C, Rpx);
+
+    p.end();
+    return pm;
+}
+
+void DialMarkDialog::drawTicksAndNumbers(QPainter& p, const QPointF& C, double outerR,
+    double startDeg, double spanDeg,
+    double vmax, double majorStep, int minorPerMajor)
+{
+    qDebug() << "outerR=" << outerR
+         << "k=" << (outerR/17.1)
+         << "r_tickOuter=" << 15.1*(outerR/17.1)
+         << "r_tickInner=" << 14.6*(outerR/17.1);
+    const double k = outerR / 17.1;        // 每“图纸单位”的像素
+    const double r_bandOuter = 16.1 * k;
+    const double r_tickOuter = 15.1 * k;  // 刻度外沿
+    const double r_tickInner = 14.6 * k;  // 刻度内沿
+    const double r_number    = 14.0 * k;  // 数字半径
+
+    // 刻度线宽与长度
+    QPen penMinor(Qt::black, 2, Qt::SolidLine, Qt::FlatCap);
+    QPen penMajor(Qt::black, 5, Qt::SolidLine, Qt::FlatCap);
+    const double L_minor = (r_tickOuter - r_tickInner) * 0.60;
+    const double L_major = (r_tickOuter - r_tickInner) * 1.00;
+
+    // 次刻度（1 MPa）
+    p.setPen(penMinor);
+    const double minorStep = 1.0;
+    for (double v=0; v<=vmax+1e-6; v+=minorStep) {
+        const double ang = v2ang(v, vmax, startDeg, spanDeg);
+        p.drawLine(pol2(C, ang, r_tickOuter), pol2(C, ang, r_tickOuter - L_minor));
+    }
+
+    // 主刻度（5 MPa）
+    p.setPen(penMajor);
+    const double majorTickStep = 5.0;
+    for (double v=0; v<=vmax+1e-6; v+=majorTickStep) {
+        const double ang = v2ang(v, vmax, startDeg, spanDeg);
+        p.drawLine(pol2(C, ang, r_tickOuter), pol2(C, ang, r_tickOuter - L_major));
+    }
+
+    // 【关键 2】字号不要用 26*k/58*k 这种超大系数
+    // 用“每图纸单位像素”k 的小倍率，或用 Rpx 的一定比例
+    const int fontNumberPx = std::lround(1.6 * k);   // ≈ 25px（当 Rpx≈276 时）
+    QFont numFont("Times New Roman", fontNumberPx, QFont::DemiBold);
+    p.setFont(numFont);
+    p.setPen(Qt::black);
+
+    // 数字：0,10,...,50
+    for (double v=0; v<=vmax+1e-6; v+=majorStep) {
+        const double ang  = v2ang(v, vmax, startDeg, spanDeg);
+        const QPointF pos = pol2(C, ang, r_number);
+        const QString  t  = QString::number(int(v));
+        QRectF br = p.fontMetrics().boundingRect(t);
+        br.moveCenter(pos);
+        p.drawText(br, Qt::AlignCenter, t);
+    }
+}
+
+void DialMarkDialog::drawColorBandsOverTicks(QPainter& p, const QPointF& C, double outerR,
+    double startDeg, double spanDeg, double vmax)
+{
+    // R → 像素半径
+    const double k             = outerR / 17.1;
+    const double r_bandOuter   = 16.1 * k;
+    const double r_bandInner   = 15.1 * k;
+    const double r_mid         = (r_bandOuter + r_bandInner)/2.0;  // 用粗笔画圆弧
+    const double bandWidth     = (r_bandOuter - r_bandInner);
+
+    QRectF arcRect(C.x()-r_mid, C.y()-r_mid, 2*r_mid, 2*r_mid);
+
+    // 颜色（按50MPa量程调整分段）
+    const QColor Y07("#D8B64C");  // 黄色
+    const QColor G02("#2E5E36");  // 绿色  
+    const QColor R03("#6A2A2A");  // 红色
+
+    struct Seg{ double v0,v1; QColor c; };
+    QVector<Seg> segs = {
+        { 0.0,  5.9, Y07},   // 0-5.9 MPa 黄色
+        { 5.9, 21.0, G02},   // 5.9-21 MPa 绿色
+        {21.0, vmax, R03}    // 21-50 MPa 红色
+    };
+
+    QPen pen; pen.setWidthF(bandWidth); pen.setCapStyle(Qt::FlatCap);
+    for(const auto& s: segs){
+        double a0   = v2ang(s.v0, vmax, startDeg, spanDeg);
+        double a1   = v2ang(s.v1, vmax, startDeg, spanDeg);
+        double span = a1 - a0;
+        pen.setColor(s.c);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        p.drawArc(arcRect, deg16(a0), deg16(span));
+    }
+}
+// ======= 3) 中央单位与装饰 =======
+void DialMarkDialog::drawUnitMPa(QPainter& p, const QPointF& C, double Rpx)
+{
+    const double k = Rpx / 17.1;
+
+    // 这两个系数调到合理范围（以前 58*k/40*k 太大）
+    const int mainPx = std::lround(3.6 * k);  // ≈ 57px（Rpx≈276 时）
+    const int subPx  = std::lround(2.5 * k);  // ≈ 40px
+
+    p.setPen(Qt::black);
+    p.setFont(QFont("Times New Roman", mainPx, QFont::DemiBold));
+    const QString MP = "MP";
+    QRectF brMP = p.fontMetrics().boundingRect(MP);
+    // 基线位置可按需要微调
+    QPointF base(C.x() - brMP.width()/2.0, C.y() + brMP.height()/3.0);
+    p.drawText(base, MP);
+
+    p.setFont(QFont("Times New Roman", subPx, QFont::DemiBold));
+    const QString a = "a";
+    QRectF bra = p.fontMetrics().boundingRect(a);
+    const double ax = base.x() + brMP.width() + 6;            // 6px 够用
+    const double ay = base.y() + bra.height() * 0.32;         // 下移一点做下标
+    p.drawText(QPointF(ax, ay), a);
+}
+
+void DialMarkDialog::saveGeneratedDial()
+{
+    QString fileName = QFileDialog::getSaveFileName(this,
+        "保存生成表盘图片", "generated_dial.tiff", 
+        "TIFF 图片 (*.tiff);;PNG 图片 (*.png);;JPEG 图片 (*.jpg);;BMP 图片 (*.bmp);;所有图片 (*.png *.jpg *.jpeg *.bmp *.tiff)");
+    
+    if (!fileName.isEmpty()) {
+        QPixmap generatedDial = m_imageLabel->getAnnotatedImage(); // 获取带标注的图片
+        if (!generatedDial.isNull()) {
+            if (generatedDial.save(fileName)) {
+                QMessageBox::information(this, "成功", "生成表盘图片已保存到: " + fileName);
+            } else {
+                QMessageBox::warning(this, "错误", "保存生成表盘图片失败: " + fileName);
+            }
+        } else {
+            QMessageBox::warning(this, "错误", "没有可保存的生成表盘图片");
+        }
+    }
+}

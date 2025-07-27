@@ -3,6 +3,8 @@ build/
 .vscode/
 .gitignore
 ref/
+images/
 ref2/
-test/
+testB/
+testYYQY/
 .cursorignore
