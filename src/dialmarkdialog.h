@@ -25,6 +25,8 @@
 #include <QMenu>
 #include <QCheckBox>
 #include <QInputDialog>
+#include <QShortcut>
+#include <QKeyEvent>
 
 namespace Ui {
 class DialMarkDialog;
@@ -44,6 +46,24 @@ struct TextAnnotation {
     
     TextAnnotation() : color(Qt::red), fontSize(12), fontFamily("黑体"), 
                       isBold(false), isItalic(false), isSelected(false) {}
+};
+
+// BYQ表盘配置
+struct BYQDialConfig {
+    double maxPressure;      // 最大压力值 (MPa)
+    double majorStep;        // 主刻度步长 (MPa)
+    double minorStep;        // 次刻度步长 (MPa)
+    
+    BYQDialConfig() : maxPressure(50.0), majorStep(10.0), minorStep(1.0) {}
+};
+
+// YYQY表盘配置
+struct YYQYDialConfig {
+    double maxPressure;      // 最大压力值 (MPa)
+    double totalAngle;       // 表盘总角度 (度)
+    double warningPressure;  // 警告压力值 (MPa) - 黑色到红色的分界点
+    
+    YYQYDialConfig() : maxPressure(6.3), totalAngle(300.0), warningPressure(4.0) {}
 };
 
 // 自定义图片显示标签类，支持鼠标交互
@@ -74,6 +94,11 @@ public:
     QPixmap getAnnotatedImage() const;
     int getSelectedAnnotation() const { return m_selectedAnnotation; }
     void setSelectedAnnotation(int index);
+    
+    // 缩放控制方法
+    void zoomIn();
+    void zoomOut();
+    void resetZoom();
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -83,6 +108,7 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void contextMenuEvent(QContextMenuEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 signals:
     void annotationClicked(int index);
@@ -143,7 +169,7 @@ class DialMarkDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit DialMarkDialog(QWidget *parent = nullptr);
+    explicit DialMarkDialog(QWidget *parent = nullptr, const QString &dialType = "BYQ-19");
     ~DialMarkDialog();
 
 private slots:
@@ -182,15 +208,31 @@ private:
     QPushButton *m_exportButton;
     
     QColor m_currentColor;
+    QString m_dialType;  // 表盘类型
+    
+    // 表盘配置
+    BYQDialConfig m_byqConfig;    // BYQ表盘配置
+    YYQYDialConfig m_yyqyConfig;  // YYQY表盘配置
     
     // 表盘生成相关
-    QPixmap generateDialImage();
+    QImage generateDialImage();
+    QImage generateBYQDialImage();   // BYQ类型表盘
+    QPixmap generateYYQYDialImage();  // YYQY类型表盘
+    
+    // BYQ表盘绘制方法
     void drawTicksAndNumbers(QPainter& p, const QPointF& C, double outerR,
                             double startDeg, double spanDeg,
                             double vmax, double majorStep, int minorPerMajor);
     void drawColorBandsOverTicks(QPainter& p, const QPointF& C, double outerR,
                                  double startDeg, double spanDeg, double vmax);
     void drawUnitMPa(QPainter& p, const QPointF& C, double outerR);
+    
+    // YYQY表盘绘制方法  
+    void drawYYQYTicksAndNumbers(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
+    void drawYYQYColorBands(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
+    void drawYYQYCenterTexts(QPainter& p, const QPointF& C, double outerR);
+    void drawYYQYPositionDot(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
+    
     void saveGeneratedDial();
     
     // 表盘配置参数
@@ -211,9 +253,11 @@ private:
     DialConfig m_dialConfig;    
     QPushButton *m_generateButton;  // 生成表盘按钮
     QSpinBox *m_maxPressureSpin;    // 最大压力输入框
+    QSpinBox *m_dialAngleSpin;      // 表盘角度输入框（仅YYQY类型）
 
     void setupUI();
     void setupToolbar();
+    void setupZoomShortcuts();
     void updateColorButton();
     void loadDialImageFromFile();
     void showAnnotationProperties(int index);
