@@ -10,6 +10,9 @@
 #include <QDebug>
 #include <QInputDialog>
 #include <QVector>
+#include <QSet>
+#include <QImageWriter>
+#include <iostream>
 #include <cmath>
 
 AnnotationLabel::AnnotationLabel(QWidget *parent)
@@ -27,6 +30,8 @@ AnnotationLabel::AnnotationLabel(QWidget *parent)
 {
     setMinimumSize(400, 300);
     setAlignment(Qt::AlignCenter);
+    setFocusPolicy(Qt::StrongFocus);  // 允许接收键盘焦点
+    setAttribute(Qt::WA_AcceptTouchEvents, true);  // 支持触摸事件（包括手势）
     setStyleSheet("border: 1px solid gray;");
     setCursor(Qt::ArrowCursor);
     setContextMenuPolicy(Qt::DefaultContextMenu);
@@ -204,6 +209,9 @@ void AnnotationLabel::paintEvent(QPaintEvent *event)
 
 void AnnotationLabel::mousePressEvent(QMouseEvent *event)
 {
+    // 确保获得键盘焦点以接收快捷键
+    setFocus();
+    
     if (event->button() == Qt::LeftButton) {
         QPoint clickPos = event->pos();
         
@@ -479,11 +487,68 @@ void AnnotationLabel::wheelEvent(QWheelEvent *event)
     event->accept();
 }
 
+void AnnotationLabel::keyPressEvent(QKeyEvent *event)
+{
+    if (m_originalPixmap.isNull()) {
+        QLabel::keyPressEvent(event);
+        return;
+    }
+    
+    // 处理缩放快捷键
+    if (event->modifiers() & (Qt::ControlModifier | Qt::MetaModifier)) {
+        if (event->key() == Qt::Key_Plus || event->key() == Qt::Key_Equal) {
+            zoomIn();
+            event->accept();
+            return;
+        } else if (event->key() == Qt::Key_Minus) {
+            zoomOut();
+            event->accept();
+            return;
+        } else if (event->key() == Qt::Key_0) {
+            resetZoom();
+            event->accept();
+            return;
+        }
+    }
+    
+    QLabel::keyPressEvent(event);
+}
+
+void AnnotationLabel::zoomIn()
+{
+    if (m_originalPixmap.isNull()) return;
+    
+    double scaleFactor = 1.15;
+    m_scaleFactor *= scaleFactor;
+    m_scaleFactor = qMin(5.0, m_scaleFactor);  // 限制最大缩放
+    updateDisplay();
+}
+
+void AnnotationLabel::zoomOut()
+{
+    if (m_originalPixmap.isNull()) return;
+    
+    double scaleFactor = 1.15;
+    m_scaleFactor /= scaleFactor;
+    m_scaleFactor = qMax(0.1, m_scaleFactor);  // 限制最小缩放
+    updateDisplay();
+}
+
+void AnnotationLabel::resetZoom()
+{
+    if (m_originalPixmap.isNull()) return;
+    
+    m_scaleFactor = 1.0;
+    m_imageOffset = QPoint(0, 0);
+    updateDisplay();
+}
+
 // DialMarkDialog 实现
-DialMarkDialog::DialMarkDialog(QWidget *parent)
+DialMarkDialog::DialMarkDialog(QWidget *parent, const QString &dialType)
     : QDialog(parent)
     , ui(nullptr)
     , m_currentColor(Qt::red)
+    , m_dialType(dialType)
 {
     setWindowTitle("表盘标注工具");
     setMinimumSize(950, 650);  // 增加最小尺寸以适应更宽的控制面板
@@ -660,6 +725,21 @@ void DialMarkDialog::setupUI()
     m_maxPressureSpin->setFont(panelFont);
     dialLayout->addWidget(m_maxPressureSpin);
     
+    // 为YYQY类型表盘添加角度配置
+    if (m_dialType == "YYQY-13") {
+        QLabel *angleLabel = new QLabel("表盘角度(度):");
+        angleLabel->setFont(panelFont);
+        dialLayout->addWidget(angleLabel);
+        
+        m_dialAngleSpin = new QSpinBox(dialGroup);
+        m_dialAngleSpin->setRange(180, 360);
+        m_dialAngleSpin->setValue(300);  // 默认300度
+        m_dialAngleSpin->setFont(panelFont);
+        dialLayout->addWidget(m_dialAngleSpin);
+    } else {
+        m_dialAngleSpin = nullptr;  // BYQ类型不需要角度配置
+    }
+    
     // 添加保存表盘按钮
     QPushButton *saveDialButton = new QPushButton("保存生成表盘", dialGroup);
     saveDialButton->setFont(panelFont);
@@ -669,7 +749,7 @@ void DialMarkDialog::setupUI()
     // 连接信号
     connect(m_generateButton, &QPushButton::clicked, this, [this]() {
         m_dialConfig.maxPressure = m_maxPressureSpin->value();
-        QPixmap newDial = generateDialImage();
+        QPixmap newDial = QPixmap::fromImage(generateDialImage());
         if (!newDial.isNull()) {
             m_imageLabel->setImage(newDial);
             qDebug() << "成功生成新表盘";
@@ -722,6 +802,35 @@ void DialMarkDialog::setupUI()
     m_imageLabel->setCurrentFontFamily("黑体");
     m_imageLabel->setCurrentFontSize(12);
     m_imageLabel->setCurrentColor(m_currentColor);
+    
+    // 添加缩放快捷键
+    setupZoomShortcuts();
+}
+
+void DialMarkDialog::setupZoomShortcuts()
+{
+    // 创建缩放快捷键
+    QShortcut *zoomInShortcut1 = new QShortcut(QKeySequence("Ctrl++"), this);
+    QShortcut *zoomInShortcut2 = new QShortcut(QKeySequence("Ctrl+="), this);
+    QShortcut *zoomOutShortcut = new QShortcut(QKeySequence("Ctrl+-"), this);
+    QShortcut *resetZoomShortcut = new QShortcut(QKeySequence("Ctrl+0"), this);
+    
+    // Mac快捷键支持
+    QShortcut *zoomInShortcutMac1 = new QShortcut(QKeySequence("Meta++"), this);
+    QShortcut *zoomInShortcutMac2 = new QShortcut(QKeySequence("Meta+="), this);
+    QShortcut *zoomOutShortcutMac = new QShortcut(QKeySequence("Meta+-"), this);
+    QShortcut *resetZoomShortcutMac = new QShortcut(QKeySequence("Meta+0"), this);
+    
+    // 连接信号
+    connect(zoomInShortcut1, &QShortcut::activated, m_imageLabel, &AnnotationLabel::zoomIn);
+    connect(zoomInShortcut2, &QShortcut::activated, m_imageLabel, &AnnotationLabel::zoomIn);
+    connect(zoomOutShortcut, &QShortcut::activated, m_imageLabel, &AnnotationLabel::zoomOut);
+    connect(resetZoomShortcut, &QShortcut::activated, m_imageLabel, &AnnotationLabel::resetZoom);
+    
+    connect(zoomInShortcutMac1, &QShortcut::activated, m_imageLabel, &AnnotationLabel::zoomIn);
+    connect(zoomInShortcutMac2, &QShortcut::activated, m_imageLabel, &AnnotationLabel::zoomIn);
+    connect(zoomOutShortcutMac, &QShortcut::activated, m_imageLabel, &AnnotationLabel::zoomOut);
+    connect(resetZoomShortcutMac, &QShortcut::activated, m_imageLabel, &AnnotationLabel::resetZoom);
 }
 
 void DialMarkDialog::setupToolbar()
@@ -738,7 +847,7 @@ void DialMarkDialog::loadDialImageFromFile()
     
     if (reply == QMessageBox::Yes) {
         // 生成新表盘
-        QPixmap newDial = generateDialImage();
+        QPixmap newDial = QPixmap::fromImage(generateDialImage());
         if (!newDial.isNull()) {
             m_imageLabel->setImage(newDial);
             qDebug() << "成功生成新表盘";
@@ -1155,89 +1264,111 @@ static inline QPointF pol2(const QPointF& c, double angDeg, double r){
 static inline double v2ang(double v, double vmax, double startDeg, double spanDeg){
     return startDeg + (v/vmax)*spanDeg; // 角度均分
 }
-
+static inline int dpi_to_dpm(double dpi) { return qRound(dpi / 0.0254); } // = dpi*39.370079
 // ======= 主入口：生成表盘图 =======
-QPixmap DialMarkDialog::generateDialImage()
+QImage DialMarkDialog::generateDialImage()
 {
-    const int S = m_dialConfig.imageSize;
+    if (m_dialType == "YYQY-13") {
+        return generateYYQYDialImage().toImage();
+    } else {
+        return generateBYQDialImage();
+    }
+}
 
-    QPixmap pm(S, S);
-    pm.fill(m_dialConfig.backgroundColor);
-    QPainter p(&pm);
+// ======= BYQ表盘生成 =======
+QImage DialMarkDialog::generateBYQDialImage()
+{
+    // 使用优化后的配置参数
+    const int OUT_W = 2778;         // 图片宽度
+    const int OUT_H = 2363;         // 图片高度
+    const double OUT_DPI = 2400;    // 图片DPI
+
+    QImage img(OUT_W, OUT_H, QImage::Format_RGBA64);
+    img.fill(Qt::white);
+
+    // 2) 写入 DPI 元数据（TIFF 会映射为 X/YResolution）
+    const int dpm = dpi_to_dpm(OUT_DPI);
+    img.setDotsPerMeterX(dpm);
+    img.setDotsPerMeterY(dpm);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    // 3) 可选：嵌入 sRGB 色彩空间（印前/跨软件显示更一致）
+    // img.setColorSpace(QColorSpace::SRgb);
+#endif
+
+    // 4) 开始绘制——根据工程图纸精确定位
+    QPainter p(&img);
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::TextAntialiasing, true);
 
-    const double Rpx = m_dialConfig.dialRadius;   // ≈ R17.1 的像素值
-    // 【可选】把圆心稍微下移，让上半弧更接近画布上方
-    const QPointF C(S/2.0, S*0.42);
+    // 根据图纸：圆心位置应该在整个圆形的中心
+    // 图纸显示的是一个完整圆形的上半部分，所以圆心应该在画布下半部分
+    const QPointF C(OUT_W/2.0, OUT_H * 0.54);           // 圆心位置调整
+    
+    // 重要：Rpx 就是图纸中 R17.1 对应的像素半径，不需要再做比例换算
+    const double Rpx = std::min(OUT_W, OUT_H) * 0.4;    // R17.1的实际像素半径
 
-    // 角度与量程
-    const double alpha    = 140.0;             // 图纸 α，可配
-    const double startDeg = 90.0 + alpha/2.0;  // 左上端（例如 160°）
-    const double spanDeg  = -alpha;  // = 图纸 α
-    const double vmax     = 50.0;    // 0–50 MPa
-    const double majorStep= 10.0;    // 数字刻度：0、10、…
-    const int    minorPer = 10;      // 1 MPa 一格
+    // 角度系统：根据图纸，弧形从左上约160°到右上约20°
+    const double alpha    = 100.0;                      // 总角度范围140°
+    const double startDeg = 90.0 + alpha/2.0;           // 起始角度160°（左上）
+    const double spanDeg  = -alpha;                     // 角度跨度-140°（顺时针）
 
-    // ① 刻度与数字（先画）
-    drawTicksAndNumbers(p, C, Rpx, startDeg, spanDeg, vmax, majorStep, minorPer);
-    // ② 彩带（后画：覆盖在刻度上层）
-    drawColorBandsOverTicks(p, C, Rpx, startDeg, spanDeg, vmax);
-    // ③ 单位
-    drawUnitMPa(p, C, Rpx);
+    // 量程与刻度
+    const double vmax      = m_byqConfig.maxPressure;
+    const double majorStep = m_byqConfig.majorStep; // 数字：0,10,20,30,40,50
+    const int    minorPer  = 10;   // 1 MPa 一格的次刻度
+
+    // ① 先绘制刻度与数字
+    drawTicksAndNumbers     (p, C, Rpx, startDeg, spanDeg, vmax, majorStep, minorPer);
+    // ② 然后绘制彩色带（覆盖在刻度上层）
+    drawColorBandsOverTicks (p, C, Rpx, startDeg, spanDeg, vmax);
+    // ③ 最后绘制单位
+    drawUnitMPa             (p, C, Rpx);
 
     p.end();
-    return pm;
+    return img;
 }
 
 void DialMarkDialog::drawTicksAndNumbers(QPainter& p, const QPointF& C, double outerR,
     double startDeg, double spanDeg,
     double vmax, double majorStep, int minorPerMajor)
 {
-    qDebug() << "outerR=" << outerR
-         << "k=" << (outerR/17.1)
-         << "r_tickOuter=" << 15.1*(outerR/17.1)
-         << "r_tickInner=" << 14.6*(outerR/17.1);
-    const double k = outerR / 17.1;        // 每“图纸单位”的像素
-    const double r_bandOuter = 16.1 * k;
-    const double r_tickOuter = 15.1 * k;  // 刻度外沿
-    const double r_tickInner = 14.6 * k;  // 刻度内沿
-    const double r_number    = 14.0 * k;  // 数字半径
+    const double r17_1 = outerR;                        // R17.1：最外圆
+    const double r16_1 = outerR * (16.1 / 17.1);       // R16.1：彩色带内圈
+    const double r15_1 = outerR * (15.1 / 17.1);       // R15.1：小刻度线外沿
+    const double r14_6 = outerR * (14.6 / 17.1);       // R14.6：大刻度线内沿
+    const double r13_0 = outerR * (13.0 / 17.1);       // R14.0：数字位置
+    // 刻度线宽：根据实际半径调整，保持合理比例
+    const double lineScale = outerR / 300.0;  // 基准缩放
+    QPen penMinor(Qt::black, std::max(1.0, 0.2 * lineScale * 10), Qt::SolidLine, Qt::RoundCap);    // 小刻度：平直端点
+    QPen penMajor(Qt::black, std::max(2.0, 0.4 * lineScale * 10), Qt::SolidLine, Qt::RoundCap);   // 大刻度：圆形端点
 
-    // 刻度线宽与长度
-    QPen penMinor(Qt::black, 2, Qt::SolidLine, Qt::FlatCap);
-    QPen penMajor(Qt::black, 5, Qt::SolidLine, Qt::FlatCap);
-    const double L_minor = (r_tickOuter - r_tickInner) * 0.60;
-    const double L_major = (r_tickOuter - r_tickInner) * 1.00;
-
-    // 次刻度（1 MPa）
+    // 次刻度（1 MPa间隔）
     p.setPen(penMinor);
     const double minorStep = 1.0;
-    for (double v=0; v<=vmax+1e-6; v+=minorStep) {
+    for (double v = 0; v <= vmax + 1e-6; v += minorStep) {
         const double ang = v2ang(v, vmax, startDeg, spanDeg);
-        p.drawLine(pol2(C, ang, r_tickOuter), pol2(C, ang, r_tickOuter - L_minor));
+        p.drawLine(pol2(C, ang, r16_1), pol2(C, ang, r15_1));
     }
 
-    // 主刻度（5 MPa）
+    // 主刻度（5 MPa间隔）
     p.setPen(penMajor);
     const double majorTickStep = 5.0;
-    for (double v=0; v<=vmax+1e-6; v+=majorTickStep) {
+    for (double v = 0; v <= vmax + 1e-6; v += majorTickStep) {
         const double ang = v2ang(v, vmax, startDeg, spanDeg);
-        p.drawLine(pol2(C, ang, r_tickOuter), pol2(C, ang, r_tickOuter - L_major));
+        p.drawLine(pol2(C, ang, r16_1), pol2(C, ang, r14_6));
     }
 
-    // 【关键 2】字号不要用 26*k/58*k 这种超大系数
-    // 用“每图纸单位像素”k 的小倍率，或用 Rpx 的一定比例
-    const int fontNumberPx = std::lround(1.6 * k);   // ≈ 25px（当 Rpx≈276 时）
-    QFont numFont("Times New Roman", fontNumberPx, QFont::DemiBold);
+    // 数字字体：直接使用合理的固定字体大小，不要基于比例计算
+    const int fontNumberPx = 3;  // 固定合理字体大小
+    QFont numFont("Arial", fontNumberPx, QFont::Bold);
     p.setFont(numFont);
-    p.setPen(Qt::black);
+    p.setPen(QPen(Qt::black, 1));
 
-    // 数字：0,10,...,50
-    for (double v=0; v<=vmax+1e-6; v+=majorStep) {
-        const double ang  = v2ang(v, vmax, startDeg, spanDeg);
-        const QPointF pos = pol2(C, ang, r_number);
-        const QString  t  = QString::number(int(v));
+    // 数字：0,10,20,30,40,50（每10MPa一个数字）
+    for (double v = 0; v <= vmax + 1e-6; v += majorStep) {
+        const double ang = v2ang(v, vmax, startDeg, spanDeg);
+        const QPointF pos = pol2(C, ang, r13_0);
+        const QString t = QString::number(int(v));
         QRectF br = p.fontMetrics().boundingRect(t);
         br.moveCenter(pos);
         p.drawText(br, Qt::AlignCenter, t);
@@ -1247,79 +1378,335 @@ void DialMarkDialog::drawTicksAndNumbers(QPainter& p, const QPointF& C, double o
 void DialMarkDialog::drawColorBandsOverTicks(QPainter& p, const QPointF& C, double outerR,
     double startDeg, double spanDeg, double vmax)
 {
-    // R → 像素半径
-    const double k             = outerR / 17.1;
-    const double r_bandOuter   = 16.1 * k;
-    const double r_bandInner   = 15.1 * k;
-    const double r_mid         = (r_bandOuter + r_bandInner)/2.0;  // 用粗笔画圆弧
-    const double bandWidth     = (r_bandOuter - r_bandInner);
+    // ① 彩带半径 = R16.1 ~ R15.1（图纸要求）
+    const double r17_1 = outerR;   // 彩带外沿
+    const double r16_1 = outerR * (16.1 / 17.1);   // 彩带内沿
+    const double r_mid = 0.5 * (r16_1 + r17_1);    // 以中径+粗笔画
+    const double bandWidth = (r17_1 - r16_1);
 
-    QRectF arcRect(C.x()-r_mid, C.y()-r_mid, 2*r_mid, 2*r_mid);
+    QRectF arcRect(C.x() - r_mid, C.y() - r_mid, 2*r_mid, 2*r_mid);
 
-    // 颜色（按50MPa量程调整分段）
-    const QColor Y07("#D8B64C");  // 黄色
-    const QColor G02("#2E5E36");  // 绿色  
-    const QColor R03("#6A2A2A");  // 红色
+    // ② 与刻度一致的“主刻度线宽” —— 与 drawTicksAndNumbers 里的 penMajor 保持一致
+    const double lineScale = outerR / 300.0;
+    const double w_major   = std::max(2.0, 0.4 * lineScale * 10); // 你的主刻度宽逻辑
+    const double deltaDeg  = qRadiansToDegrees(std::atan((w_major * 0.5) / r_mid));
+    const bool   clockwise = (spanDeg < 0);
 
-    struct Seg{ double v0,v1; QColor c; };
-    QVector<Seg> segs = {
-        { 0.0,  5.9, Y07},   // 0-5.9 MPa 黄色
-        { 5.9, 21.0, G02},   // 5.9-21 MPa 绿色
-        {21.0, vmax, R03}    // 21-50 MPa 红色
+    // ③ 颜色分段
+    const QColor Y07("#D8B64C"), G02("#2E5E36"), R03("#6A2A2A");
+    struct Seg { double v0, v1; QColor c; };
+    const QVector<Seg> segs = {
+        { 0.0,  5.9, Y07},
+        { 5.9, 21.0, G02},
+        {21.0, vmax, R03}
     };
 
     QPen pen; pen.setWidthF(bandWidth); pen.setCapStyle(Qt::FlatCap);
-    for(const auto& s: segs){
-        double a0   = v2ang(s.v0, vmax, startDeg, spanDeg);
-        double a1   = v2ang(s.v1, vmax, startDeg, spanDeg);
-        double span = a1 - a0;
+
+    // ④ 只在两端做角度补偿；内部边界不补偿（避免断开）
+    const double eps = 1e-9;
+    for (const auto& s : segs) {
+        double a0 = v2ang(s.v0, vmax, startDeg, spanDeg);
+        double a1 = v2ang(s.v1, vmax, startDeg, spanDeg);
+
+        if (std::abs(s.v0 - 0.0) < eps) {
+            // 左端（0MPa）：让彩带端头贴住 0 的主刻度“外边缘”
+            a0 -= (clockwise ? -deltaDeg : +deltaDeg);
+        }
+        if (std::abs(s.v1 - vmax) < eps) {
+            // 右端（Vmax）：让彩带端头贴住 Vmax 主刻度“外边缘”
+            a1 -= (clockwise ? +deltaDeg : -deltaDeg);
+        }
+
         pen.setColor(s.c);
         p.setPen(pen);
         p.setBrush(Qt::NoBrush);
-        p.drawArc(arcRect, deg16(a0), deg16(span));
+        p.drawArc(arcRect, deg16(a0), deg16(a1 - a0));
     }
 }
 // ======= 3) 中央单位与装饰 =======
 void DialMarkDialog::drawUnitMPa(QPainter& p, const QPointF& C, double Rpx)
 {
-    const double k = Rpx / 17.1;
+    // 直接使用合理的固定字体大小
+    double r4_0 = Rpx * (4.0 / 17.1);
+    double r2_0 = Rpx * (2.0 / 17.1);
+    double fontPixelHeight = (r4_0 - r2_0) * 2;
 
-    // 这两个系数调到合理范围（以前 58*k/40*k 太大）
-    const int mainPx = std::lround(3.6 * k);  // ≈ 57px（Rpx≈276 时）
-    const int subPx  = std::lround(2.5 * k);  // ≈ 40px
 
-    p.setPen(Qt::black);
-    p.setFont(QFont("Times New Roman", mainPx, QFont::DemiBold));
-    const QString MP = "MP";
-    QRectF brMP = p.fontMetrics().boundingRect(MP);
-    // 基线位置可按需要微调
-    QPointF base(C.x() - brMP.width()/2.0, C.y() + brMP.height()/3.0);
-    p.drawText(base, MP);
+    QFont font("DIN Rounded");
+    font.setPixelSize(std::round(fontPixelHeight)); // 按像素高度设置
+    font.setBold(true); // 若图纸要求粗体，可设置
+    p.setFont(font);
 
-    p.setFont(QFont("Times New Roman", subPx, QFont::DemiBold));
-    const QString a = "a";
-    QRectF bra = p.fontMetrics().boundingRect(a);
-    const double ax = base.x() + brMP.width() + 6;            // 6px 够用
-    const double ay = base.y() + bra.height() * 0.32;         // 下移一点做下标
-    p.drawText(QPointF(ax, ay), a);
+    p.setPen(QPen(Qt::black, 1));
+
+    const QString MPa = "MPa";
+    QRectF textRect = p.fontMetrics().boundingRect(MPa);
+
+    double r3_0 = (r4_0 + r2_0) / 2.0;
+    QPointF pos = QPointF(C.x() - textRect.width() / 2.0,
+                          C.y() - r3_0 - textRect.height() / 2.0);
+
+    p.drawText(pos, MPa);
 }
 
 void DialMarkDialog::saveGeneratedDial()
 {
-    QString fileName = QFileDialog::getSaveFileName(this,
-        "保存生成表盘图片", "generated_dial.tiff", 
-        "TIFF 图片 (*.tiff);;PNG 图片 (*.png);;JPEG 图片 (*.jpg);;BMP 图片 (*.bmp);;所有图片 (*.png *.jpg *.jpeg *.bmp *.tiff)");
+    // 生成表盘图像
+    QImage img = generateDialImage();
     
-    if (!fileName.isEmpty()) {
-        QPixmap generatedDial = m_imageLabel->getAnnotatedImage(); // 获取带标注的图片
-        if (!generatedDial.isNull()) {
-            if (generatedDial.save(fileName)) {
-                QMessageBox::information(this, "成功", "生成表盘图片已保存到: " + fileName);
-            } else {
-                QMessageBox::warning(this, "错误", "保存生成表盘图片失败: " + fileName);
-            }
-        } else {
-            QMessageBox::warning(this, "错误", "没有可保存的生成表盘图片");
+    // 选择保存路径
+    QString fileName = QFileDialog::getSaveFileName(this, 
+        "保存表盘图片", "", "TIFF Files (*.tiff);;PNG Files (*.png)");
+    
+    if (fileName.isEmpty()) {
+        return;
+    }
+    
+    QImageWriter w(fileName, "tiff");
+    // 压缩：LZW（无损，兼容性好）；也可改 "deflate"
+    w.setCompression(1); // 0=无压缩，1=LZW，2=PackBits，32946=Deflate（按 Qt/平台实现而定）
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    // Qt6.5+ 可设置 ICC（如有自定义）
+    // w.setColorSpace(QColorSpace::SRgb);
+#endif
+    if (!w.write(img)) {
+        QMessageBox::warning(this, "保存失败", "错误：保存失败: " + w.errorString());
+    } else {
+        QMessageBox::information(this, "保存成功", "成功：已保存 TIFF: " + fileName);
+    }
+}
+
+// ======= YYQY表盘生成 =======
+QPixmap DialMarkDialog::generateYYQYDialImage()
+{
+    // YYQY表盘规格：1890x1890像素，1200x1200分辨率
+    const int S = 1890;  
+    
+    QPixmap pm(S, S);
+    pm.fill(Qt::white);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setRenderHint(QPainter::TextAntialiasing, true);
+    
+    const QPointF C(S/2.0, S/2.0);  // 圆心
+    const double outerR = 16.3 * S / 32.6;  // 外径半径（基于R16.3）
+    
+    // 获取表盘总角度，使用配置值
+    double totalAngle = m_yyqyConfig.totalAngle;
+    if (m_dialAngleSpin) {
+        totalAngle = m_dialAngleSpin->value();
+        // 同时更新配置
+        m_yyqyConfig.totalAngle = totalAngle;
+    }
+    
+    // 绘制各个组件
+    drawYYQYColorBands(p, C, outerR, totalAngle);
+    drawYYQYTicksAndNumbers(p, C, outerR, totalAngle);
+    drawYYQYCenterTexts(p, C, outerR);
+    drawYYQYPositionDot(p, C, outerR, totalAngle);
+    
+    p.end();
+    return pm;
+}
+
+void DialMarkDialog::drawYYQYTicksAndNumbers(QPainter& p, const QPointF& C, double outerR, double totalAngle)
+{
+    const double k = outerR / 16.3;  // 缩放系数
+    
+    // 刻度半径 - 根据record.md的规格
+    const double r_major_outer = 15.5 * k;  // 大刻度外径
+    const double r_major_inner = 12.0 * k;  // 大刻度内径
+    const double r_minor_outer = 15.5 * k;  // 小刻度外径
+    const double r_minor_inner = 13.8 * k;  // 小刻度内径
+    const double r_number = 11.8 * k;       // 数字半径
+    
+    // 角度设置 - 表盘是左右对称的
+    const double startAngle = 90.0 + totalAngle / 2.0;  // 起始角度（从左上开始）
+    const double endAngle = 90.0 - totalAngle / 2.0;    // 结束角度（到右上结束）
+    
+    // 计算刻度数量 - 根据配置的最大压力
+    const double maxPressure = m_yyqyConfig.maxPressure;  // 使用配置的最大压力
+    const int totalPositions = (int)(maxPressure * 10) + 1;  // 总刻度位置（每0.1MPa一个位置）
+    const double anglePerPosition = totalAngle / (totalPositions - 1);  // 每个位置的角度
+    
+    // 大刻度位置：整数MPa对应的位置索引
+    QSet<int> majorPositions;
+    for (int i = 0; i <= (int)maxPressure; ++i) {
+        majorPositions.insert(i * 10);  // 每整数MPa对应位置索引
+    }
+    
+    // 绘制小刻度线（线宽0.3）- 在非大刻度位置
+    QPen minorPen(Qt::black, 0.3 * k, Qt::SolidLine, Qt::FlatCap);
+    p.setPen(minorPen);
+    for (int i = 0; i < totalPositions; ++i) {
+        if (!majorPositions.contains(i)) {  // 不是大刻度位置才画小刻度
+            double angle = startAngle - i * anglePerPosition;  // 从左上逆时针
+            double rad = qDegreesToRadians(angle);
+            QPointF outer(C.x() + r_minor_outer * qCos(rad), 
+                         C.y() - r_minor_outer * qSin(rad));
+            QPointF inner(C.x() + r_minor_inner * qCos(rad), 
+                         C.y() - r_minor_inner * qSin(rad));
+            p.drawLine(outer, inner);
         }
     }
+    
+    // 绘制大刻度线（线宽0.8，对应整数MPa）
+    QPen majorPen(Qt::black, 0.8 * k, Qt::SolidLine, Qt::FlatCap);
+    p.setPen(majorPen);
+    for (int pos : majorPositions) {
+        double angle = startAngle - pos * anglePerPosition;
+        double rad = qDegreesToRadians(angle);
+        QPointF outer(C.x() + r_major_outer * qCos(rad), 
+                     C.y() - r_major_outer * qSin(rad));
+        QPointF inner(C.x() + r_major_inner * qCos(rad), 
+                     C.y() - r_major_inner * qSin(rad));
+        p.drawLine(outer, inner);
+    }
+    
+    // 绘制数字0,1,2,3,4,5,6（3号黑体）- 修复字体大小
+    // 3号字体约相当于14-16px，这里使用合理的大小
+    int fontSize = (int)(16 * k);  // 根据缩放系数k调整字体大小
+    fontSize = qMax(fontSize, 12);  // 最小12px
+    fontSize = qMin(fontSize, 24);  // 最大24px
+    QFont numberFont("SimHei", fontSize, QFont::Normal);
+    p.setFont(numberFont);
+    p.setPen(Qt::black);
+    
+    // 绘制数字在对应的大刻度位置
+    for (int i = 0; i <= (int)maxPressure; ++i) {
+        int pos = i * 10;  // 每整数MPa对应的位置索引
+        double angle = startAngle - pos * anglePerPosition;
+        double rad = qDegreesToRadians(angle);
+        
+        QPointF numberPos(C.x() + r_number * qCos(rad), 
+                         C.y() - r_number * qSin(rad));
+        
+        QString text = QString::number(i);
+        
+        // 对于数字0，稍微向上偏移避开定位点
+        if (i == 0) {
+            numberPos.ry() -= k * 2;  // 向上偏移
+        }
+        
+        // 计算文本矩形大小
+        QFontMetrics fm(numberFont);
+        QRect textRect = fm.boundingRect(text);
+        QRectF drawRect(numberPos.x() - textRect.width()/2.0, 
+                       numberPos.y() - textRect.height()/2.0, 
+                       textRect.width(), textRect.height());
+        
+        p.drawText(drawRect, Qt::AlignCenter, text);
+    }
+}
+
+void DialMarkDialog::drawYYQYColorBands(QPainter& p, const QPointF& C, double outerR, double totalAngle)
+{
+    const double k = outerR / 16.3;
+    const double r_band_outer = 16.3 * k;
+    const double r_band_inner = 15.5 * k;
+    const double bandWidth = r_band_outer - r_band_inner;
+    const double r_mid = (r_band_outer + r_band_inner) / 2.0;
+    
+    QRectF arcRect(C.x() - r_mid, C.y() - r_mid, 2 * r_mid, 2 * r_mid);
+    
+    QPen pen;
+    pen.setWidthF(bandWidth);
+    pen.setCapStyle(Qt::FlatCap);
+    
+    // 角度设置 - 与刻度保持一致
+    const double startAngle = 90.0 + totalAngle / 2.0;  // 起始角度
+    const double maxPressure = m_yyqyConfig.maxPressure;  // 使用配置的最大压力
+    const double anglePerMPa = totalAngle / maxPressure;  // 每MPa对应的角度
+    
+    // 0-warningPressure：黑色
+    double black_start_angle = startAngle;
+    double black_span_angle = -m_yyqyConfig.warningPressure * anglePerMPa;  // 使用配置的警告压力值
+    pen.setColor(Qt::black);
+    p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
+    p.drawArc(arcRect, deg16(black_start_angle), deg16(black_span_angle));
+    
+    // warningPressure-maxPressure：红色
+    double red_start_angle = startAngle + black_span_angle;  // 从警告压力开始
+    double red_span_angle = -(maxPressure - m_yyqyConfig.warningPressure) * anglePerMPa;  // 剩余压力范围
+    pen.setColor(Qt::red);
+    p.setPen(pen);
+    p.drawArc(arcRect, deg16(red_start_angle), deg16(red_span_angle));
+}
+
+void DialMarkDialog::drawYYQYCenterTexts(QPainter& p, const QPointF& C, double outerR)
+{
+    const double k = outerR / 16.3;
+    
+    // "MPa"文字在圆心正上方R3位置（2号黑体）- 修复字体大小
+    int mpaFontSize = (int)(14 * k);  // 2号字体约相当于14px
+    mpaFontSize = qMax(mpaFontSize, 10);  // 最小10px
+    mpaFontSize = qMin(mpaFontSize, 20);  // 最大20px
+    QFont mpaFont("SimHei", mpaFontSize, QFont::Normal);
+    p.setFont(mpaFont);
+    p.setPen(Qt::black);
+    
+    QPointF mpaPos(C.x(), C.y() - 3 * k);
+    QFontMetrics mpafm(mpaFont);
+    QRect mpaRect = mpafm.boundingRect("MPa");
+    QRectF mpaDrawRect(mpaPos.x() - mpaRect.width()/2.0, 
+                      mpaPos.y() - mpaRect.height()/2.0, 
+                      mpaRect.width(), mpaRect.height());
+    p.drawText(mpaDrawRect, Qt::AlignCenter, "MPa");
+    
+    // "禁油"和"氧气"文字（3号黑体）- 修复字体大小
+    int textFontSize = (int)(16 * k);  // 3号字体约相当于16px
+    textFontSize = qMax(textFontSize, 12);  // 最小12px
+    textFontSize = qMin(textFontSize, 24);  // 最大24px
+    QFont textFont("SimHei", textFontSize, QFont::Normal);
+    p.setFont(textFont);
+    
+    double text_r = (2.5 + 6.5) / 2.0 * k;  // R2.5-R6.5的中间位置
+    
+    // "禁油"文字在圆心左边
+    QPointF jinYouPos(C.x() - text_r, C.y());
+    QFontMetrics textfm(textFont);
+    QRect jinYouRect = textfm.boundingRect("禁油");
+    QRectF jinYouDrawRect(jinYouPos.x() - jinYouRect.width()/2.0, 
+                         jinYouPos.y() - jinYouRect.height()/2.0, 
+                         jinYouRect.width(), jinYouRect.height());
+    p.drawText(jinYouDrawRect, Qt::AlignCenter, "禁油");
+    
+    // "氧气"文字在圆心右边（有蓝色下划线）
+    QPointF yangQiPos(C.x() + text_r, C.y());
+    QRect yangQiRect = textfm.boundingRect("氧气");
+    QRectF yangQiDrawRect(yangQiPos.x() - yangQiRect.width()/2.0, 
+                         yangQiPos.y() - yangQiRect.height()/2.0, 
+                         yangQiRect.width(), yangQiRect.height());
+    p.setPen(Qt::black);
+    p.drawText(yangQiDrawRect, Qt::AlignCenter, "氧气");
+    
+    // 绘制"氧气"的蓝色下划线（酞蓝色PB06，宽0.5，圆角）
+    QPen underlinePen(QColor("#0066CC"), 0.5 * k, Qt::SolidLine);
+    p.setPen(underlinePen);
+    double underlineY = yangQiDrawRect.bottom() + k * 0.5;
+    double underlineMargin = k * 2;  // 左右留些边距
+    p.drawLine(QPointF(yangQiDrawRect.left() + underlineMargin, underlineY), 
+               QPointF(yangQiDrawRect.right() - underlineMargin, underlineY));
+}
+
+void DialMarkDialog::drawYYQYPositionDot(QPainter& p, const QPointF& C, double outerR, double totalAngle)
+{
+    const double k = outerR / 16.3;
+    
+    // 0刻度线减1度，在R11.5位置画Φ1的小黑点
+    const double startAngle = 90.0 + totalAngle / 2.0;  // 与刻度起始角度一致
+    // 0刻度在startAngle位置，减1度就是在startAngle + 1.0位置（逆时针为正）
+    double dotAngle = startAngle + 1.0;  // 0刻度减1度（向逆时针偏移）
+    double rad = qDegreesToRadians(dotAngle);
+    double r_dot = 11.5 * k;
+    
+    QPointF dotPos(C.x() + r_dot * qCos(rad), 
+                   C.y() - r_dot * qSin(rad));
+    
+    p.setPen(Qt::black);
+    p.setBrush(Qt::black);
+    double dotRadius = 0.5 * k;  // Φ1的半径
+    p.drawEllipse(dotPos, dotRadius, dotRadius);
 }

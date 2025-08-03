@@ -893,9 +893,9 @@ void MainWindow::runAlgoOnce()
 
 void MainWindow::showDialMarkDialog()
 {
-    qDebug() << "打开表盘标注对话框";
+    qDebug() << "打开表盘标注对话框，表盘类型:" << m_currentDialType;
     
-    auto dialog = std::make_unique<DialMarkDialog>(this);
+    auto dialog = std::make_unique<DialMarkDialog>(this, m_currentDialType);
     dialog->exec();
 }
 
@@ -1008,7 +1008,7 @@ void highPreciseDetector::detectCircles() {
     
     // 使用HoughCircles检测圆形
     std::vector<cv::Vec3f> circles;
-    cv::HoughCircles(gray, circles, cv::HOUGH_GRADIENT, 1, gray.rows/16, 100, 30, 1, 0);
+    cv::HoughCircles(gray, circles, cv::HOUGH_GRADIENT, 1, gray.rows/16.0, 100, 30, 1, 0);
     
     // 选择最大的圆作为表盘
     if (!circles.empty()) {
