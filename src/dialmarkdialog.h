@@ -228,7 +228,8 @@ private:
     void drawUnitMPa(QPainter& p, const QPointF& C, double outerR);
     
     // YYQY表盘绘制方法  
-    void drawYYQYTicksAndNumbers(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
+    void drawYYQYTicks(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
+    void drawYYQYNumbers(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
     void drawYYQYColorBands(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
     void drawYYQYCenterTexts(QPainter& p, const QPointF& C, double outerR);
     void drawYYQYPositionDot(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
