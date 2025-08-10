@@ -63,7 +63,7 @@ struct YYQYDialConfig {
     double totalAngle;       // 表盘总角度 (度)
     double warningPressure;  // 警告压力值 (MPa) - 黑色到红色的分界点
     
-    YYQYDialConfig() : maxPressure(6.3), totalAngle(300.0), warningPressure(4.0) {}
+    YYQYDialConfig() : maxPressure(6.3), totalAngle(280.0), warningPressure(4.0) {}
 };
 
 // 自定义图片显示标签类，支持鼠标交互
@@ -233,6 +233,7 @@ private:
     void drawYYQYColorBands(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
     void drawYYQYCenterTexts(QPainter& p, const QPointF& C, double outerR);
     void drawYYQYPositionDot(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
+    void drawYYQYLogo(QPainter& p, const QPointF& C, double outerR);  // 绘制商标
     
     void saveGeneratedDial();
     

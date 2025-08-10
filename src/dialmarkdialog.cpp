@@ -748,11 +748,19 @@ void DialMarkDialog::setupUI()
     
     // 连接信号
     connect(m_generateButton, &QPushButton::clicked, this, [this]() {
-        m_dialConfig.maxPressure = m_maxPressureSpin->value();
+        // 更新BYQ配置
+        m_byqConfig.maxPressure = m_maxPressureSpin->value();
+        
+        // 更新YYQY配置
+        if (m_dialType == "YYQY-13" && m_dialAngleSpin) {
+            m_yyqyConfig.totalAngle = m_dialAngleSpin->value();
+            m_yyqyConfig.maxPressure = m_maxPressureSpin->value();
+        }
+        
         QPixmap newDial = QPixmap::fromImage(generateDialImage());
         if (!newDial.isNull()) {
             m_imageLabel->setImage(newDial);
-            qDebug() << "成功生成新表盘";
+            qDebug() << "成功生成新表盘, 角度:" << (m_dialAngleSpin ? m_dialAngleSpin->value() : 0);
         } else {
             QMessageBox::warning(this, "错误", "生成表盘失败");
         }
@@ -796,6 +804,15 @@ void DialMarkDialog::setupUI()
                 int index = m_annotationList->row(item);
                 showAnnotationProperties(index);
             });
+    
+    // 连接角度变化信号（仅YYQY类型）
+    if (m_dialType == "YYQY-13" && m_dialAngleSpin) {
+        connect(m_dialAngleSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, [this](int value) {
+                    m_yyqyConfig.totalAngle = value;
+                    qDebug() << "角度已更新为：" << value;
+                });
+    }
     
     // 确保字体设置为默认黑体
     m_fontComboBox->setCurrentText("黑体");
@@ -1492,15 +1509,13 @@ QPixmap DialMarkDialog::generateYYQYDialImage()
     const QPointF C(S/2.0, S/2.0);  // 圆心
     const double outerR = 16.3 * S / 42.0;  // 外径半径（缩小表盘，留出边距）
     
-    // 获取表盘总角度，使用配置值
+    // 使用配置中的角度值
     double totalAngle = m_yyqyConfig.totalAngle;
-    if (m_dialAngleSpin) {
-        totalAngle = m_dialAngleSpin->value();
-        // 同时更新配置
-        m_yyqyConfig.totalAngle = totalAngle;
-    }
+    
+    qDebug() << "生成YYQY表盘，角度：" << totalAngle;
     
     // 绘制各个组件 - 调整绘制顺序，确保数字不被遮挡
+    drawYYQYLogo(p, C, outerR);                        // 绘制商标
     drawYYQYTicks(p, C, outerR, totalAngle);           // 先绘制刻度线
     drawYYQYColorBands(p, C, outerR, totalAngle);      // 然后绘制彩色带
     drawYYQYNumbers(p, C, outerR, totalAngle);         // 再绘制数字（确保在最上层）
@@ -1757,4 +1772,41 @@ void DialMarkDialog::drawYYQYPositionDot(QPainter& p, const QPointF& C, double o
     p.setBrush(Qt::black);
     double dotRadius = 0.3 * k;  // 缩小定位点
     p.drawEllipse(dotPos, dotRadius, dotRadius);
+}
+
+void DialMarkDialog::drawYYQYLogo(QPainter& p, const QPointF& C, double outerR)
+{
+    const double k = outerR / 16.3;  // 缩放系数
+    
+    // 加载商标图片
+    QString logoPath = QApplication::applicationDirPath() + "/images/logo_region.png";
+    QPixmap logoPixmap(logoPath);
+    
+    if (logoPixmap.isNull()) {
+        qDebug() << "无法加载商标图片：" << logoPath;
+        return;
+    }
+    
+    QImage logoImage = logoPixmap.toImage();
+    
+    // 商标上边界在圆心向下R19的位置
+    double logoTopY = C.y() + 10.0 * k;  // 圆心向下R19
+    
+    // 商标大小不受刻度盘角度影响，只依赖于表盘缩放
+    double logoScale = k * 0.01913824057;  // 固定比例，不受角度影响
+    // 计算缩放后的商标尺寸
+    int scaledWidth = (int)(logoImage.width() * logoScale);
+    int scaledHeight = (int)(logoImage.height() * logoScale);
+    
+    // 缩放商标图像
+    QImage scaledLogo = logoImage.scaled(scaledWidth, scaledHeight, 
+                                        Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    
+    // 计算商标的中心位置（水平居中，上边界在指定位置）
+    QPointF logoPos(C.x() - scaledWidth / 2.0, logoTopY);
+    
+    // 绘制商标
+    p.drawImage(logoPos, scaledLogo);
+    
+    qDebug() << "商标已绘制在位置：" << logoPos << "，尺寸：" << scaledWidth << "x" << scaledHeight;
 }
