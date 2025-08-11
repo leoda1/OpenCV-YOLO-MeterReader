@@ -29,14 +29,11 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->mainToolBar->setIconSize(QSize(48, 48));
     ui->centralWidget->installEventFilter(this);
 
-    // 为重要的UI元素设置更大的字体
     QFont bigFont = this->font();
     bigFont.setPointSize(16);
     
-    // 设置预览区域标题字体
     ui->srcHeader->setFont(bigFont);
     
-    // 设置状态标签字体
     QFont statusFont = this->font();
     statusFont.setPointSize(15);
     ui->sizeLabel->setFont(statusFont);
@@ -48,36 +45,43 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->collectionValue->setFont(statusFont);
     ui->fpsValue->setFont(statusFont);
     ui->labelAngle->setFont(statusFont);
-    
-    // 按钮样式已在UI文件中设置，这里只需要确保字体一致性
-    // UI文件中已经设置了按钮的样式和字体
 
-    connect(ui->actionPreview, &QAction::triggered, this, &MainWindow::startPreview);
+    connect(ui->actionSave, &QAction::triggered, this, &MainWindow::onSaveData);
     connect(ui->actionRefresh, &QAction::triggered, this, &MainWindow::refresh);
     connect(ui->actionSetting, &QAction::triggered, this, &MainWindow::setting);
     connect(ui->actionAbout, &QAction::triggered, this, &MainWindow::about);
-    connect(ui->actionCollectSingle, &QAction::triggered, this, &MainWindow::singleGrab);
-    connect(ui->actionCollectMulti, &QAction::triggered, this, &MainWindow::multiGrab);
+    connect(ui->actionResetZero, &QAction::triggered, this, &MainWindow::onResetZero);
+    connect(ui->actionCapture, &QAction::triggered, this, &MainWindow::onCaptureZero);
+    connect(ui->actionConfirm, &QAction::triggered, this, &MainWindow::onConfirmData);
     connect(ui->actionSpaceAlgo, &QAction::triggered, this, &MainWindow::showDialMarkDialog);
     connect(ui->actionErrorTable, &QAction::triggered, this, &MainWindow::showErrorTableDialog);
     connect(ui->pushResetZero, &QPushButton::clicked, this, &MainWindow::onResetZero);
     connect(ui->pushCaptureZero, &QPushButton::clicked, this, &MainWindow::onCaptureZero);
+    connect(ui->pushConfirm, &QPushButton::clicked, this, &MainWindow::onConfirmData);
+    connect(ui->pushSave, &QPushButton::clicked, this, &MainWindow::onSaveData);
 
     QToolBar *mytoolbar = new QToolBar(this);
     mytoolbar->addAction(ui->actionCloseAlgo);
     mytoolbar->setIconSize(QSize(48, 48));
     addToolBar(Qt::RightToolBarArea,mytoolbar);
-    connect(ui->actionCloseAlgo, &QAction::triggered, this, &MainWindow::algoArea);
+    
+    // 隐藏切换按钮，因为我们默认展开识别角度区域
+    mytoolbar->setVisible(false);
+    
+    // 如果还想保留切换功能，可以注释掉上面这行，启用下面这行
+    // connect(ui->actionCloseAlgo, &QAction::triggered, this, &MainWindow::algoArea);
 
-    // 设置表盘类型选择器
-    setupDialTypeSelector();
+    setupDialTypeSelector();   // 设置表盘类型选择器
+    initPointerConfigs();      // 初始化指针识别配置
+    initializeDataArrays();    // 初始化数据数组
 
     smallSize = QSize(750,this->height());
     bigSize = this->size();
     
-    // 程序启动时隐藏角度检测区域
-    ui->angleControlWidget->setVisible(false);
-    algoArea();
+    // 默认展开识别角度区域，使用布局管理器自动管理
+    ui->destDisplay->setVisible(true);
+    
+    qDebug() << "UI initialized with default expanded layout";
 }
 
 MainWindow::~MainWindow()
@@ -109,7 +113,7 @@ ui->sizeValue->setText("等待连接...");
     ui->fpsValue->setText("0");
     ui->labelAngle->setText("等待检测...");
     
-    ui->actionPreview->setEnabled(false);
+    ui->actionSave->setEnabled(false);
 
     ui->srcDisplay->setText("请连接相机并点击预览");
     ui->srcDisplay->setAlignment(Qt::AlignCenter);
@@ -302,18 +306,20 @@ void MainWindow::startPreview(){
 
 
 void MainWindow::setButtons(bool inPreview){
-    ui->actionPreview->setEnabled(!inPreview);
-    ui->actionCollectSingle->setEnabled(true);
-    ui->actionCollectMulti->setEnabled(true);
+    ui->actionSave->setEnabled(true);
+    ui->actionResetZero->setEnabled(true);
+    ui->actionCapture->setEnabled(true);
+    ui->actionConfirm->setEnabled(true);
 
     //    ui->actionSpaceAlgo->setEnabled(!inPreview);
 
 }
 
 void MainWindow::setNoCamera(){
-    ui->actionPreview->setEnabled(false);
-    ui->actionCollectSingle->setEnabled(false);
-    ui->actionCollectMulti->setEnabled(false);
+    ui->actionSave->setEnabled(false);
+    ui->actionResetZero->setEnabled(false);
+    ui->actionCapture->setEnabled(false);
+    ui->actionConfirm->setEnabled(false);
 }
 
 void MainWindow::updateCollectionDisplay() {
@@ -615,71 +621,7 @@ void MainWindow::spatial_LSI_Matlab(){
 }
 
 void MainWindow::algoArea(){
-    const int deskW = QGuiApplication::primaryScreen()->geometry().width();
-    
-    // 设置窗口更新模式，减少闪动
-    this->setUpdatesEnabled(false);
-    
-    if(isAlgoAreaOpened){
-        // 关闭识别角度模式
-        isAlgoAreaOpened = false;
-        ui->actionCloseAlgo->setText("关闭识别角度");
-
-        int w = bigSize.width();
-
-        // 先调整窗口大小和位置
-        setGeometry(
-            ceil((deskW - w)/2),
-            50,
-            w,
-            this->height()
-        );
-
-        setFixedSize(w, this->height());
-        
-        // 显示右侧检测结果区域和角度控制区域
-        ui->destDisplay->setHidden(false);
-        ui->angleControlWidget->setVisible(true);
-
-        // 调整检测结果显示区域的尺寸和位置
-        int h = (ui->destDisplay->width() * atoi(saveSettings->height.c_str()) / atoi(saveSettings->width.c_str()));
-        ui->destDisplay->setGeometry(ui->destDisplay->geometry().x(), ui->srcDisplay->geometry().y(), ui->destDisplay->width(), h);
-        
-        // 调整源图像区域
-        ui->srcFrame->setGeometry(ui->srcFrame->geometry().x(), ui->srcFrame->geometry().y(), 658, 531);
-        ui->srcHeader->resize(658, ui->srcHeader->size().height());
-        ui->srcBottomhorizontalLayout->setGeometry(QRect(0, ui->srcBottomhorizontalLayout->geometry().y(), 658, ui->srcHeader->size().height()));
-
-    }else{
-        // 打开识别角度模式
-        isAlgoAreaOpened = true;
-        ui->actionCloseAlgo->setText("识别角度");
-
-        int w = smallSize.width() + 20;
-        
-        // 先调整窗口大小和位置
-        setGeometry(
-            ceil((deskW - w)/2),
-            50,
-            w,
-            this->height()
-        );
-
-        setFixedSize(w, this->height());
-        
-        // 隐藏右侧检测结果区域和角度控制区域
-        ui->destDisplay->setHidden(true);
-        ui->angleControlWidget->setVisible(false);
-        
-        // 调整源图像区域
-        ui->srcFrame->setGeometry(ui->srcFrame->geometry().x(), ui->srcFrame->geometry().y(), 658, 531);
-        ui->srcBottomhorizontalLayout->setGeometry(QRect(0, ui->srcBottomhorizontalLayout->geometry().y(), 658, ui->srcHeader->size().height()));
-        ui->srcHeader->resize(658, ui->srcHeader->size().height());
-    }
-    
-    // 重新启用窗口更新
-    this->setUpdatesEnabled(true);
-    this->update();
+    qDebug() << "algoArea called - layout is now fixed";
 }
 
 
@@ -701,40 +643,44 @@ void MainWindow::onCaptureZero()
         cv::Mat frame;
         cv::cvtColor(m_lastRgb, frame, cv::COLOR_RGB2BGR);
 
-        highPreciseDetector det(frame);
-        if (det.getLine().empty()) {
-            QMessageBox::warning(this, "提示", "未检测到指针");
-            return;
-        }
-        
-        double now = det.getAngle();
+        // 使用多次测量提高精度
+        double now = measureAngleMultipleTimes(frame, 3);
         if (now == -999) {
             QMessageBox::warning(this, "错误", "计算角度失败");
             return;
         }
+
+        // 更新指针运动方向
+        updatePointerDirection(now);
 
         // 计算角度差
         double delta = now - m_zeroAngle;
         if (delta > 180)  delta -= 360;
         if (delta < -180) delta += 360;
 
-        qDebug() << "零位:" << m_zeroAngle << "当前:" << now << "角度差:" << delta;
+        qDebug() << "零位:" << m_zeroAngle << "当前:" << now << "角度差:" << delta << "行程:" << getStrokeDirectionString();
 
         ui->labelAngle->setText(
-            QString("零位: %1°\n当前: %2°\n角度差: %3°")
+            QString("零位: %1° | 当前: %2° | 角度差: %3° | 行程: %4")
                 .arg(m_zeroAngle, 0, 'f', 2)
                 .arg(now, 0, 'f', 2)
-                .arg(delta, 0, 'f', 2));
+                .arg(delta, 0, 'f', 2)
+                .arg(getStrokeDirectionString()));
 
-        // 右侧显示检测示意图
-        det.showScale1Result();
-        cv::Mat vis = det.visual();
+        // 右侧显示检测示意图 - 创建单次检测器用于可视化
+        highPreciseDetector visDetector(frame, m_currentConfig);
+        visDetector.showScale1Result();
+        cv::Mat vis = visDetector.visual();
         cv::cvtColor(vis, vis, cv::COLOR_BGR2RGB);
         QImage q(vis.data, vis.cols, vis.rows, vis.step, QImage::Format_RGB888);
         ui->destDisplay->setPixmap(QPixmap::fromImage(q)
                                    .scaled(ui->destDisplay->size(),
                                            Qt::KeepAspectRatio,
                                            Qt::SmoothTransformation));
+        
+        // 更新采集计数
+        currentCapturedCount++;
+        updateCollectionDisplay();
         
     } catch (const std::exception& e) {
         qDebug() << "测量角度时发生异常:" << e.what();
@@ -745,7 +691,6 @@ void MainWindow::onCaptureZero()
     }
 }
 
-// 改进后的 grabOneFrame 函数
 bool MainWindow::grabOneFrame(cv::Mat& outBgr)
 {
     if (m_lastRgb.empty()) {
@@ -784,7 +729,7 @@ void MainWindow::onResetZero()
         qDebug() << "图像尺寸:" << frame.cols << "x" << frame.rows;
         
         // 创建检测器
-        highPreciseDetector det(frame);
+        highPreciseDetector det(frame, m_currentConfig);
         
         // 检查是否检测到必要的元素
         if (det.getCircles().empty() && det.getLine().empty()) {
@@ -802,6 +747,9 @@ void MainWindow::onResetZero()
         // 设置零位
         m_zeroAngle = angle;
         m_hasZero = true;
+        
+        // 重置行程跟踪
+        resetStrokeTracking();
         
         qDebug() << "零位设置成功，角度:" << m_zeroAngle;
         
@@ -841,7 +789,7 @@ void MainWindow::runAlgoOnce()
         cv::Mat bgr;
         cv::cvtColor(rgbFrame, bgr, cv::COLOR_RGB2BGR);
 
-        highPreciseDetector det(bgr);
+        highPreciseDetector det(bgr, m_currentConfig);
         if (det.getCircles().empty() || det.getLine().empty())
             throw std::runtime_error("未检测到表盘或指针");
 
@@ -862,15 +810,21 @@ void MainWindow::runAlgoOnce()
 
         // 更新角度标签
         if (angle != -999) {
+            // 更新指针运动方向（如果已设置零位）
+            if (m_hasZero) {
+                updatePointerDirection(angle);
+            }
+            
             QString txt;
             if (m_hasZero) {
                 double delta = angle - m_zeroAngle;
                 if (delta > 180)  delta -= 360;
                 if (delta < -180) delta += 360;
-                txt = QString("零位: %1°\n当前: %2°\n角度差: %3°")
+                txt = QString("零位: %1° | 当前: %2° | 角度差: %3° | 行程: %4")
                         .arg(m_zeroAngle, 0, 'f', 2)
                         .arg(angle, 0, 'f', 2)
-                        .arg(delta, 0, 'f', 2);
+                        .arg(delta, 0, 'f', 2)
+                        .arg(getStrokeDirectionString());
             } else {
                 txt = QString("当前角度: %1°").arg(angle, 0, 'f', 2);
             }
@@ -961,20 +915,83 @@ void MainWindow::setupDialTypeSelector()
     connect(m_dialTypeCombo, &QComboBox::currentTextChanged, this, &MainWindow::onDialTypeChanged);
 }
 
+void MainWindow::initPointerConfigs()
+{
+    // YYQY表盘配置 - 针对白色指针优化
+    m_yyqyConfig.dp = 1.0;
+    m_yyqyConfig.minDist = 100;  
+    m_yyqyConfig.param1 = 100;
+    m_yyqyConfig.param2 = 25;              // 降低以检测更多圆候选
+    m_yyqyConfig.minRadius = 150;  
+    m_yyqyConfig.maxRadius = 300;
+    
+    // 白色指针检测参数 - 针对YYQY白色指针优化
+    m_yyqyConfig.usePointerFromCenter = true;  // 使用专门的白色指针检测
+    m_yyqyConfig.pointerSearchRadius = 0.85;   // 搜索半径比例
+    m_yyqyConfig.pointerMinLength = 60;        // 降低最小长度，白色指针可能较短
+    m_yyqyConfig.cannyLow = 30;               // 保持低阈值
+    m_yyqyConfig.cannyHigh = 100;
+    m_yyqyConfig.rho = 1.0;                   // 距离分辨率
+    m_yyqyConfig.theta = CV_PI/180;           // 角度分辨率
+    m_yyqyConfig.threshold = 35;              // 降低直线检测阈值
+    m_yyqyConfig.minLineLength = 45;          // 降低最小线段长度
+    m_yyqyConfig.maxLineGap = 12;             // 适当增加间隙
+    
+    // BYQ表盘配置（保持原有参数）
+    m_byqConfig.dp = 1.0;
+    m_byqConfig.minDist = 100;
+    m_byqConfig.param1 = 100;
+    m_byqConfig.param2 = 30;
+    m_byqConfig.minRadius = 50;
+    m_byqConfig.maxRadius = 0;
+    
+    m_byqConfig.usePointerFromCenter = false;  // 使用传统的边缘检测方法
+    m_byqConfig.pointerSearchRadius = 0.9;
+    m_byqConfig.pointerMinLength = 50;
+    m_byqConfig.cannyLow = 50;
+    m_byqConfig.cannyHigh = 150;
+    m_byqConfig.rho = 1.0;
+    m_byqConfig.theta = CV_PI/180;
+    m_byqConfig.threshold = 50;
+    m_byqConfig.minLineLength = 30;
+    m_byqConfig.maxLineGap = 10;
+    
+    // 设置默认配置
+    m_currentConfig = &m_yyqyConfig;
+    
+    qDebug() << "指针识别配置初始化完成 - 白色指针优化版本";
+}
+
+void MainWindow::switchPointerConfig(const QString& dialType)
+{
+    if (dialType == "YYQY-13") {
+        m_currentConfig = &m_yyqyConfig;
+        qDebug() << "切换到YYQY-13指针识别配置";
+    } else if (dialType == "BYQ-19") {
+        m_currentConfig = &m_byqConfig;
+        qDebug() << "切换到BYQ-19指针识别配置";
+    }
+}
+
 void MainWindow::onDialTypeChanged(const QString &dialType)
 {
     m_currentDialType = dialType;
+    switchPointerConfig(dialType);  // 切换指针识别配置
     qDebug() << "表盘类型切换为:" << dialType;
     
     // 可以在这里添加其他需要根据表盘类型变化的逻辑
 }
 
-// highPreciseDetector 类的实现 - 添加到 mainwindow.cpp 文件中
-
-highPreciseDetector::highPreciseDetector(const cv::Mat& image) : m_angle(-999) {
+highPreciseDetector::highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config) : m_angle(-999), m_config(config) {
     if (image.empty()) {
         qDebug() << "输入图像为空";
         return;
+    }
+    
+    // 如果没有提供配置，使用默认配置
+    static PointerDetectionConfig defaultConfig;
+    if (m_config == nullptr) {
+        m_config = &defaultConfig;
     }
     
     // 复制输入图像
@@ -982,9 +999,15 @@ highPreciseDetector::highPreciseDetector(const cv::Mat& image) : m_angle(-999) {
     m_visual = image.clone();
     
     try {
-        // 检测圆形和直线
+        // 检测圆形
         detectCircles();
-        detectLines();
+        
+        // 根据配置选择指针检测方法
+        if (m_config->usePointerFromCenter && !m_circles.empty()) {
+            detectPointerFromCenter();
+        } else {
+            detectLines();
+        }
         
         // 计算角度
         if (!m_circles.empty() && !m_lines.empty()) {
@@ -1006,9 +1029,15 @@ void highPreciseDetector::detectCircles() {
     // 使用高斯模糊减少噪声
     cv::GaussianBlur(gray, gray, cv::Size(9, 9), 2, 2);
     
-    // 使用HoughCircles检测圆形
+    // 使用配置参数进行HoughCircles检测
     std::vector<cv::Vec3f> circles;
-    cv::HoughCircles(gray, circles, cv::HOUGH_GRADIENT, 1, gray.rows/16.0, 100, 30, 1, 0);
+    cv::HoughCircles(gray, circles, cv::HOUGH_GRADIENT, 
+                     m_config->dp, 
+                     m_config->minDist, 
+                     m_config->param1, 
+                     m_config->param2, 
+                     m_config->minRadius, 
+                     m_config->maxRadius);
     
     // 选择最大的圆作为表盘
     if (!circles.empty()) {
@@ -1037,12 +1066,17 @@ void highPreciseDetector::detectLines() {
         gray = m_image.clone();
     }
     
-    // 边缘检测
-    cv::Canny(gray, edges, 50, 150, 3);
+    // 使用配置参数进行边缘检测
+    cv::Canny(gray, edges, m_config->cannyLow, m_config->cannyHigh, 3);
     
-    // 使用HoughLinesP检测直线
+    // 使用配置参数进行HoughLinesP检测
     std::vector<cv::Vec4i> lines;
-    cv::HoughLinesP(edges, lines, 1, CV_PI/180, 50, 50, 10);
+    cv::HoughLinesP(edges, lines, 
+                    m_config->rho, 
+                    m_config->theta, 
+                    m_config->threshold, 
+                    m_config->minLineLength, 
+                    m_config->maxLineGap);
     
     if (!lines.empty()) {
         // 如果检测到表盘，选择距离表盘中心最近的直线作为指针
@@ -1086,6 +1120,232 @@ void highPreciseDetector::detectLines() {
     } else {
         qDebug() << "未检测到直线";
     }
+}
+
+void highPreciseDetector::detectPointerFromCenter() {
+    if (m_circles.empty()) {
+        qDebug() << "没有检测到表盘，无法进行指针检测";
+        return;
+    }
+    
+    cv::Mat gray;
+    if (m_image.channels() == 3) {
+        cv::cvtColor(m_image, gray, cv::COLOR_BGR2GRAY);
+    } else {
+        gray = m_image.clone();
+    }
+    
+    // 获取表盘中心和半径
+    cv::Point2f center(m_circles[0][0], m_circles[0][1]);
+    float radius = m_circles[0][2];
+    
+    qDebug() << "检测白色指针，表盘中心:(" << center.x << "," << center.y << ") 半径:" << radius;
+    
+    // 专门检测白色指针的算法
+    cv::Vec4i bestPointer = detectWhitePointer(gray, center, radius);
+    
+    if (bestPointer[0] != -1) {
+        m_lines.clear();
+        m_lines.push_back(bestPointer);
+        double length = sqrt(pow(bestPointer[2] - bestPointer[0], 2) + pow(bestPointer[3] - bestPointer[1], 2));
+        qDebug() << "检测到白色指针: (" << bestPointer[0] << "," << bestPointer[1] 
+                 << ") 到 (" << bestPointer[2] << "," << bestPointer[3] << "), 长度:" << length;
+    } else {
+        qDebug() << "未能检测到白色指针，回退到传统方法";
+        detectLines();
+    }
+}
+
+cv::Vec4i highPreciseDetector::detectWhitePointer(const cv::Mat& gray, const cv::Point2f& center, float radius) {
+    // 1. 创建表盘内部的掩码
+    cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
+    cv::circle(mask, cv::Point((int)center.x, (int)center.y), (int)(radius * 0.9), cv::Scalar(255), -1);
+    
+    // 2. 检测白色区域 - 使用阈值分割
+    cv::Mat whiteRegions;
+    cv::threshold(gray, whiteRegions, 180, 255, cv::THRESH_BINARY);  // 检测亮区域
+    whiteRegions.copyTo(whiteRegions, mask);  // 仅在表盘内部
+    
+    // 3. 形态学操作连接白色区域
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
+    cv::morphologyEx(whiteRegions, whiteRegions, cv::MORPH_CLOSE, kernel);
+    cv::morphologyEx(whiteRegions, whiteRegions, cv::MORPH_OPEN, kernel);
+    
+    // 4. 查找白色区域的轮廓
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(whiteRegions, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+    
+    cv::Vec4i bestPointer(-1, -1, -1, -1);
+    double maxScore = 0;
+    
+    // 5. 分析每个轮廓，找到最可能的指针
+    for (const auto& contour : contours) {
+        if (contour.size() < 5) continue;  // 轮廓点太少
+        
+        // 计算轮廓的面积
+        double area = cv::contourArea(contour);
+        if (area < 100 || area > radius * radius * 0.3) continue;  // 面积过滤
+        
+        // 拟合椭圆或直线
+        cv::RotatedRect ellipse = cv::fitEllipse(contour);
+        
+        // 检查椭圆的长宽比，指针应该是细长的
+        float aspectRatio = ellipse.size.width / ellipse.size.height;
+        if (aspectRatio < 1) aspectRatio = 1.0f / aspectRatio;  // 确保>1
+        
+        if (aspectRatio < 2.0) continue;  // 不够细长，不像指针
+        
+        // 检查椭圆中心是否接近表盘中心
+        cv::Point2f ellipseCenter = ellipse.center;
+        double distToDialCenter = cv::norm(ellipseCenter - center);
+        if (distToDialCenter > radius * 0.5) continue;  // 中心偏离太远
+        
+        // 计算指针方向和端点 - 修复角度计算
+        double angle = ellipse.angle * CV_PI / 180.0;
+        double length = std::max(ellipse.size.width, ellipse.size.height) / 2.0;
+        
+        // OpenCV的椭圆角度定义：从x轴正方向逆时针测量
+        // 但是我们需要考虑长轴方向
+        if (ellipse.size.width < ellipse.size.height) {
+            // 如果高度>宽度，则长轴是垂直方向，需要调整角度
+            angle += CV_PI / 2.0;
+        }
+        
+        cv::Point2f direction(cos(angle), sin(angle));
+        cv::Point2f startPoint = ellipseCenter - direction * (float)length;
+        cv::Point2f endPoint = ellipseCenter + direction * (float)length;
+        
+        // 确保指针从表盘中心指向外围
+        double dist1 = cv::norm(startPoint - center);
+        double dist2 = cv::norm(endPoint - center);
+        if (dist1 > dist2) {
+            // 如果startPoint离表盘中心更远，说明方向反了
+            std::swap(startPoint, endPoint);
+        }
+        
+        // 进一步调整：确保startPoint是表盘中心附近的点
+        cv::Point2f vectorToCenter = center - ellipseCenter;
+        double distEllipseToCenter = cv::norm(vectorToCenter);
+        if (distEllipseToCenter > 10) {  // 椭圆中心不在表盘中心
+            // 将起点调整为更接近表盘中心的位置
+            cv::Point2f directionToCenter = vectorToCenter / (float)distEllipseToCenter;
+            startPoint = ellipseCenter + directionToCenter * std::min(30.0f, (float)distEllipseToCenter);
+            
+            // 重新计算指针方向（从调整后的起点到椭圆边缘的最远点）
+            cv::Point2f pointerDirection = endPoint - startPoint;
+            float pointerLength = cv::norm(pointerDirection);
+            if (pointerLength > 0) {
+                pointerDirection = pointerDirection / pointerLength;
+                endPoint = startPoint + pointerDirection * (float)length;
+            }
+        }
+        
+        // 计算得分：基于长度、位置和形状
+        double lengthScore = std::min(length / (radius * 0.8), 1.0);  // 长度得分
+        double positionScore = std::max(0.0, 1.0 - distToDialCenter / (radius * 0.3));  // 位置得分
+        double shapeScore = std::min(aspectRatio / 5.0, 1.0);  // 形状得分
+        
+        double totalScore = lengthScore * 0.4 + positionScore * 0.4 + shapeScore * 0.2;
+        
+        if (totalScore > maxScore) {
+            maxScore = totalScore;
+            bestPointer = cv::Vec4i((int)startPoint.x, (int)startPoint.y, 
+                                   (int)endPoint.x, (int)endPoint.y);
+        }
+    }
+    
+    // 6. 如果基于轮廓的方法失败，尝试基于亮度的射线方法
+    if (bestPointer[0] == -1) {
+        bestPointer = detectWhitePointerByBrightness(gray, center, radius);
+    }
+    
+    qDebug() << "白色指针检测完成，最高得分:" << maxScore;
+    return bestPointer;
+}
+
+cv::Vec4i highPreciseDetector::detectWhitePointerByBrightness(const cv::Mat& gray, const cv::Point2f& center, float radius) {
+    cv::Vec4i bestPointer(-1, -1, -1, -1);
+    double maxScore = 0;
+    
+    // 在多个角度方向搜索最亮的射线
+    for (int angle = 0; angle < 360; angle += 2) {  // 更精细的角度搜索
+        double radian = angle * CV_PI / 180.0;
+        cv::Point2f direction(cos(radian), sin(radian));
+        
+        double totalBrightness = 0;
+        int validPoints = 0;
+        cv::Point2f farthestBrightPoint = center;
+        std::vector<cv::Point2f> brightPoints;  // 记录所有亮点
+        
+        // 从表盘中心附近开始搜索（跳过中心区域，避免干扰）
+        for (int step = 15; step < radius * 0.85; step += 2) {
+            cv::Point2f currentPoint = center + direction * (float)step;
+            
+            if (currentPoint.x < 0 || currentPoint.x >= gray.cols ||
+                currentPoint.y < 0 || currentPoint.y >= gray.rows) {
+                break;
+            }
+            
+            uchar brightness = gray.at<uchar>((int)currentPoint.y, (int)currentPoint.x);
+            
+            // 检测亮点（白色指针）
+            if (brightness > 170) {  // 降低阈值，检测更多亮点
+                totalBrightness += brightness;
+                validPoints++;
+                brightPoints.push_back(currentPoint);
+                
+                double distFromCenter = cv::norm(currentPoint - center);
+                if (distFromCenter > cv::norm(farthestBrightPoint - center)) {
+                    farthestBrightPoint = currentPoint;
+                }
+            }
+        }
+        
+        // 计算这个方向的得分
+        if (validPoints > 8) {  // 需要足够多的亮点
+            double avgBrightness = totalBrightness / validPoints;
+            double pointerLength = cv::norm(farthestBrightPoint - center);
+            double continuity = (double)validPoints / (pointerLength / 2.0);  // 连续性得分
+            
+            // 综合评分：亮度 + 长度 + 连续性
+            double score = (avgBrightness - 170) * 0.4 + 
+                          std::min(pointerLength / (radius * 0.7), 1.0) * 100 * 0.4 + 
+                          std::min(continuity, 1.0) * 100 * 0.2;
+            
+            if (score > maxScore && pointerLength > m_config->pointerMinLength) {
+                maxScore = score;
+                
+                // 使用更精确的端点：找到亮点的质心作为起点
+                cv::Point2f startPoint = center;
+                if (!brightPoints.empty()) {
+                    cv::Point2f centroid(0, 0);
+                    float totalWeight = 0;
+                    
+                    // 计算亮点的加权质心，距离表盘中心近的点权重更大
+                    for (const auto& point : brightPoints) {
+                        float weight = 1.0f / (1.0f + cv::norm(point - center) / 50.0f);
+                        centroid += point * weight;
+                        totalWeight += weight;
+                    }
+                    
+                    if (totalWeight > 0) {
+                        centroid = centroid / totalWeight;
+                        
+                        // 如果质心距离表盘中心合理，使用质心作为起点
+                        if (cv::norm(centroid - center) < radius * 0.4) {
+                            startPoint = centroid;
+                        }
+                    }
+                }
+                
+                bestPointer = cv::Vec4i((int)startPoint.x, (int)startPoint.y,
+                                       (int)farthestBrightPoint.x, (int)farthestBrightPoint.y);
+            }
+        }
+    }
+    
+    qDebug() << "基于亮度的白色指针检测完成，最高得分:" << maxScore;
+    return bestPointer;
 }
 
 void highPreciseDetector::calculateAngle() {
@@ -1142,4 +1402,351 @@ void highPreciseDetector::showScale1Result() {
         cv::putText(m_visual, angleText, cv::Point(10, 30), 
                    cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 0), 2);
     }
+}
+
+void MainWindow::setupExpandedLayout()
+{
+    const int deskW = QGuiApplication::primaryScreen()->geometry().width();
+    
+    // 设置为展开布局（显示右侧检测结果区域和角度控制区域）
+    int w = bigSize.width();
+    
+    // 设置窗口大小和位置
+    setGeometry(
+        ceil((deskW - w)/2),
+        50,
+        w,
+        this->height()
+    );
+    
+    setFixedSize(w, this->height());
+    
+    // 显示右侧检测结果区域和角度控制区域
+    ui->destDisplay->setVisible(true);
+    
+    // 调整检测结果显示区域的尺寸和位置
+    int h = (ui->destDisplay->width() * atoi(saveSettings->height.c_str()) / atoi(saveSettings->width.c_str()));
+    ui->destDisplay->setGeometry(ui->destDisplay->geometry().x(), ui->srcDisplay->geometry().y(), ui->destDisplay->width(), h);
+    
+    // 调整源图像区域
+    ui->srcFrame->setGeometry(ui->srcFrame->geometry().x(), ui->srcFrame->geometry().y(), 658, 531);
+    ui->srcHeader->resize(658, ui->srcHeader->size().height());
+    ui->srcBottomhorizontalLayout->setGeometry(QRect(0, ui->srcBottomhorizontalLayout->geometry().y(), 658, ui->srcHeader->size().height()));
+}
+
+void MainWindow::updatePointerDirection(double currentAngle) {
+    if (!m_hasPreviousAngle) {
+        // 第一次测量，记录当前角度
+        m_previousAngle = currentAngle;
+        m_hasPreviousAngle = true;
+        m_strokeDirection = 0;  // 未知方向
+        qDebug() << "初始化指针位置:" << currentAngle << "度";
+        return;
+    }
+    
+    // 计算角度变化，考虑360度跨越的情况
+    double angleDelta = currentAngle - m_previousAngle;
+    
+    // 处理跨越360度边界的情况
+    if (angleDelta > 180) {
+        angleDelta -= 360;  // 实际是逆时针运动
+    } else if (angleDelta < -180) {
+        angleDelta += 360;  // 实际是顺时针运动
+    }
+    
+    // 设置最小角度阈值，避免噪声影响
+    const double minAngleThreshold = 2.0;  // 2度阈值
+    
+    if (abs(angleDelta) > minAngleThreshold) {
+        if (angleDelta > 0) {
+            // 顺时针运动 - 正行程
+            m_strokeDirection = 1;
+            m_isForwardStroke = true;
+            qDebug() << "检测到正行程（顺时针），角度变化:" << angleDelta << "度";
+        } else {
+            // 逆时针运动 - 反行程
+            m_strokeDirection = -1;
+            m_isForwardStroke = false;
+            qDebug() << "检测到反行程（逆时针），角度变化:" << angleDelta << "度";
+        }
+        
+        // 更新上一次角度
+        m_previousAngle = currentAngle;
+    }
+    // 如果角度变化太小，保持当前方向状态不变
+}
+
+QString MainWindow::getStrokeDirectionString() const {
+    switch (m_strokeDirection) {
+        case 1:
+            return "正行程（顺时针）";
+        case -1:
+            return "反行程（逆时针）";
+        case 0:
+        default:
+            return "待检测";
+    }
+}
+
+void MainWindow::resetStrokeTracking() {
+    m_hasPreviousAngle = false;
+    m_previousAngle = 0.0;
+    m_strokeDirection = 0;
+    m_isForwardStroke = true;
+    qDebug() << "重置行程跟踪状态";
+}
+
+double MainWindow::measureAngleMultipleTimes(const cv::Mat& frame, int measureCount) {
+    std::vector<double> angles;
+    
+    qDebug() << "开始进行" << measureCount << "次角度测量以提高精度";
+    
+    // 进行多次测量
+    for (int i = 0; i < measureCount; ++i) {
+        try {
+            highPreciseDetector det(frame, m_currentConfig);
+            if (!det.getLine().empty()) {
+                double angle = det.getAngle();
+                if (angle != -999) {
+                    angles.push_back(angle);
+                    qDebug() << "第" << (i + 1) << "次测量角度:" << angle;
+                } else {
+                    qDebug() << "第" << (i + 1) << "次测量失败：角度计算错误";
+                }
+            } else {
+                qDebug() << "第" << (i + 1) << "次测量失败：未检测到指针";
+            }
+        } catch (const std::exception& e) {
+            qDebug() << "第" << (i + 1) << "次测量异常:" << e.what();
+        }
+    }
+    
+    if (angles.empty()) {
+        qDebug() << "所有测量都失败";
+        return -999;
+    }
+    
+    if (angles.size() == 1) {
+        qDebug() << "仅有1次有效测量，直接返回:" << angles[0];
+        return angles[0];
+    }
+    
+    // 异常值检测和过滤
+    std::vector<double> validAngles;
+    
+    if (angles.size() >= 2) {
+        // 计算所有角度的平均值和标准差
+        double sum = 0;
+        for (double angle : angles) {
+            sum += angle;
+        }
+        double mean = sum / angles.size();
+        
+        double variance = 0;
+        for (double angle : angles) {
+            double diff = angle - mean;
+            // 处理角度跨越360度边界的情况
+            if (diff > 180) diff -= 360;
+            if (diff < -180) diff += 360;
+            variance += diff * diff;
+        }
+        double stdDev = sqrt(variance / angles.size());
+        
+        qDebug() << "初步统计 - 平均值:" << mean << "标准差:" << stdDev;
+        
+        // 异常值阈值：2倍标准差或最小5度
+        double threshold = std::max(2.0 * stdDev, 5.0);
+        
+        // 过滤异常值
+        for (double angle : angles) {
+            double diff = angle - mean;
+            // 处理角度跨越360度边界的情况
+            if (diff > 180) diff -= 360;
+            if (diff < -180) diff += 360;
+            
+            if (abs(diff) <= threshold) {
+                validAngles.push_back(angle);
+                qDebug() << "保留有效角度:" << angle << "偏差:" << diff;
+            } else {
+                qDebug() << "过滤异常角度:" << angle << "偏差:" << diff << "超过阈值:" << threshold;
+            }
+        }
+    }
+    
+    // 如果过滤后没有足够的有效值，使用所有测量值
+    if (validAngles.size() < 2) {
+        qDebug() << "过滤后有效角度不足，使用所有测量值";
+        validAngles = angles;
+    }
+    
+    // 计算最终平均值
+    double finalSum = 0;
+    for (double angle : validAngles) {
+        finalSum += angle;
+    }
+    double finalAverage = finalSum / validAngles.size();
+    
+    // 计算最终的精度评估
+    double maxDiff = 0;
+    for (double angle : validAngles) {
+        double diff = abs(angle - finalAverage);
+        if (diff > 180) diff = 360 - diff;  // 处理跨越边界的情况
+        maxDiff = std::max(maxDiff, diff);
+    }
+    
+    qDebug() << "最终结果 - 平均角度:" << finalAverage 
+             << "有效测量次数:" << validAngles.size() 
+             << "最大偏差:" << maxDiff << "度";
+    
+    return finalAverage;
+}
+
+// 初始化数据数组
+void MainWindow::initializeDataArrays()
+{
+    m_forwardData.clear();
+    m_reverseData.clear();
+    m_currentForwardIndex = 0;
+    m_currentReverseIndex = 0;
+    m_saveCount = 0;
+    m_maxAngle = 0.0;
+    
+    // 初始化显示为5个空数据位
+    for (int i = 0; i < 5; ++i) {
+        m_forwardData.append(0.0);
+        m_reverseData.append(0.0);
+    }
+    
+    updateDataTable();
+}
+
+// 更新数据表格显示
+void MainWindow::updateDataTable()
+{
+    // 更新正行程数据显示
+    QLabel* forwardLabels[5] = {
+        ui->labelForwardData1, ui->labelForwardData2, ui->labelForwardData3,
+        ui->labelForwardData4, ui->labelForwardData5
+    };
+    
+    for (int i = 0; i < 5; ++i) {
+        if (i < m_currentForwardIndex && m_forwardData[i] != 0.0) {
+            forwardLabels[i]->setText(QString::number(m_forwardData[i], 'f', 2) + "°");
+            forwardLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #d4edda; }");
+        } else {
+            forwardLabels[i]->setText("采集数据" + QString::number(i + 1));
+            forwardLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }");
+        }
+    }
+    
+    // 更新反行程数据显示
+    QLabel* reverseLabels[5] = {
+        ui->labelReverseData1, ui->labelReverseData2, ui->labelReverseData3,
+        ui->labelReverseData4, ui->labelReverseData5
+    };
+    
+    for (int i = 0; i < 5; ++i) {
+        if (i < m_currentReverseIndex && m_reverseData[i] != 0.0) {
+            reverseLabels[i]->setText(QString::number(m_reverseData[i], 'f', 2) + "°");
+            reverseLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #cce7ff; }");
+        } else {
+            reverseLabels[i]->setText("采集数据" + QString::number(i + 1));
+            reverseLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }");
+        }
+    }
+    
+    // 更新最大角度显示（取采集数据5的值）
+    double maxAngleToShow = 0.0;
+    if (m_currentForwardIndex >= 5 && m_forwardData[4] != 0.0) {
+        maxAngleToShow = m_forwardData[4];
+    } else if (m_currentReverseIndex >= 5 && m_reverseData[4] != 0.0) {
+        maxAngleToShow = m_reverseData[4];
+    }
+    
+    if (maxAngleToShow != 0.0) {
+        ui->labelMaxAngleValue->setText(QString::number(maxAngleToShow, 'f', 2) + "°");
+    } else {
+        ui->labelMaxAngleValue->setText("--");
+    }
+    
+    // 更新保存次数
+    ui->labelSaveCount->setText(QString("当前采集轮次：%1").arg(m_saveCount));
+}
+
+// 添加数据到当前行程
+void MainWindow::addDataToCurrentStroke(double angle)
+{
+    if (m_strokeDirection == 1 && m_currentForwardIndex < 5) {
+        // 正行程
+        m_forwardData[m_currentForwardIndex] = angle;
+        m_currentForwardIndex++;
+        qDebug() << "添加正行程数据：" << angle << "当前索引：" << m_currentForwardIndex;
+    } else if (m_strokeDirection == -1 && m_currentReverseIndex < 5) {
+        // 反行程
+        m_reverseData[m_currentReverseIndex] = angle;
+        m_currentReverseIndex++;
+        qDebug() << "添加反行程数据：" << angle << "当前索引：" << m_currentReverseIndex;
+    } else {
+        qDebug() << "无法添加数据，行程方向：" << m_strokeDirection 
+                 << "正行程索引：" << m_currentForwardIndex 
+                 << "反行程索引：" << m_currentReverseIndex;
+    }
+    
+    updateDataTable();
+}
+
+// 确定按钮点击处理
+void MainWindow::onConfirmData()
+{
+    if (!m_hasZero) {
+        QMessageBox::warning(this, "警告", "请先进行归位操作！");
+        return;
+    }
+    
+    // 获取当前角度差值
+    cv::Mat frame;
+    if (!grabOneFrame(frame)) {
+        QMessageBox::warning(this, "警告", "无法获取图像！");
+        return;
+    }
+    
+    // 使用高精度测量
+    double currentAngle = measureAngleMultipleTimes(frame);
+    double angleDelta = currentAngle - m_zeroAngle;
+    
+    // 处理角度跨越边界
+    if (angleDelta > 180) angleDelta -= 360;
+    if (angleDelta < -180) angleDelta += 360;
+    
+    // 更新指针方向
+    updatePointerDirection(currentAngle);
+    
+    // 添加到相应的行程数据中
+    addDataToCurrentStroke(abs(angleDelta));
+    
+    QMessageBox::information(this, "确认", 
+        QString("已将当前数据（%1°）添加到%2")
+        .arg(abs(angleDelta), 0, 'f', 2)
+        .arg(m_strokeDirection == 1 ? "正行程" : "反行程"));
+}
+
+// 保存按钮点击处理
+void MainWindow::onSaveData()
+{
+    // 增加保存计数
+    m_saveCount++;
+    
+    // 这里可以添加导出到Excel的功能
+    QMessageBox::information(this, "保存", 
+        QString("第%1轮数据已保存！\n正行程数据：%2个\n反行程数据：%3个")
+        .arg(m_saveCount)
+        .arg(m_currentForwardIndex)
+        .arg(m_currentReverseIndex));
+    
+    // 重置当前轮次的数据，准备下一轮
+    initializeDataArrays();
+    m_saveCount++; // 保持计数不重置
+    ui->labelSaveCount->setText(QString("当前采集轮次：%1").arg(m_saveCount));
+    
+    qDebug() << "保存完成，轮次：" << m_saveCount;
 }
