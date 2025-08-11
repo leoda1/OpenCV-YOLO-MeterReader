@@ -29,14 +29,11 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->mainToolBar->setIconSize(QSize(48, 48));
     ui->centralWidget->installEventFilter(this);
 
-    // 为重要的UI元素设置更大的字体
     QFont bigFont = this->font();
     bigFont.setPointSize(16);
     
-    // 设置预览区域标题字体
     ui->srcHeader->setFont(bigFont);
     
-    // 设置状态标签字体
     QFont statusFont = this->font();
     statusFont.setPointSize(15);
     ui->sizeLabel->setFont(statusFont);
@@ -48,9 +45,6 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->collectionValue->setFont(statusFont);
     ui->fpsValue->setFont(statusFont);
     ui->labelAngle->setFont(statusFont);
-    
-    // 按钮样式已在UI文件中设置，这里只需要确保字体一致性
-    // UI文件中已经设置了按钮的样式和字体
 
     connect(ui->actionPreview, &QAction::triggered, this, &MainWindow::startPreview);
     connect(ui->actionRefresh, &QAction::triggered, this, &MainWindow::refresh);
@@ -67,17 +61,24 @@ MainWindow::MainWindow(QWidget *parent) :
     mytoolbar->addAction(ui->actionCloseAlgo);
     mytoolbar->setIconSize(QSize(48, 48));
     addToolBar(Qt::RightToolBarArea,mytoolbar);
-    connect(ui->actionCloseAlgo, &QAction::triggered, this, &MainWindow::algoArea);
+    
+    // 隐藏切换按钮，因为我们默认展开识别角度区域
+    mytoolbar->setVisible(false);
+    
+    // 如果还想保留切换功能，可以注释掉上面这行，启用下面这行
+    // connect(ui->actionCloseAlgo, &QAction::triggered, this, &MainWindow::algoArea);
 
-    // 设置表盘类型选择器
-    setupDialTypeSelector();
+    setupDialTypeSelector();   // 设置表盘类型选择器
+    initPointerConfigs();      // 初始化指针识别配置
 
     smallSize = QSize(750,this->height());
     bigSize = this->size();
     
-    // 程序启动时隐藏角度检测区域
-    ui->angleControlWidget->setVisible(false);
-    algoArea();
+    // 默认展开识别角度区域，使用布局管理器自动管理
+    ui->angleControlWidget->setVisible(true);
+    ui->destDisplay->setVisible(true);
+    
+    qDebug() << "UI initialized with default expanded layout";
 }
 
 MainWindow::~MainWindow()
@@ -615,71 +616,9 @@ void MainWindow::spatial_LSI_Matlab(){
 }
 
 void MainWindow::algoArea(){
-    const int deskW = QGuiApplication::primaryScreen()->geometry().width();
-    
-    // 设置窗口更新模式，减少闪动
-    this->setUpdatesEnabled(false);
-    
-    if(isAlgoAreaOpened){
-        // 关闭识别角度模式
-        isAlgoAreaOpened = false;
-        ui->actionCloseAlgo->setText("关闭识别角度");
-
-        int w = bigSize.width();
-
-        // 先调整窗口大小和位置
-        setGeometry(
-            ceil((deskW - w)/2),
-            50,
-            w,
-            this->height()
-        );
-
-        setFixedSize(w, this->height());
-        
-        // 显示右侧检测结果区域和角度控制区域
-        ui->destDisplay->setHidden(false);
-        ui->angleControlWidget->setVisible(true);
-
-        // 调整检测结果显示区域的尺寸和位置
-        int h = (ui->destDisplay->width() * atoi(saveSettings->height.c_str()) / atoi(saveSettings->width.c_str()));
-        ui->destDisplay->setGeometry(ui->destDisplay->geometry().x(), ui->srcDisplay->geometry().y(), ui->destDisplay->width(), h);
-        
-        // 调整源图像区域
-        ui->srcFrame->setGeometry(ui->srcFrame->geometry().x(), ui->srcFrame->geometry().y(), 658, 531);
-        ui->srcHeader->resize(658, ui->srcHeader->size().height());
-        ui->srcBottomhorizontalLayout->setGeometry(QRect(0, ui->srcBottomhorizontalLayout->geometry().y(), 658, ui->srcHeader->size().height()));
-
-    }else{
-        // 打开识别角度模式
-        isAlgoAreaOpened = true;
-        ui->actionCloseAlgo->setText("识别角度");
-
-        int w = smallSize.width() + 20;
-        
-        // 先调整窗口大小和位置
-        setGeometry(
-            ceil((deskW - w)/2),
-            50,
-            w,
-            this->height()
-        );
-
-        setFixedSize(w, this->height());
-        
-        // 隐藏右侧检测结果区域和角度控制区域
-        ui->destDisplay->setHidden(true);
-        ui->angleControlWidget->setVisible(false);
-        
-        // 调整源图像区域
-        ui->srcFrame->setGeometry(ui->srcFrame->geometry().x(), ui->srcFrame->geometry().y(), 658, 531);
-        ui->srcBottomhorizontalLayout->setGeometry(QRect(0, ui->srcBottomhorizontalLayout->geometry().y(), 658, ui->srcHeader->size().height()));
-        ui->srcHeader->resize(658, ui->srcHeader->size().height());
-    }
-    
-    // 重新启用窗口更新
-    this->setUpdatesEnabled(true);
-    this->update();
+    // 布局现在是固定的，不需要动态切换
+    // 识别角度区域始终可见
+    qDebug() << "algoArea called - layout is now fixed";
 }
 
 
@@ -701,7 +640,7 @@ void MainWindow::onCaptureZero()
         cv::Mat frame;
         cv::cvtColor(m_lastRgb, frame, cv::COLOR_RGB2BGR);
 
-        highPreciseDetector det(frame);
+        highPreciseDetector det(frame, m_currentConfig);
         if (det.getLine().empty()) {
             QMessageBox::warning(this, "提示", "未检测到指针");
             return;
@@ -784,7 +723,7 @@ void MainWindow::onResetZero()
         qDebug() << "图像尺寸:" << frame.cols << "x" << frame.rows;
         
         // 创建检测器
-        highPreciseDetector det(frame);
+        highPreciseDetector det(frame, m_currentConfig);
         
         // 检查是否检测到必要的元素
         if (det.getCircles().empty() && det.getLine().empty()) {
@@ -841,7 +780,7 @@ void MainWindow::runAlgoOnce()
         cv::Mat bgr;
         cv::cvtColor(rgbFrame, bgr, cv::COLOR_RGB2BGR);
 
-        highPreciseDetector det(bgr);
+        highPreciseDetector det(bgr, m_currentConfig);
         if (det.getCircles().empty() || det.getLine().empty())
             throw std::runtime_error("未检测到表盘或指针");
 
@@ -961,20 +900,79 @@ void MainWindow::setupDialTypeSelector()
     connect(m_dialTypeCombo, &QComboBox::currentTextChanged, this, &MainWindow::onDialTypeChanged);
 }
 
+void MainWindow::initPointerConfigs()
+{
+    // YYQY表盘配置
+    m_yyqyConfig.dp = 1.0;
+    m_yyqyConfig.minDist = 100;  // 根据图像尺寸调整
+    m_yyqyConfig.param1 = 100;
+    m_yyqyConfig.param2 = 30;
+    m_yyqyConfig.minRadius = 150;  // 根据检测到的半径217.4调整
+    m_yyqyConfig.maxRadius = 300;
+    
+    // 指针检测参数 - 针对YYQY优化
+    m_yyqyConfig.usePointerFromCenter = true;  // 使用从圆心开始的指针检测
+    m_yyqyConfig.pointerSearchRadius = 0.8;   // 搜索半径比例
+    m_yyqyConfig.pointerMinLength = 80;       // 最小指针长度
+    m_yyqyConfig.cannyLow = 30;              // 降低Canny阈值以检测更多边缘
+    m_yyqyConfig.cannyHigh = 100;
+    m_yyqyConfig.threshold = 40;             // 降低直线检测阈值
+    m_yyqyConfig.minLineLength = 60;
+    m_yyqyConfig.maxLineGap = 15;
+    
+    // BYQ表盘配置（保持原有参数）
+    m_byqConfig.dp = 1.0;
+    m_byqConfig.minDist = 100;
+    m_byqConfig.param1 = 100;
+    m_byqConfig.param2 = 30;
+    m_byqConfig.minRadius = 50;
+    m_byqConfig.maxRadius = 0;
+    
+    m_byqConfig.usePointerFromCenter = false;  // 使用传统的边缘检测方法
+    m_byqConfig.pointerSearchRadius = 0.9;
+    m_byqConfig.pointerMinLength = 50;
+    m_byqConfig.cannyLow = 50;
+    m_byqConfig.cannyHigh = 150;
+    m_byqConfig.threshold = 50;
+    m_byqConfig.minLineLength = 30;
+    m_byqConfig.maxLineGap = 10;
+    
+    // 设置默认配置
+    m_currentConfig = &m_yyqyConfig;
+    
+    qDebug() << "指针识别配置初始化完成";
+}
+
+void MainWindow::switchPointerConfig(const QString& dialType)
+{
+    if (dialType == "YYQY-13") {
+        m_currentConfig = &m_yyqyConfig;
+        qDebug() << "切换到YYQY-13指针识别配置";
+    } else if (dialType == "BYQ-19") {
+        m_currentConfig = &m_byqConfig;
+        qDebug() << "切换到BYQ-19指针识别配置";
+    }
+}
+
 void MainWindow::onDialTypeChanged(const QString &dialType)
 {
     m_currentDialType = dialType;
+    switchPointerConfig(dialType);  // 切换指针识别配置
     qDebug() << "表盘类型切换为:" << dialType;
     
     // 可以在这里添加其他需要根据表盘类型变化的逻辑
 }
 
-// highPreciseDetector 类的实现 - 添加到 mainwindow.cpp 文件中
-
-highPreciseDetector::highPreciseDetector(const cv::Mat& image) : m_angle(-999) {
+highPreciseDetector::highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config) : m_angle(-999), m_config(config) {
     if (image.empty()) {
         qDebug() << "输入图像为空";
         return;
+    }
+    
+    // 如果没有提供配置，使用默认配置
+    static PointerDetectionConfig defaultConfig;
+    if (m_config == nullptr) {
+        m_config = &defaultConfig;
     }
     
     // 复制输入图像
@@ -982,9 +980,15 @@ highPreciseDetector::highPreciseDetector(const cv::Mat& image) : m_angle(-999) {
     m_visual = image.clone();
     
     try {
-        // 检测圆形和直线
+        // 检测圆形
         detectCircles();
-        detectLines();
+        
+        // 根据配置选择指针检测方法
+        if (m_config->usePointerFromCenter && !m_circles.empty()) {
+            detectPointerFromCenter();
+        } else {
+            detectLines();
+        }
         
         // 计算角度
         if (!m_circles.empty() && !m_lines.empty()) {
@@ -1006,9 +1010,15 @@ void highPreciseDetector::detectCircles() {
     // 使用高斯模糊减少噪声
     cv::GaussianBlur(gray, gray, cv::Size(9, 9), 2, 2);
     
-    // 使用HoughCircles检测圆形
+    // 使用配置参数进行HoughCircles检测
     std::vector<cv::Vec3f> circles;
-    cv::HoughCircles(gray, circles, cv::HOUGH_GRADIENT, 1, gray.rows/16.0, 100, 30, 1, 0);
+    cv::HoughCircles(gray, circles, cv::HOUGH_GRADIENT, 
+                     m_config->dp, 
+                     m_config->minDist, 
+                     m_config->param1, 
+                     m_config->param2, 
+                     m_config->minRadius, 
+                     m_config->maxRadius);
     
     // 选择最大的圆作为表盘
     if (!circles.empty()) {
@@ -1037,12 +1047,17 @@ void highPreciseDetector::detectLines() {
         gray = m_image.clone();
     }
     
-    // 边缘检测
-    cv::Canny(gray, edges, 50, 150, 3);
+    // 使用配置参数进行边缘检测
+    cv::Canny(gray, edges, m_config->cannyLow, m_config->cannyHigh, 3);
     
-    // 使用HoughLinesP检测直线
+    // 使用配置参数进行HoughLinesP检测
     std::vector<cv::Vec4i> lines;
-    cv::HoughLinesP(edges, lines, 1, CV_PI/180, 50, 50, 10);
+    cv::HoughLinesP(edges, lines, 
+                    m_config->rho, 
+                    m_config->theta, 
+                    m_config->threshold, 
+                    m_config->minLineLength, 
+                    m_config->maxLineGap);
     
     if (!lines.empty()) {
         // 如果检测到表盘，选择距离表盘中心最近的直线作为指针
@@ -1085,6 +1100,87 @@ void highPreciseDetector::detectLines() {
         }
     } else {
         qDebug() << "未检测到直线";
+    }
+}
+
+void highPreciseDetector::detectPointerFromCenter() {
+    if (m_circles.empty()) {
+        qDebug() << "没有检测到表盘，无法进行指针检测";
+        return;
+    }
+    
+    cv::Mat gray;
+    if (m_image.channels() == 3) {
+        cv::cvtColor(m_image, gray, cv::COLOR_BGR2GRAY);
+    } else {
+        gray = m_image.clone();
+    }
+    
+    // 获取表盘中心和半径
+    cv::Point2f center(m_circles[0][0], m_circles[0][1]);
+    float radius = m_circles[0][2];
+    
+    // 使用更敏感的边缘检测参数
+    cv::Mat edges;
+    cv::Canny(gray, edges, m_config->cannyLow, m_config->cannyHigh, 3);
+    
+    // 形态学操作增强边缘
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+    cv::morphologyEx(edges, edges, cv::MORPH_CLOSE, kernel);
+    
+    // 搜索从圆心出发的最长边缘线段
+    float searchRadius = radius * m_config->pointerSearchRadius;
+    cv::Vec4i bestPointer;
+    double maxPointerLength = 0;
+    
+    // 在多个角度方向搜索指针
+    for (int angle = 0; angle < 360; angle += 2) {
+        double radian = angle * CV_PI / 180.0;
+        
+        // 从圆心开始沿着当前角度方向搜索
+        cv::Point2f direction(cos(radian), sin(radian));
+        
+        // 沿着这个方向搜索边缘点
+        double maxDistance = 0;
+        cv::Point2f farthestPoint = center;
+        
+        for (int step = 10; step < searchRadius; step += 2) {
+            cv::Point2f currentPoint = center + direction * (float)step;
+            
+            // 确保点在图像范围内
+            if (currentPoint.x < 0 || currentPoint.x >= edges.cols ||
+                currentPoint.y < 0 || currentPoint.y >= edges.rows) {
+                break;
+            }
+            
+            // 检查当前点是否是边缘点
+            if (edges.at<uchar>((int)currentPoint.y, (int)currentPoint.x) > 0) {
+                double distance = cv::norm(currentPoint - center);
+                if (distance > maxDistance && distance > m_config->pointerMinLength) {
+                    maxDistance = distance;
+                    farthestPoint = currentPoint;
+                }
+            }
+        }
+        
+        // 如果找到了足够长的边缘线段，记录下来
+        if (maxDistance > maxPointerLength && maxDistance > m_config->pointerMinLength) {
+            maxPointerLength = maxDistance;
+            bestPointer = cv::Vec4i((int)center.x, (int)center.y, 
+                                   (int)farthestPoint.x, (int)farthestPoint.y);
+        }
+    }
+    
+    // 如果找到了合适的指针
+    if (maxPointerLength > 0) {
+        m_lines.clear();  // 清除之前可能检测到的线段
+        m_lines.push_back(bestPointer);
+        qDebug() << "从圆心检测到指针: (" << bestPointer[0] << "," << bestPointer[1] 
+                 << ") 到 (" << bestPointer[2] << "," << bestPointer[3] << "), 长度:" << maxPointerLength;
+    } else {
+        qDebug() << "未能从圆心检测到指针";
+        // 如果新方法失败，回退到传统方法
+        detectLines();
     }
 }
 
@@ -1142,4 +1238,35 @@ void highPreciseDetector::showScale1Result() {
         cv::putText(m_visual, angleText, cv::Point(10, 30), 
                    cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 0), 2);
     }
+}
+
+void MainWindow::setupExpandedLayout()
+{
+    const int deskW = QGuiApplication::primaryScreen()->geometry().width();
+    
+    // 设置为展开布局（显示右侧检测结果区域和角度控制区域）
+    int w = bigSize.width();
+    
+    // 设置窗口大小和位置
+    setGeometry(
+        ceil((deskW - w)/2),
+        50,
+        w,
+        this->height()
+    );
+    
+    setFixedSize(w, this->height());
+    
+    // 显示右侧检测结果区域和角度控制区域
+    ui->destDisplay->setVisible(true);
+    ui->angleControlWidget->setVisible(true);
+    
+    // 调整检测结果显示区域的尺寸和位置
+    int h = (ui->destDisplay->width() * atoi(saveSettings->height.c_str()) / atoi(saveSettings->width.c_str()));
+    ui->destDisplay->setGeometry(ui->destDisplay->geometry().x(), ui->srcDisplay->geometry().y(), ui->destDisplay->width(), h);
+    
+    // 调整源图像区域
+    ui->srcFrame->setGeometry(ui->srcFrame->geometry().x(), ui->srcFrame->geometry().y(), 658, 531);
+    ui->srcHeader->resize(658, ui->srcHeader->size().height());
+    ui->srcBottomhorizontalLayout->setGeometry(QRect(0, ui->srcBottomhorizontalLayout->geometry().y(), 658, ui->srcHeader->size().height()));
 }
