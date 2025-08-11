@@ -14,3 +14,5 @@
 │   ├── unit_tests/          # 单元测试
 └── docs/                    # 文档
 ```
+## 当前效果：
+![alt text](docs/fig_doc/image.png)

@@ -118,10 +118,37 @@ private:
     bool   m_hasZero   = false;
     double m_zeroAngle = 0.0;
     Mat m_lastRgb;
+    
+    // 指针运动方向检测
+    bool   m_hasPreviousAngle = false;   // 是否有上一次的角度记录
+    double m_previousAngle = 0.0;        // 上一次的指针角度
+    bool   m_isForwardStroke = true;     // 当前是否为正行程（顺时针方向）
+    int    m_strokeDirection = 0;        // 运动方向：1=正行程，-1=反行程，0=未知
+    
+    // 数据采集相关
+    QVector<double> m_forwardData;       // 正行程数据（最多5个）
+    QVector<double> m_reverseData;       // 反行程数据（最多5个）
+    int m_currentForwardIndex = 0;       // 当前正行程数据索引
+    int m_currentReverseIndex = 0;       // 当前反行程数据索引  
+    int m_saveCount = 0;                 // 保存按钮点击次数
+    double m_maxAngle = 0.0;             // 当前最大角度
 
     bool grabOneFrame(cv::Mat &outBar);
     void runAlgoOnce();
     static void conv2(const Mat &img, const Mat& kernel, ConvolutionType type, Mat& dest);
+    
+    // 指针运动方向检测方法
+    void updatePointerDirection(double currentAngle);
+    QString getStrokeDirectionString() const;
+    void resetStrokeTracking();  // 重置行程跟踪
+    
+    // 多次测量取平均的方法
+    double measureAngleMultipleTimes(const cv::Mat& frame, int measureCount = 3);
+    
+    // 数据表格更新方法
+    void updateDataTable();
+    void initializeDataArrays();
+    void addDataToCurrentStroke(double angle);
     
 
 private slots:
@@ -138,6 +165,8 @@ private slots:
     void showDialMarkDialog();
     void showErrorTableDialog();
     void onDialTypeChanged(const QString &dialType);
+    void onConfirmData();           // 确定按钮槽函数
+    void onSaveData();              // 保存按钮槽函数
 
 };
 

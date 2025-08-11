@@ -1,14 +1,14 @@
 <RCC>
     <qresource prefix="/">
-        <file>../images/ContinuousShot.png</file>
-        <file>../images/OneShot.png</file>
+        <file>../images/get.png</file>
+        <file>../images/zero.png</file>
         <file>../images/info.png</file>
         <file>../images/settings_32x32.png</file>
         <file>../images/refresh_32x32.png</file>
-        <file>../images/Preview_32x32.png</file>
         <file>../images/get_info_32x32.png</file>
-        <file>../images/play_32x32.png</file>
         <file>../images/biaopan.png</file>
         <file>../images/excle.png</file>
+        <file>../images/save.png</file>
+        <file>../images/sure.png</file>
     </qresource>
 </RCC>
