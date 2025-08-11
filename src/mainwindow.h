@@ -37,6 +37,34 @@ enum ConvolutionType {
 
 using namespace cv;
 
+// 指针识别配置结构
+struct PointerDetectionConfig {
+    // 圆形检测参数
+    double dp = 1.0;                    // HoughCircles的累加器分辨率
+    double minDist = 100;               // 圆心之间的最小距离
+    double param1 = 100;                // Canny边缘检测的高阈值
+    double param2 = 30;                 // 圆心检测的累加器阈值
+    int minRadius = 50;                 // 最小圆半径
+    int maxRadius = 0;                  // 最大圆半径（0表示不限制）
+    
+    // 直线检测参数
+    double rho = 1.0;                   // 距离分辨率
+    double theta = CV_PI/180;           // 角度分辨率
+    int threshold = 50;                 // 累加器阈值
+    double minLineLength = 30;          // 最小线段长度
+    double maxLineGap = 10;             // 最大线段间隙
+    
+    // Canny边缘检测参数
+    double cannyLow = 50;               // Canny低阈值
+    double cannyHigh = 150;             // Canny高阈值
+    
+    // 指针识别特定参数
+    bool usePointerFromCenter = true;   // 是否从圆心开始识别指针
+    double pointerSearchRadius = 0.9;   // 指针搜索半径比例（相对于表盘半径）
+    int pointerMinLength = 50;          // 指针最小长度
+    double angleOffset = 0.0;           // 角度偏移量
+};
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -60,7 +88,7 @@ private:
     QJsonObject json;
     int imageSaved = 0;
     int currentCapturedCount = 0;
-    bool isAlgoAreaOpened = false;
+    bool isAlgoAreaOpened = true;  // 默认展开识别角度区域
 
     QSize smallSize;
     QSize bigSize;
@@ -69,6 +97,11 @@ private:
     QComboBox *m_dialTypeCombo;
     QLabel *m_dialTypeLabel;
     QString m_currentDialType;
+    
+    // 指针识别配置
+    PointerDetectionConfig m_yyqyConfig;  // YYQY表盘配置
+    PointerDetectionConfig m_byqConfig;   // BYQ表盘配置
+    PointerDetectionConfig* m_currentConfig;  // 当前使用的配置指针
 
     void setButtons(bool inPreview);
     void setNoCamera();
@@ -77,6 +110,9 @@ private:
     Mat spatial_LSI(Mat speckle,int m);
     void updateCollectionDisplay();
     void setupDialTypeSelector();
+    void setupExpandedLayout();  // 设置展开的布局
+    void initPointerConfigs();   // 初始化指针识别配置
+    void switchPointerConfig(const QString& dialType);  // 切换指针识别配置
 
     // angel
     bool   m_hasZero   = false;
@@ -112,9 +148,10 @@ private:
     std::vector<cv::Vec3f> m_circles;
     std::vector<cv::Vec4i> m_lines;
     double m_angle;
+    const PointerDetectionConfig* m_config;  // 配置参数指针
     
 public:
-    explicit highPreciseDetector(const cv::Mat& image);
+    explicit highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config = nullptr);
     ~highPreciseDetector() = default;
 
     const std::vector<cv::Vec3f>& getCircles() const { return m_circles; }
@@ -127,6 +164,7 @@ private:
     void detectCircles();
     void detectLines();
     void calculateAngle();
+    void detectPointerFromCenter();  // 从圆心开始检测指针的新方法
 };
 
 #endif // MAINWINDOW_H
