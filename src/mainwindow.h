@@ -165,6 +165,10 @@ private:
     void detectLines();
     void calculateAngle();
     void detectPointerFromCenter();  // 从圆心开始检测指针的新方法
+    
+    // 白色指针检测专用方法
+    cv::Vec4i detectWhitePointer(const cv::Mat& gray, const cv::Point2f& center, float radius);
+    cv::Vec4i detectWhitePointerByBrightness(const cv::Mat& gray, const cv::Point2f& center, float radius);
 };
 
 #endif // MAINWINDOW_H
