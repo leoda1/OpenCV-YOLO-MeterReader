@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1231</width>
-    <height>638</height>
+    <width>1277</width>
+    <height>651</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -17,7 +17,7 @@
    </sizepolicy>
   </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>Automatic dial drawing system </string>
   </property>
   <widget class="QWidget" name="centralWidget">
    <property name="minimumSize">
@@ -43,14 +43,7 @@
      <number>10</number>
     </property>
     <item>
-     <!-- 左侧源图像区域 -->
      <widget class="QFrame" name="srcFrame">
-      <property name="frameShape">
-       <enum>QFrame::Shape::StyledPanel</enum>
-      </property>
-      <property name="frameShadow">
-       <enum>QFrame::Shadow::Raised</enum>
-      </property>
       <property name="minimumSize">
        <size>
         <width>660</width>
@@ -62,6 +55,12 @@
         <width>660</width>
         <height>16777215</height>
        </size>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::Shape::StyledPanel</enum>
+      </property>
+      <property name="frameShadow">
+       <enum>QFrame::Shadow::Raised</enum>
       </property>
       <layout class="QVBoxLayout" name="srcVerticalLayout" stretch="0,1,0">
        <property name="spacing">
@@ -206,25 +205,66 @@
      </widget>
     </item>
     <item>
-     <!-- 右侧区域 -->
      <layout class="QVBoxLayout" name="rightVerticalLayout">
       <property name="spacing">
        <number>10</number>
       </property>
       <item>
-       <!-- 检测结果显示区域 -->
-       <widget class="QLabel" name="destDisplay">
+       <widget class="QLabel" name="labelAngle">
         <property name="minimumSize">
          <size>
-          <width>430</width>
-          <height>320</height>
+          <width>120</width>
+          <height>25</height>
          </size>
         </property>
         <property name="maximumSize">
          <size>
-          <width>430</width>
-          <height>320</height>
+          <width>16777215</width>
+          <height>30</height>
          </size>
+        </property>
+        <property name="font">
+         <font>
+          <pointsize>9</pointsize>
+          <bold>false</bold>
+         </font>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QLabel {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: #333;
+}</string>
+        </property>
+        <property name="text">
+         <string>等待检测</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignmentFlag::AlignCenter</set>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="destDisplay">
+        <property name="minimumSize">
+         <size>
+          <width>430</width>
+          <height>380</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>100000</width>
+          <height>400</height>
+         </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">border: 1px solid #ccc;</string>
         </property>
         <property name="text">
          <string/>
@@ -232,157 +272,411 @@
         <property name="scaledContents">
          <bool>true</bool>
         </property>
-        <property name="styleSheet">
-         <string notr="true">border: 1px solid #ccc;</string>
-        </property>
        </widget>
       </item>
       <item>
-       <!-- 识别角度控制区域 -->
-       <widget class="QWidget" name="angleControlWidget">
-        <property name="minimumSize">
-         <size>
-          <width>430</width>
-          <height>80</height>
-         </size>
+       <layout class="QGridLayout" name="dataGridLayout">
+        <property name="leftMargin">
+         <number>5</number>
         </property>
-        <property name="maximumSize">
-         <size>
-          <width>430</width>
-          <height>80</height>
-         </size>
+        <property name="topMargin">
+         <number>5</number>
         </property>
-        <property name="visible">
-         <bool>true</bool>
+        <property name="rightMargin">
+         <number>5</number>
         </property>
-        <layout class="QHBoxLayout" name="angleLayout">
-         <property name="spacing">
-          <number>15</number>
-         </property>
-         <property name="leftMargin">
-          <number>5</number>
-         </property>
-         <property name="topMargin">
-          <number>5</number>
-         </property>
-         <property name="rightMargin">
-          <number>5</number>
-         </property>
-         <property name="bottomMargin">
-          <number>5</number>
-         </property>
-         <item>
-          <widget class="QPushButton" name="pushResetZero">
-           <property name="minimumSize">
-            <size>
-             <width>60</width>
-             <height>40</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>60</width>
-             <height>40</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <pointsize>10</pointsize>
-             <bold>true</bold>
-            </font>
-           </property>
-           <property name="text">
-            <string>归位</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="pushCaptureZero">
-           <property name="minimumSize">
-            <size>
-             <width>60</width>
-             <height>40</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>60</width>
-             <height>40</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <pointsize>10</pointsize>
-             <bold>true</bold>
-            </font>
-           </property>
-           <property name="text">
-            <string>采集</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLabel" name="angleLabel">
-           <property name="font">
-            <font>
-             <pointsize>11</pointsize>
-             <bold>true</bold>
-            </font>
-           </property>
-           <property name="text">
-            <string>当前角度:</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLabel" name="labelAngle">
-           <property name="minimumSize">
-            <size>
-             <width>200</width>
-             <height>40</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <pointsize>11</pointsize>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="styleSheet">
-            <string notr="true">QLabel {
-    background-color: #f8f9fa;
-    border: 1px solid #e9ecef;
-    border-radius: 4px;
-    padding: 8px;
-    color: #333;
-}</string>
-           </property>
-           <property name="text">
-            <string>等待检测...</string>
-           </property>
-           <property name="alignment">
-            <set>Qt::AlignmentFlag::AlignCenter</set>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item>
-       <spacer name="rightVerticalSpacer">
-        <property name="orientation">
-         <enum>Qt::Vertical</enum>
+        <property name="bottomMargin">
+         <number>5</number>
         </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>20</width>
-          <height>40</height>
-         </size>
+        <property name="spacing">
+         <number>2</number>
         </property>
-       </spacer>
+        <item row="2" column="3">
+         <widget class="QLabel" name="labelReverseData3">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据3</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QLabel" name="labelReverseData1">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据1</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="5">
+         <widget class="QLabel" name="labelForwardData5">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据5</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="labelForward">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; }</string>
+          </property>
+          <property name="text">
+           <string>正行程</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QLabel" name="labelForwardData1">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据1</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="0" colspan="2">
+         <widget class="QLabel" name="labelMaxAngle">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; }</string>
+          </property>
+          <property name="text">
+           <string>当前最大角度：</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="2" colspan="2">
+         <widget class="QLabel" name="labelMaxAngleValue">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #fff3cd; }</string>
+          </property>
+          <property name="text">
+           <string>--</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="4" colspan="2">
+         <widget class="QLabel" name="labelSaveCount">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #d4edda; }</string>
+          </property>
+          <property name="text">
+           <string>当前采集轮次：0</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="5">
+         <widget class="QLabel" name="labelReverseData5">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据5</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QLabel" name="labelForwardData2">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据2</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="2">
+         <widget class="QLabel" name="labelReverseData2">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据2</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="labelReverse">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; }</string>
+          </property>
+          <property name="text">
+           <string>反行程</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="4">
+         <widget class="QLabel" name="labelForwardData4">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据4</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="3">
+         <widget class="QLabel" name="labelForwardData3">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据3</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="4">
+         <widget class="QLabel" name="labelReverseData4">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据4</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="0">
+         <widget class="QPushButton" name="pushResetZero">
+          <property name="minimumSize">
+           <size>
+            <width>60</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>100</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>归位</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="5">
+         <widget class="QPushButton" name="pushSave">
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>100</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>保存</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QPushButton" name="pushCaptureZero">
+          <property name="minimumSize">
+           <size>
+            <width>60</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>100</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>采集</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QPushButton" name="pushConfirm">
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>100</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>确定</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
      </layout>
     </item>
@@ -393,8 +687,8 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1231</width>
-     <height>37</height>
+     <width>1277</width>
+     <height>24</height>
     </rect>
    </property>
   </widget>
@@ -405,9 +699,10 @@
    <attribute name="toolBarBreak">
     <bool>false</bool>
    </attribute>
-   <addaction name="actionPreview"/>
-   <addaction name="actionCollectSingle"/>
-   <addaction name="actionCollectMulti"/>
+   <addaction name="actionSave"/>
+   <addaction name="actionResetZero"/>
+   <addaction name="actionCapture"/>
+   <addaction name="actionConfirm"/>
    <addaction name="actionRefresh"/>
    <addaction name="separator"/>
    <addaction name="actionSetting"/>
@@ -417,40 +712,52 @@
    <addaction name="actionErrorTable"/>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
-  <action name="actionPreview">
+  <action name="actionSave">
    <property name="icon">
     <iconset resource="images.qrc">
-     <normaloff>:/images/play_32x32.png</normaloff>:/images/play_32x32.png</iconset>
+     <normaloff>:/images/save.png</normaloff>:/images/save.png</iconset>
    </property>
    <property name="text">
-    <string>预览</string>
+    <string>保存</string>
    </property>
    <property name="toolTip">
-    <string>预览</string>
+    <string>保存</string>
    </property>
   </action>
-  <action name="actionCollectSingle">
+  <action name="actionResetZero">
    <property name="icon">
     <iconset resource="images.qrc">
-     <normaloff>:/images/OneShot.png</normaloff>:/images/OneShot.png</iconset>
+     <normaloff>:/images/zero.png</normaloff>:/images/zero.png</iconset>
    </property>
    <property name="text">
-    <string>单张采集</string>
+    <string>归位</string>
    </property>
    <property name="toolTip">
-    <string>单张采集</string>
+    <string>归位</string>
    </property>
   </action>
-  <action name="actionCollectMulti">
+  <action name="actionCapture">
    <property name="icon">
     <iconset resource="images.qrc">
-     <normaloff>:/images/ContinuousShot.png</normaloff>:/images/ContinuousShot.png</iconset>
+     <normaloff>:/images/get.png</normaloff>:/images/get.png</iconset>
    </property>
    <property name="text">
-    <string>连续采集</string>
+    <string>采集</string>
    </property>
    <property name="toolTip">
-    <string>连续采集</string>
+    <string>采集</string>
+   </property>
+  </action>
+  <action name="actionConfirm">
+   <property name="icon">
+    <iconset resource="images.qrc">
+     <normaloff>:/images/sure.png</normaloff>:/images/sure.png</iconset>
+   </property>
+   <property name="text">
+    <string>确定</string>
+   </property>
+   <property name="toolTip">
+    <string>确定</string>
    </property>
   </action>
   <action name="actionSetting">
