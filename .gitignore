@@ -6,3 +6,7 @@ ref/
 images/
 ref2/
 .cursorignore
+.cache/
+src/mainwindow.cpp
+src/byq.csv
+src/yyqy.csv

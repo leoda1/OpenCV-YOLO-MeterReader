@@ -18,6 +18,7 @@
 #include <opencv2/opencv.hpp>
 #include <QComboBox>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
 #include <QGroupBox>
 #include <QListWidget>
 #include <QFontComboBox>
@@ -254,8 +255,8 @@ private:
     
     DialConfig m_dialConfig;    
     QPushButton *m_generateButton;  // 生成表盘按钮
-    QSpinBox *m_maxPressureSpin;    // 最大压力输入框
-    QSpinBox *m_dialAngleSpin;      // 表盘角度输入框（仅YYQY类型）
+    QDoubleSpinBox *m_maxPressureSpin;    // 最大压力输入框（支持小数）
+    QDoubleSpinBox *m_dialAngleSpin;      // 表盘角度输入框（支持小数，仅YYQY类型）
 
     void setupUI();
     void setupToolbar();

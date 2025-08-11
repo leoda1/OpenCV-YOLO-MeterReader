@@ -719,9 +719,18 @@ void DialMarkDialog::setupUI()
     maxPressureLabel->setFont(panelFont);
     dialLayout->addWidget(maxPressureLabel);
     
-    m_maxPressureSpin = new QSpinBox(dialGroup);
-    m_maxPressureSpin->setRange(1, 100);
-    m_maxPressureSpin->setValue(25);
+    m_maxPressureSpin = new QDoubleSpinBox(dialGroup);
+    m_maxPressureSpin->setRange(0.1, 100.0);  // 支持小数，最小值0.1
+    m_maxPressureSpin->setDecimals(1);        // 显示1位小数
+    m_maxPressureSpin->setSingleStep(0.1);    // 每次调整0.1
+    
+    // 根据表盘类型设置默认值
+    if (m_dialType == "YYQY-13") {
+        m_maxPressureSpin->setValue(6.3);     // YYQY表盘默认6.3MPa
+    } else {
+        m_maxPressureSpin->setValue(25.0);    // BYQ表盘默认25.0MPa
+    }
+    
     m_maxPressureSpin->setFont(panelFont);
     dialLayout->addWidget(m_maxPressureSpin);
     
@@ -731,9 +740,11 @@ void DialMarkDialog::setupUI()
         angleLabel->setFont(panelFont);
         dialLayout->addWidget(angleLabel);
         
-        m_dialAngleSpin = new QSpinBox(dialGroup);
-        m_dialAngleSpin->setRange(180, 360);
-        m_dialAngleSpin->setValue(300);  // 默认300度
+        m_dialAngleSpin = new QDoubleSpinBox(dialGroup);
+        m_dialAngleSpin->setRange(180.0, 360.0);  // 支持小数范围
+        m_dialAngleSpin->setDecimals(1);          // 显示1位小数
+        m_dialAngleSpin->setSingleStep(0.5);      // 每次调整0.5度
+        m_dialAngleSpin->setValue(280.0);         // 默认280度（YYQY标准角度）
         m_dialAngleSpin->setFont(panelFont);
         dialLayout->addWidget(m_dialAngleSpin);
     } else {
@@ -807,8 +818,8 @@ void DialMarkDialog::setupUI()
     
     // 连接角度变化信号（仅YYQY类型）
     if (m_dialType == "YYQY-13" && m_dialAngleSpin) {
-        connect(m_dialAngleSpin, QOverload<int>::of(&QSpinBox::valueChanged),
-                this, [this](int value) {
+        connect(m_dialAngleSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                this, [this](double value) {
                     m_yyqyConfig.totalAngle = value;
                     qDebug() << "角度已更新为：" << value;
                 });
