@@ -902,23 +902,25 @@ void MainWindow::setupDialTypeSelector()
 
 void MainWindow::initPointerConfigs()
 {
-    // YYQY表盘配置
+    // YYQY表盘配置 - 针对白色指针优化
     m_yyqyConfig.dp = 1.0;
-    m_yyqyConfig.minDist = 100;  // 根据图像尺寸调整
+    m_yyqyConfig.minDist = 100;  
     m_yyqyConfig.param1 = 100;
-    m_yyqyConfig.param2 = 30;
-    m_yyqyConfig.minRadius = 150;  // 根据检测到的半径217.4调整
+    m_yyqyConfig.param2 = 25;              // 降低以检测更多圆候选
+    m_yyqyConfig.minRadius = 150;  
     m_yyqyConfig.maxRadius = 300;
     
-    // 指针检测参数 - 针对YYQY优化
-    m_yyqyConfig.usePointerFromCenter = true;  // 使用从圆心开始的指针检测
-    m_yyqyConfig.pointerSearchRadius = 0.8;   // 搜索半径比例
-    m_yyqyConfig.pointerMinLength = 80;       // 最小指针长度
-    m_yyqyConfig.cannyLow = 30;              // 降低Canny阈值以检测更多边缘
+    // 白色指针检测参数 - 针对YYQY白色指针优化
+    m_yyqyConfig.usePointerFromCenter = true;  // 使用专门的白色指针检测
+    m_yyqyConfig.pointerSearchRadius = 0.85;   // 搜索半径比例
+    m_yyqyConfig.pointerMinLength = 60;        // 降低最小长度，白色指针可能较短
+    m_yyqyConfig.cannyLow = 30;               // 保持低阈值
     m_yyqyConfig.cannyHigh = 100;
-    m_yyqyConfig.threshold = 40;             // 降低直线检测阈值
-    m_yyqyConfig.minLineLength = 60;
-    m_yyqyConfig.maxLineGap = 15;
+    m_yyqyConfig.rho = 1.0;                   // 距离分辨率
+    m_yyqyConfig.theta = CV_PI/180;           // 角度分辨率
+    m_yyqyConfig.threshold = 35;              // 降低直线检测阈值
+    m_yyqyConfig.minLineLength = 45;          // 降低最小线段长度
+    m_yyqyConfig.maxLineGap = 12;             // 适当增加间隙
     
     // BYQ表盘配置（保持原有参数）
     m_byqConfig.dp = 1.0;
@@ -933,6 +935,8 @@ void MainWindow::initPointerConfigs()
     m_byqConfig.pointerMinLength = 50;
     m_byqConfig.cannyLow = 50;
     m_byqConfig.cannyHigh = 150;
+    m_byqConfig.rho = 1.0;
+    m_byqConfig.theta = CV_PI/180;
     m_byqConfig.threshold = 50;
     m_byqConfig.minLineLength = 30;
     m_byqConfig.maxLineGap = 10;
@@ -940,7 +944,7 @@ void MainWindow::initPointerConfigs()
     // 设置默认配置
     m_currentConfig = &m_yyqyConfig;
     
-    qDebug() << "指针识别配置初始化完成";
+    qDebug() << "指针识别配置初始化完成 - 白色指针优化版本";
 }
 
 void MainWindow::switchPointerConfig(const QString& dialType)
@@ -1120,68 +1124,213 @@ void highPreciseDetector::detectPointerFromCenter() {
     cv::Point2f center(m_circles[0][0], m_circles[0][1]);
     float radius = m_circles[0][2];
     
-    // 使用更敏感的边缘检测参数
-    cv::Mat edges;
-    cv::Canny(gray, edges, m_config->cannyLow, m_config->cannyHigh, 3);
+    qDebug() << "检测白色指针，表盘中心:(" << center.x << "," << center.y << ") 半径:" << radius;
     
-    // 形态学操作增强边缘
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
-    cv::morphologyEx(edges, edges, cv::MORPH_CLOSE, kernel);
+    // 专门检测白色指针的算法
+    cv::Vec4i bestPointer = detectWhitePointer(gray, center, radius);
     
-    // 搜索从圆心出发的最长边缘线段
-    float searchRadius = radius * m_config->pointerSearchRadius;
-    cv::Vec4i bestPointer;
-    double maxPointerLength = 0;
+    if (bestPointer[0] != -1) {
+        m_lines.clear();
+        m_lines.push_back(bestPointer);
+        double length = sqrt(pow(bestPointer[2] - bestPointer[0], 2) + pow(bestPointer[3] - bestPointer[1], 2));
+        qDebug() << "检测到白色指针: (" << bestPointer[0] << "," << bestPointer[1] 
+                 << ") 到 (" << bestPointer[2] << "," << bestPointer[3] << "), 长度:" << length;
+    } else {
+        qDebug() << "未能检测到白色指针，回退到传统方法";
+        detectLines();
+    }
+}
+
+cv::Vec4i highPreciseDetector::detectWhitePointer(const cv::Mat& gray, const cv::Point2f& center, float radius) {
+    // 1. 创建表盘内部的掩码
+    cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
+    cv::circle(mask, cv::Point((int)center.x, (int)center.y), (int)(radius * 0.9), cv::Scalar(255), -1);
     
-    // 在多个角度方向搜索指针
-    for (int angle = 0; angle < 360; angle += 2) {
-        double radian = angle * CV_PI / 180.0;
+    // 2. 检测白色区域 - 使用阈值分割
+    cv::Mat whiteRegions;
+    cv::threshold(gray, whiteRegions, 180, 255, cv::THRESH_BINARY);  // 检测亮区域
+    whiteRegions.copyTo(whiteRegions, mask);  // 仅在表盘内部
+    
+    // 3. 形态学操作连接白色区域
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
+    cv::morphologyEx(whiteRegions, whiteRegions, cv::MORPH_CLOSE, kernel);
+    cv::morphologyEx(whiteRegions, whiteRegions, cv::MORPH_OPEN, kernel);
+    
+    // 4. 查找白色区域的轮廓
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(whiteRegions, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+    
+    cv::Vec4i bestPointer(-1, -1, -1, -1);
+    double maxScore = 0;
+    
+    // 5. 分析每个轮廓，找到最可能的指针
+    for (const auto& contour : contours) {
+        if (contour.size() < 5) continue;  // 轮廓点太少
         
-        // 从圆心开始沿着当前角度方向搜索
+        // 计算轮廓的面积
+        double area = cv::contourArea(contour);
+        if (area < 100 || area > radius * radius * 0.3) continue;  // 面积过滤
+        
+        // 拟合椭圆或直线
+        cv::RotatedRect ellipse = cv::fitEllipse(contour);
+        
+        // 检查椭圆的长宽比，指针应该是细长的
+        float aspectRatio = ellipse.size.width / ellipse.size.height;
+        if (aspectRatio < 1) aspectRatio = 1.0f / aspectRatio;  // 确保>1
+        
+        if (aspectRatio < 2.0) continue;  // 不够细长，不像指针
+        
+        // 检查椭圆中心是否接近表盘中心
+        cv::Point2f ellipseCenter = ellipse.center;
+        double distToDialCenter = cv::norm(ellipseCenter - center);
+        if (distToDialCenter > radius * 0.5) continue;  // 中心偏离太远
+        
+        // 计算指针方向和端点 - 修复角度计算
+        double angle = ellipse.angle * CV_PI / 180.0;
+        double length = std::max(ellipse.size.width, ellipse.size.height) / 2.0;
+        
+        // OpenCV的椭圆角度定义：从x轴正方向逆时针测量
+        // 但是我们需要考虑长轴方向
+        if (ellipse.size.width < ellipse.size.height) {
+            // 如果高度>宽度，则长轴是垂直方向，需要调整角度
+            angle += CV_PI / 2.0;
+        }
+        
+        cv::Point2f direction(cos(angle), sin(angle));
+        cv::Point2f startPoint = ellipseCenter - direction * (float)length;
+        cv::Point2f endPoint = ellipseCenter + direction * (float)length;
+        
+        // 确保指针从表盘中心指向外围
+        double dist1 = cv::norm(startPoint - center);
+        double dist2 = cv::norm(endPoint - center);
+        if (dist1 > dist2) {
+            // 如果startPoint离表盘中心更远，说明方向反了
+            std::swap(startPoint, endPoint);
+        }
+        
+        // 进一步调整：确保startPoint是表盘中心附近的点
+        cv::Point2f vectorToCenter = center - ellipseCenter;
+        double distEllipseToCenter = cv::norm(vectorToCenter);
+        if (distEllipseToCenter > 10) {  // 椭圆中心不在表盘中心
+            // 将起点调整为更接近表盘中心的位置
+            cv::Point2f directionToCenter = vectorToCenter / (float)distEllipseToCenter;
+            startPoint = ellipseCenter + directionToCenter * std::min(30.0f, (float)distEllipseToCenter);
+            
+            // 重新计算指针方向（从调整后的起点到椭圆边缘的最远点）
+            cv::Point2f pointerDirection = endPoint - startPoint;
+            float pointerLength = cv::norm(pointerDirection);
+            if (pointerLength > 0) {
+                pointerDirection = pointerDirection / pointerLength;
+                endPoint = startPoint + pointerDirection * (float)length;
+            }
+        }
+        
+        // 计算得分：基于长度、位置和形状
+        double lengthScore = std::min(length / (radius * 0.8), 1.0);  // 长度得分
+        double positionScore = std::max(0.0, 1.0 - distToDialCenter / (radius * 0.3));  // 位置得分
+        double shapeScore = std::min(aspectRatio / 5.0, 1.0);  // 形状得分
+        
+        double totalScore = lengthScore * 0.4 + positionScore * 0.4 + shapeScore * 0.2;
+        
+        if (totalScore > maxScore) {
+            maxScore = totalScore;
+            bestPointer = cv::Vec4i((int)startPoint.x, (int)startPoint.y, 
+                                   (int)endPoint.x, (int)endPoint.y);
+        }
+    }
+    
+    // 6. 如果基于轮廓的方法失败，尝试基于亮度的射线方法
+    if (bestPointer[0] == -1) {
+        bestPointer = detectWhitePointerByBrightness(gray, center, radius);
+    }
+    
+    qDebug() << "白色指针检测完成，最高得分:" << maxScore;
+    return bestPointer;
+}
+
+cv::Vec4i highPreciseDetector::detectWhitePointerByBrightness(const cv::Mat& gray, const cv::Point2f& center, float radius) {
+    cv::Vec4i bestPointer(-1, -1, -1, -1);
+    double maxScore = 0;
+    
+    // 在多个角度方向搜索最亮的射线
+    for (int angle = 0; angle < 360; angle += 2) {  // 更精细的角度搜索
+        double radian = angle * CV_PI / 180.0;
         cv::Point2f direction(cos(radian), sin(radian));
         
-        // 沿着这个方向搜索边缘点
-        double maxDistance = 0;
-        cv::Point2f farthestPoint = center;
+        double totalBrightness = 0;
+        int validPoints = 0;
+        cv::Point2f farthestBrightPoint = center;
+        std::vector<cv::Point2f> brightPoints;  // 记录所有亮点
         
-        for (int step = 10; step < searchRadius; step += 2) {
+        // 从表盘中心附近开始搜索（跳过中心区域，避免干扰）
+        for (int step = 15; step < radius * 0.85; step += 2) {
             cv::Point2f currentPoint = center + direction * (float)step;
             
-            // 确保点在图像范围内
-            if (currentPoint.x < 0 || currentPoint.x >= edges.cols ||
-                currentPoint.y < 0 || currentPoint.y >= edges.rows) {
+            if (currentPoint.x < 0 || currentPoint.x >= gray.cols ||
+                currentPoint.y < 0 || currentPoint.y >= gray.rows) {
                 break;
             }
             
-            // 检查当前点是否是边缘点
-            if (edges.at<uchar>((int)currentPoint.y, (int)currentPoint.x) > 0) {
-                double distance = cv::norm(currentPoint - center);
-                if (distance > maxDistance && distance > m_config->pointerMinLength) {
-                    maxDistance = distance;
-                    farthestPoint = currentPoint;
+            uchar brightness = gray.at<uchar>((int)currentPoint.y, (int)currentPoint.x);
+            
+            // 检测亮点（白色指针）
+            if (brightness > 170) {  // 降低阈值，检测更多亮点
+                totalBrightness += brightness;
+                validPoints++;
+                brightPoints.push_back(currentPoint);
+                
+                double distFromCenter = cv::norm(currentPoint - center);
+                if (distFromCenter > cv::norm(farthestBrightPoint - center)) {
+                    farthestBrightPoint = currentPoint;
                 }
             }
         }
         
-        // 如果找到了足够长的边缘线段，记录下来
-        if (maxDistance > maxPointerLength && maxDistance > m_config->pointerMinLength) {
-            maxPointerLength = maxDistance;
-            bestPointer = cv::Vec4i((int)center.x, (int)center.y, 
-                                   (int)farthestPoint.x, (int)farthestPoint.y);
+        // 计算这个方向的得分
+        if (validPoints > 8) {  // 需要足够多的亮点
+            double avgBrightness = totalBrightness / validPoints;
+            double pointerLength = cv::norm(farthestBrightPoint - center);
+            double continuity = (double)validPoints / (pointerLength / 2.0);  // 连续性得分
+            
+            // 综合评分：亮度 + 长度 + 连续性
+            double score = (avgBrightness - 170) * 0.4 + 
+                          std::min(pointerLength / (radius * 0.7), 1.0) * 100 * 0.4 + 
+                          std::min(continuity, 1.0) * 100 * 0.2;
+            
+            if (score > maxScore && pointerLength > m_config->pointerMinLength) {
+                maxScore = score;
+                
+                // 使用更精确的端点：找到亮点的质心作为起点
+                cv::Point2f startPoint = center;
+                if (!brightPoints.empty()) {
+                    cv::Point2f centroid(0, 0);
+                    float totalWeight = 0;
+                    
+                    // 计算亮点的加权质心，距离表盘中心近的点权重更大
+                    for (const auto& point : brightPoints) {
+                        float weight = 1.0f / (1.0f + cv::norm(point - center) / 50.0f);
+                        centroid += point * weight;
+                        totalWeight += weight;
+                    }
+                    
+                    if (totalWeight > 0) {
+                        centroid = centroid / totalWeight;
+                        
+                        // 如果质心距离表盘中心合理，使用质心作为起点
+                        if (cv::norm(centroid - center) < radius * 0.4) {
+                            startPoint = centroid;
+                        }
+                    }
+                }
+                
+                bestPointer = cv::Vec4i((int)startPoint.x, (int)startPoint.y,
+                                       (int)farthestBrightPoint.x, (int)farthestBrightPoint.y);
+            }
         }
     }
     
-    // 如果找到了合适的指针
-    if (maxPointerLength > 0) {
-        m_lines.clear();  // 清除之前可能检测到的线段
-        m_lines.push_back(bestPointer);
-        qDebug() << "从圆心检测到指针: (" << bestPointer[0] << "," << bestPointer[1] 
-                 << ") 到 (" << bestPointer[2] << "," << bestPointer[3] << "), 长度:" << maxPointerLength;
-    } else {
-        qDebug() << "未能从圆心检测到指针";
-        // 如果新方法失败，回退到传统方法
-        detectLines();
-    }
+    qDebug() << "基于亮度的白色指针检测完成，最高得分:" << maxScore;
+    return bestPointer;
 }
 
 void highPreciseDetector::calculateAngle() {
