@@ -6,3 +6,4 @@ ref/
 images/
 ref2/
 .cursorignore
+.cache/
