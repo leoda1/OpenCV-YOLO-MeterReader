@@ -79,7 +79,7 @@ MainWindow::MainWindow(QWidget *parent) :
     initPointerConfigs();      // 初始化指针识别配置
     initializeDataArrays();    // 初始化数据数组
     updateDataDisplayVisibility();  // 初始化显示状态
-
+    initializeRoundsData();    // 初始化5轮数据结构
     smallSize = QSize(750,this->height());
     bigSize = this->size();
     
@@ -758,6 +758,27 @@ void MainWindow::onResetZero()
         
         qDebug() << "零位设置成功，角度:" << m_zeroAngle;
         
+        // 归位操作：清空当前轮次所有数据，然后添加零度数据到采集数据1
+        if (m_currentRound < m_allRoundsData.size()) {
+            RoundData &currentRound = m_allRoundsData[m_currentRound];
+            
+            // 清空当前轮次的所有数据
+            currentRound.forwardAngles.fill(0.0);
+            currentRound.backwardAngles.fill(0.0);
+            currentRound.maxAngle = 0.0;
+            currentRound.isCompleted = false;
+            
+            // 将归位的0度数据写入采集数据1（第一个正行程位置）
+            if (!currentRound.forwardAngles.isEmpty()) {
+                currentRound.forwardAngles[0] = 0.0;  // 零度写入采集数据1
+            }
+            
+            qDebug() << "第" << (m_currentRound + 1) << "轮数据已清空，零度已写入采集数据1";
+        }
+        
+        // 同时更新误差表格（如果打开的话）
+        updateErrorTableWithAllRounds();
+        
         // 更新界面显示
         ui->labelAngle->setText(QString("零位已设置: %1°").arg(angle, 0, 'f', 2));
         
@@ -863,18 +884,31 @@ void MainWindow::showErrorTableDialog()
     qDebug() << "打开误差检测表格";
     
     try {
-        // 每次创建新的对话框实例，避免重用导致的问题
-        auto dialog = new ErrorTableDialog(this);
+        // 如果对话框已存在，直接显示并激活
+        if (m_errorTableDialog) {
+            m_errorTableDialog->show();
+            m_errorTableDialog->raise();
+            m_errorTableDialog->activateWindow();
+            return;
+        }
         
-        // 设置对话框关闭时自动删除
-        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        // 创建新的对话框实例
+        m_errorTableDialog = new ErrorTableDialog(this);
+        
+        // 连接关闭信号，在对话框关闭时清空指针
+        connect(m_errorTableDialog, &QDialog::finished, this, [this]() {
+            m_errorTableDialog = nullptr;
+        });
         
         // 根据当前选择的表盘类型设置默认配置
         if (!m_currentDialType.isEmpty()) {
-            dialog->setDialType(m_currentDialType);
+            m_errorTableDialog->setDialType(m_currentDialType);
         }
         
-        dialog->show();
+        // 同步所有轮次的数据到误差表格
+        updateErrorTableWithAllRounds();
+        
+        m_errorTableDialog->show();
         
         qDebug() << "误差检测表格创建成功";
     } catch (const std::exception& e) {
@@ -910,14 +944,11 @@ void MainWindow::setupDialTypeSelector()
     m_dialTypeCombo->setMinimumWidth(120);
     m_dialTypeCombo->setMaximumHeight(30);
     
-    // 设置为只显示不可选择
-    // m_dialTypeCombo->setEnabled(false);  // 禁用下拉选择
-    
     // 将控件添加到状态栏
     ui->statusBar->addPermanentWidget(m_dialTypeLabel);
     ui->statusBar->addPermanentWidget(m_dialTypeCombo);
     
-    // 注释掉信号槽连接，因为现在通过按钮切换
+    // 连接信号槽
     connect(m_dialTypeCombo, &QComboBox::currentTextChanged, this, &MainWindow::onDialTypeChanged);
 }
 
@@ -942,6 +973,7 @@ void MainWindow::initPointerConfigs()
     m_yyqyConfig.threshold = 35;              // 降低直线检测阈值
     m_yyqyConfig.minLineLength = 45;          // 降低最小线段长度
     m_yyqyConfig.maxLineGap = 12;             // 适当增加间隙
+    m_yyqyConfig.silverThresholdLow = 0;      // YYQY不使用银色检测
     m_yyqyConfig.dialType = "YYQY";           // 设置表盘类型
     
     // BYQ表盘配置 - 针对银色指针末端和转轴检测优化
@@ -952,25 +984,27 @@ void MainWindow::initPointerConfigs()
     m_byqConfig.minRadius = 50;
     m_byqConfig.maxRadius = 0;
     
-    // BYQ指针检测参数 - 针对银色指针末端检测
-    m_byqConfig.usePointerFromCenter = true;  // 使用专门的BYQ指针检测
-    m_byqConfig.pointerSearchRadius = 0.9;
-    m_byqConfig.pointerMinLength = 30;        // 银色末端可能较短
-    m_byqConfig.cannyLow = 40;               // 适合银色边缘检测
-    m_byqConfig.cannyHigh = 120;
-    m_byqConfig.rho = 1.0;
-    m_byqConfig.theta = CV_PI/180;
-    m_byqConfig.threshold = 40;              // 银色直线检测阈值
-    m_byqConfig.minLineLength = 25;          // 银色末端较短
-    m_byqConfig.maxLineGap = 8;
+    // BYQ指针检测参数 - 针对细指针末端检测
+    m_byqConfig.usePointerFromCenter = true;
     
-    // BYQ转轴检测参数
-    m_byqConfig.axisMinRadius = 8;           // 转轴最小半径
-    m_byqConfig.axisMaxRadius = 40;          // 转轴最大半径
-    m_byqConfig.axisParam1 = 80;             // 转轴检测参数1
-    m_byqConfig.axisParam2 = 20;             // 转轴检测参数2
-    m_byqConfig.silverThresholdLow = 150;    // 银色区域下阈值
-    m_byqConfig.silverThresholdHigh = 255;   // 银色区域上阈值
+    // 步骤1-2：掩码参数
+    m_byqConfig.pointerMaskRadius = 0.9;        // 表盘掩码半径比例
+    m_byqConfig.axisExcludeMultiplier = 1.8;    // 转轴排除区域倍数
+    
+    // 步骤3：预处理参数
+    m_byqConfig.morphKernelWidth = 1;           // 形态学核宽度
+    m_byqConfig.morphKernelHeight = 2;          // 形态学核高度
+    m_byqConfig.gaussianKernelSize = 3;         // 高斯核大小
+    m_byqConfig.gaussianSigma = 0.8;            // 高斯标准差
+    
+    // 步骤4：边缘检测参数
+    m_byqConfig.cannyLowThreshold = 30;         // Canny低阈值
+    m_byqConfig.cannyHighThreshold = 100;       // Canny高阈值
+    
+    // 步骤5：HoughLinesP参数
+    m_byqConfig.houghThreshold = 20;            // 直线检测阈值
+    m_byqConfig.minLineLengthRatio = 0.12;      // 最小长度比例
+    m_byqConfig.maxLineGapRatio = 0.08;         // 最大间隙比例
     m_byqConfig.dialType = "BYQ";             // 设置表盘类型
     
     // 设置默认配置
@@ -1419,16 +1453,19 @@ void highPreciseDetector::showScale1Result() {
     }
     
     // 绘制BYQ转轴中心（只在BYQ模式下且检测到转轴时显示）
-    if (m_config && m_config->dialType == "BYQ" && m_axisCenter.x != -1 && m_axisCenter.y != -1) {
+    if (m_config && m_config->dialType == "BYQ" && m_axisCenter.x != -1 && m_axisCenter.y != -1 && m_axisRadius > 0) {
         cv::Point axisPoint(cvRound(m_axisCenter.x), cvRound(m_axisCenter.y));
-        // 绘制转轴中心（红色圆圈，较大）
-        cv::circle(m_visual, axisPoint, 8, cv::Scalar(0, 0, 255), 2, 8, 0);
-        // 绘制转轴中心点（黄色）
-        cv::circle(m_visual, axisPoint, 3, cv::Scalar(0, 255, 255), -1, 8, 0);
+        int axisRadiusInt = cvRound(m_axisRadius);
         
-        // 添加标注文字
-        cv::putText(m_visual, "Axis", cv::Point(axisPoint.x + 15, axisPoint.y - 10), 
-                   cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 2);
+        // 绘制检测到的转轴圆（绿色圆圈，使用实际检测到的半径）
+        cv::circle(m_visual, axisPoint, axisRadiusInt, cv::Scalar(0, 255, 0), 2, 8, 0);
+        // 绘制转轴中心点（红色）
+        cv::circle(m_visual, axisPoint, 3, cv::Scalar(0, 0, 255), -1, 8, 0);
+        
+        // 添加标注文字，显示半径信息
+        std::string axisText = "Axis(R=" + std::to_string(axisRadiusInt) + ")";
+        cv::putText(m_visual, axisText, cv::Point(axisPoint.x + axisRadiusInt + 5, axisPoint.y - 10), 
+                   cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
     }
     
     // 绘制检测到的直线（指针）
@@ -2008,198 +2045,297 @@ cv::Vec4i highPreciseDetector::detectBYQPointer(const cv::Mat& gray, const cv::P
 }
 
 cv::Point2f highPreciseDetector::detectBYQAxis(const cv::Mat& gray, const cv::Point2f& dialCenter, float dialRadius) {
-    qDebug() << "检测BYQ螺旋波登管转轴中心（偏银黑色圆），表盘中心:(" << dialCenter.x << "," << dialCenter.y << ") 半径:" << dialRadius;
+    qDebug() << "检测BYQ螺旋波登管转轴中心，表盘中心:(" << dialCenter.x << "," << dialCenter.y << ") 半径:" << dialRadius;
     
-    // 创建更精确的搜索区域：表盘中心偏下的圆形区域
-    float searchOffsetY = dialRadius * 0.15f; // 向下偏移15%半径
-    cv::Point2f searchCenter(dialCenter.x, dialCenter.y + searchOffsetY);
-    float searchRadius = dialRadius * 0.4f; // 在40%的表盘半径内搜索
+    // 硬编码转轴中心位置：表盘圆心向下90像素
+    cv::Point2f hardcodedAxisCenter(dialCenter.x, dialCenter.y + 90.0f);
+    m_axisRadius = 48.0f;  // 硬编码转轴半径
     
-    // 创建圆形搜索掩码
-    cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
-    cv::circle(mask, cv::Point((int)searchCenter.x, (int)searchCenter.y), (int)searchRadius, cv::Scalar(255), -1);
+    qDebug() << "硬编码转轴中心: (" << hardcodedAxisCenter.x << "," << hardcodedAxisCenter.y << ") 半径:" << m_axisRadius;
     
-    // 应用掩码
-    cv::Mat searchRegion;
-    gray.copyTo(searchRegion, mask);
-    
-    qDebug() << "搜索区域: 中心(" << searchCenter.x << "," << searchCenter.y << ") 半径:" << searchRadius;
-    
-    // 检测中等灰度的圆（银黑色区域，通常在80-180灰度范围）
-    cv::Mat grayFiltered;
-    cv::inRange(searchRegion, cv::Scalar(80), cv::Scalar(180), grayFiltered);
-    
-    // 形态学操作来清理噪声
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
-    cv::morphologyEx(grayFiltered, grayFiltered, cv::MORPH_OPEN, kernel);
-    cv::morphologyEx(grayFiltered, grayFiltered, cv::MORPH_CLOSE, kernel);
-    
-    std::vector<cv::Vec3f> axisCircles;
-    cv::HoughCircles(grayFiltered, axisCircles, cv::HOUGH_GRADIENT,
-                     1.0,                           // dp
-                     20,                            // minDist，增大避免重复检测
-                     80,                            // param1，提高边缘检测阈值
-                     18,                            // param2，提高圆心检测阈值
-                     m_config->axisMinRadius + 5,   // minRadius，稍微增大
-                     m_config->axisMaxRadius + 15); // maxRadius，增大范围
-    
-    qDebug() << "银黑色范围(80-180)检测到" << axisCircles.size() << "个圆";
-    
-    if (!axisCircles.empty()) {
-        // 选择最符合条件的圆
-        cv::Vec3f bestAxis(-1, -1, -1);
-        float bestScore = -1;
-        
-        for (size_t i = 0; i < axisCircles.size(); ++i) {
-            const auto& circle = axisCircles[i];
-            cv::Point2f circleCenter(circle[0], circle[1]);
-            float radius = circle[2];
-            
-            // 必须在表盘下半部分
-            if (circleCenter.y < dialCenter.y) {
-                qDebug() << "圆" << i << "在表盘上半部分，跳过";
-                continue;
-            }
-            
-            // 计算到搜索中心的距离
-            float distToSearch = sqrt(pow(circleCenter.x - searchCenter.x, 2) + 
-                                    pow(circleCenter.y - searchCenter.y, 2));
-            
-            // 计算到表盘中心的距离
-            float distToDial = sqrt(pow(circleCenter.x - dialCenter.x, 2) + 
-                                  pow(circleCenter.y - dialCenter.y, 2));
-            
-            // 检查是否在合理的距离范围内（表盘半径的20%-60%）
-            float idealDistToDial = dialRadius * 0.3f;
-            if (distToDial > dialRadius * 0.6f) {
-                qDebug() << "圆" << i << "距离表盘中心太远，跳过";
-                continue;
-            }
-            
-            // 综合评分
-            float distanceScore = 40.0f / (distToSearch + 1);
-            float sizeScore = 40.0f / (abs(radius - 30) + 1);  // 偏好半径30左右
-            float positionScore = 20.0f / (abs(distToDial - idealDistToDial) + 1);
-            
-            // 如果半径在25-40范围内，给额外加分
-            if (radius >= 25 && radius <= 40) {
-                sizeScore += 20.0f;
-            }
-            
-            float score = distanceScore + sizeScore + positionScore;
-            
-            qDebug() << "圆候选" << i << ": 中心(" << circle[0] << "," << circle[1] << ") 半径:" << radius 
-                     << " 距搜索中心:" << distToSearch << " 距表盘中心:" << distToDial << " 评分:" << score;
-            
-            if (score > bestScore) {
-                bestScore = score;
-                bestAxis = circle;
-            }
-        }
-        
-        if (bestAxis[0] != -1) {
-            qDebug() << "找到BYQ转轴: (" << bestAxis[0] << "," << bestAxis[1] << ") 半径:" << bestAxis[2] << " 评分:" << bestScore;
-            return cv::Point2f(bestAxis[0], bestAxis[1]);
-        }
-    }
-    
-    qDebug() << "未找到BYQ转轴，使用表盘中心偏下位置作为默认转轴";
-    return cv::Point2f(dialCenter.x, dialCenter.y + dialRadius * 0.2f);
+    return hardcodedAxisCenter;
 }
 
 cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const cv::Point2f& axisCenter, const cv::Point2f& dialCenter, float dialRadius) {
-    qDebug() << "检测银色指针末端";
+    qDebug() << "检测银色指针末端 - 简化版";
     
-    // 1. 创建表盘区域掩码
+    // 1. 创建环形掩码，排除转轴附近区域
     cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
-    cv::circle(mask, cv::Point((int)dialCenter.x, (int)dialCenter.y), (int)(dialRadius * 0.9), cv::Scalar(255), -1);
+    cv::circle(mask, cv::Point((int)dialCenter.x, (int)dialCenter.y), (int)(dialRadius * m_config->pointerMaskRadius), cv::Scalar(255), -1);
+    // 排除转轴附近的圆形区域，避免干扰
+    cv::circle(mask, cv::Point((int)axisCenter.x, (int)axisCenter.y), (int)(m_axisRadius * m_config->axisExcludeMultiplier), cv::Scalar(0), -1);
     
-    // 2. 检测银色区域（高亮度区域）
-    cv::Mat silverRegions;
-    cv::threshold(gray, silverRegions, m_config->silverThresholdLow, 255, cv::THRESH_BINARY);
-    silverRegions.copyTo(silverRegions, mask); // 只在表盘内部
+    // 2. 应用掩码获取感兴趣区域
+    cv::Mat roiGray;
+    gray.copyTo(roiGray, mask);
     
-    // 3. 形态学操作，连接银色区域
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
-    cv::morphologyEx(silverRegions, silverRegions, cv::MORPH_CLOSE, kernel);
-    cv::morphologyEx(silverRegions, silverRegions, cv::MORPH_OPEN, kernel);
+    // 3. 针对细指针的预处理 - 增强与白色背景的反差
+    cv::Mat enhanced;
     
-    // 4. 边缘检测，找到银色区域的边缘
+    // 3.1 反转图像，让暗色指针变成亮线（更容易检测）
+    cv::bitwise_not(roiGray, enhanced, mask);
+    
+    // 3.2 形态学操作增强细线
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(m_config->morphKernelWidth, m_config->morphKernelHeight));
+    cv::morphologyEx(enhanced, enhanced, cv::MORPH_CLOSE, kernel);
+    
+    // 3.3 轻微的高斯滤波减少噪声
+    cv::GaussianBlur(enhanced, enhanced, cv::Size(m_config->gaussianKernelSize, m_config->gaussianKernelSize), m_config->gaussianSigma);
+    
+    // 4. 边缘检测 - 使用配置的参数检测细线
     cv::Mat edges;
-    cv::Canny(silverRegions, edges, m_config->cannyLow, m_config->cannyHigh);
+    cv::Canny(enhanced, edges, m_config->cannyLowThreshold, m_config->cannyHighThreshold);
     
-    // 5. 使用HoughLinesP检测直线段
+    // 5. HoughLinesP检测 - 使用配置的参数
     std::vector<cv::Vec4i> lines;
     cv::HoughLinesP(edges, lines, 
-                    m_config->rho, 
-                    m_config->theta, 
-                    m_config->threshold, 
-                    m_config->minLineLength, 
-                    m_config->maxLineGap);
+                    1.0,                                        // rho: 1像素精度
+                    CV_PI/180,                                 // theta: 1度精度
+                    m_config->houghThreshold,                  // 使用配置的阈值
+                    dialRadius * m_config->minLineLengthRatio, // 使用配置的最小长度比例
+                    dialRadius * m_config->maxLineGapRatio);   // 使用配置的最大间隙比例
+    
+    qDebug() << "HoughLinesP检测找到" << lines.size() << "条直线段";
     
     if (lines.empty()) {
-        qDebug() << "未检测到银色直线段";
+        qDebug() << "未检测到指针直线段";
         return cv::Vec4i(-1, -1, -1, -1);
     }
     
-    // 6. 选择最可能是指针的直线
+    // 6. 简单逻辑：找最长的直线，连接到转轴中心
     cv::Vec4i bestLine(-1, -1, -1, -1);
-    double maxScore = 0;
+    double maxLength = 0;
     
     for (const auto& line : lines) {
         cv::Point2f p1(line[0], line[1]);
         cv::Point2f p2(line[2], line[3]);
         
-        // 计算直线长度
         double length = sqrt(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2));
         
-        // 计算直线中点到转轴的距离
-        cv::Point2f midPoint((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
-        double distToAxis = sqrt(pow(midPoint.x - axisCenter.x, 2) + pow(midPoint.y - axisCenter.y, 2));
-        
-        // 计算直线与从转轴到表盘边缘的角度一致性
-        double angleToAxis = atan2(midPoint.y - axisCenter.y, midPoint.x - axisCenter.x);
-        double lineAngle = atan2(p2.y - p1.y, p2.x - p1.x);
-        double angleDiff = abs(angleToAxis - lineAngle);
-        if (angleDiff > CV_PI) angleDiff = 2 * CV_PI - angleDiff;
-        
-        // 综合评分：长度 + 距离转轴的合理性 + 角度一致性
-        double score = length * 0.5 + (dialRadius * 0.5 - abs(distToAxis - dialRadius * 0.6)) * 0.3 + (CV_PI/2 - angleDiff) * 0.2;
-        
-        if (score > maxScore && length > m_config->pointerMinLength) {
-            maxScore = score;
+        if (length > maxLength) {
+            maxLength = length;
             bestLine = line;
         }
     }
     
-         if (bestLine[0] != -1) {
-         cv::Point2f p1(bestLine[0], bestLine[1]);
-         cv::Point2f p2(bestLine[2], bestLine[3]);
-         
-         // 计算从检测到的线段确定指针方向
-         cv::Point2f midPoint((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
-         cv::Point2f direction = midPoint - axisCenter;
-         
-         // 归一化方向向量
-         double dirLength = sqrt(direction.x * direction.x + direction.y * direction.y);
-         if (dirLength > 0) {
-             direction.x /= dirLength;
-             direction.y /= dirLength;
-             
-             // 延伸指针到表盘边缘，使用更大的长度
-             double extendedLength = dialRadius * 0.9;  // 延伸到表盘半径的90%
-             cv::Point2f endPoint = axisCenter + direction * extendedLength;
-             
-             // 设置返回的直线：从转轴中心延伸到指针真实末端
-             bestLine[0] = (int)axisCenter.x;
-             bestLine[1] = (int)axisCenter.y;
-             bestLine[2] = (int)endPoint.x;
-             bestLine[3] = (int)endPoint.y;
-             
-             qDebug() << "延伸指针到末端: 从转轴中心(" << bestLine[0] << "," << bestLine[1] 
-                      << ") 延伸到(" << bestLine[2] << "," << bestLine[3] << ") 长度:" << extendedLength;
-         }
-     }
+    if (bestLine[0] != -1) {
+        cv::Point2f p1(bestLine[0], bestLine[1]);
+        cv::Point2f p2(bestLine[2], bestLine[3]);
+        
+        // 找出距离转轴更远的点
+        double dist1 = sqrt(pow(p1.x - axisCenter.x, 2) + pow(p1.y - axisCenter.y, 2));
+        double dist2 = sqrt(pow(p2.x - axisCenter.x, 2) + pow(p2.y - axisCenter.y, 2));
+        
+        cv::Point2f farPoint = (dist1 > dist2) ? p1 : p2;
+        
+        // 直接从转轴中心连接到远点
+        bestLine[0] = (int)axisCenter.x;
+        bestLine[1] = (int)axisCenter.y;
+        bestLine[2] = (int)farPoint.x;
+        bestLine[3] = (int)farPoint.y;
+        
+        qDebug() << "找到最长直线，从转轴中心连接: (" << bestLine[0] << "," << bestLine[1] 
+                 << ") 到 (" << bestLine[2] << "," << bestLine[3] << ")";
+    }
     
     return bestLine;
+}
+
+// 测量并保存最大角度
+void MainWindow::measureAndSaveMaxAngle()
+{
+    if (!m_hasZero) {
+        QMessageBox::warning(this, "警告", "请先进行归位操作！");
+        return;
+    }
+    
+    // 获取当前图像
+    cv::Mat frame;
+    if (!grabOneFrame(frame)) {
+        QMessageBox::warning(this, "警告", "无法获取图像！");
+        return;
+    }
+    
+    // 多次测量取平均值，提高精度
+    double currentAngle = measureAngleMultipleTimes(frame, 5);  // 测量5次取平均
+    double angleDelta = currentAngle - m_zeroAngle;
+    
+    // 处理角度跨越边界
+    if (angleDelta > 180) angleDelta -= 360;
+    if (angleDelta < -180) angleDelta += 360;
+    
+    // 保存绝对值角度
+    double maxAngle = abs(angleDelta);
+    m_maxAngle = maxAngle;
+    
+    // 如果误差检测表格窗口打开，将最大角度数据传递给它
+    if (m_errorTableDialog) {
+        m_errorTableDialog->addMaxAngleData(maxAngle);
+    }
+    
+    // 更新界面显示
+    updateMaxAngleDisplay();
+    
+    qDebug() << "最大角度测量完成:" << maxAngle << "度";
+    
+    QMessageBox::information(this, "最大角度测量", 
+        QString("最大角度测量完成\n当前角度: %1°\n平均最大角度: %2°")
+        .arg(maxAngle, 0, 'f', 2)
+        .arg(m_errorTableDialog ? m_errorTableDialog->calculateAverageMaxAngle() : maxAngle, 0, 'f', 2));
+}
+
+// 更新最大角度显示
+void MainWindow::updateMaxAngleDisplay()
+{
+    if (m_errorTableDialog) {
+        double avgMaxAngle = m_errorTableDialog->calculateAverageMaxAngle();
+        // 这里可以更新界面上的最大角度显示标签
+        // 例如: ui->labelMaxAngle->setText(QString("平均最大角度: %1°").arg(avgMaxAngle, 0, 'f', 2));
+        qDebug() << "当前轮次最大角度:" << m_maxAngle << "平均最大角度:" << avgMaxAngle;
+    }
+}
+
+// ================== 5轮数据管理方法实现 ==================
+
+void MainWindow::initializeRoundsData()
+{
+    qDebug() << "初始化5轮数据结构";
+    
+    // 初始化5轮数据
+    m_allRoundsData.clear();
+    m_allRoundsData.resize(5);
+    
+    // 根据当前表盘类型设置测量次数和检测点
+    if (m_currentDialType == "YYQY-13") {
+        m_maxMeasurementsPerRound = 6;
+        m_detectionPoints = {0.0, 0.6, 1.2, 1.8, 2.4, 3.0};
+    } else if (m_currentDialType == "BYQ-19") {
+        m_maxMeasurementsPerRound = 5;
+        m_detectionPoints = {0.0, 0.75, 1.5, 2.25, 3.0};
+    } else {
+        // 默认配置
+        m_maxMeasurementsPerRound = 6;
+        m_detectionPoints = {0.0, 1.0, 2.0, 3.0};
+    }
+    
+    // 为每轮初始化数据结构
+    for (int round = 0; round < 5; ++round) {
+        m_allRoundsData[round].forwardAngles.resize(m_maxMeasurementsPerRound);
+        m_allRoundsData[round].backwardAngles.resize(m_maxMeasurementsPerRound);
+        m_allRoundsData[round].forwardAngles.fill(0.0);
+        m_allRoundsData[round].backwardAngles.fill(0.0);
+        m_allRoundsData[round].maxAngle = 0.0;
+        m_allRoundsData[round].isCompleted = false;
+    }
+    
+    // 重置状态
+    m_currentRound = 0;
+    m_currentDetectionPoint = 0;
+    
+    qDebug() << "5轮数据结构初始化完成，表盘类型:" << m_currentDialType 
+             << "每轮测量次数:" << m_maxMeasurementsPerRound
+             << "检测点数量:" << m_detectionPoints.size();
+}
+
+void MainWindow::addAngleToCurrentRound(double angle, bool isForward)
+{
+    if (m_currentRound >= m_allRoundsData.size()) {
+        qDebug() << "当前轮次超出范围:" << m_currentRound;
+        return;
+    }
+    
+    RoundData &currentRound = m_allRoundsData[m_currentRound];
+    
+    if (isForward) {
+        // 找到第一个空的正行程位置
+        for (int i = 0; i < currentRound.forwardAngles.size(); ++i) {
+            if (currentRound.forwardAngles[i] == 0.0 && i == 0) {
+                // 第一个位置可以是0.0（零位）
+                currentRound.forwardAngles[i] = angle;
+                qDebug() << "添加第" << (m_currentRound + 1) << "轮正行程第" << (i + 1) << "次数据:" << angle;
+                break;
+            } else if (currentRound.forwardAngles[i] == 0.0 && angle != 0.0) {
+                // 其他位置不能是0.0，除非确实是零位
+                currentRound.forwardAngles[i] = angle;
+                qDebug() << "添加第" << (m_currentRound + 1) << "轮正行程第" << (i + 1) << "次数据:" << angle;
+                break;
+            }
+        }
+    } else {
+        // 找到第一个空的反行程位置
+        for (int i = 0; i < currentRound.backwardAngles.size(); ++i) {
+            if (currentRound.backwardAngles[i] == 0.0 && angle != 0.0) {
+                currentRound.backwardAngles[i] = angle;
+                qDebug() << "添加第" << (m_currentRound + 1) << "轮反行程第" << (i + 1) << "次数据:" << angle;
+                break;
+            }
+        }
+    }
+    
+    // 更新状态显示
+    updateDataTable();
+}
+
+void MainWindow::updateErrorTableWithAllRounds()
+{
+    if (!m_errorTableDialog) {
+        return;  // 如果表格窗口没有打开，就不更新
+    }
+    
+    qDebug() << "开始同步5轮数据到误差表格";
+    
+    // 简化同步逻辑：直接传递数据而不是通过addAngleData方法
+    // 这需要在ErrorTableDialog中添加一个直接设置多轮数据的方法
+    
+    // 暂时保持现有的逻辑，但只同步当前主界面的轮次
+    m_errorTableDialog->setCurrentRound(m_currentRound);
+    
+    // 为当前轮次同步数据
+    if (m_currentRound < m_allRoundsData.size()) {
+        const RoundData &currentRoundData = m_allRoundsData[m_currentRound];
+        
+        // 简单起见，我们只同步非零数据
+        for (int i = 0; i < currentRoundData.forwardAngles.size(); ++i) {
+            if (currentRoundData.forwardAngles[i] != 0.0 || (i == 0 && currentRoundData.forwardAngles[i] == 0.0)) {
+                // 这里需要设置检测点，但简化逻辑，我们假设只有一个检测点
+                if (!m_detectionPoints.isEmpty()) {
+                    m_errorTableDialog->setCurrentPressurePoint(m_detectionPoints[0]);
+                    m_errorTableDialog->addAngleData(currentRoundData.forwardAngles[i], true);
+                }
+            }
+        }
+        
+        for (int i = 0; i < currentRoundData.backwardAngles.size(); ++i) {
+            if (currentRoundData.backwardAngles[i] != 0.0) {
+                if (!m_detectionPoints.isEmpty()) {
+                    m_errorTableDialog->setCurrentPressurePoint(m_detectionPoints[0]);
+                    m_errorTableDialog->addAngleData(currentRoundData.backwardAngles[i], false);
+                }
+            }
+        }
+        
+        // 添加最大角度数据
+        if (currentRoundData.maxAngle != 0.0) {
+            m_errorTableDialog->addMaxAngleData(currentRoundData.maxAngle);
+        }
+    }
+    
+    qDebug() << "当前轮次数据同步完成";
+}
+
+void MainWindow::setCurrentDetectionPoint(int pointIndex)
+{
+    if (pointIndex >= 0 && pointIndex < m_detectionPoints.size()) {
+        m_currentDetectionPoint = pointIndex;
+        qDebug() << "切换到检测点" << (pointIndex + 1) << ":" << m_detectionPoints[pointIndex] << "MPa";
+    }
+}
+
+QString MainWindow::getCurrentStatusInfo() const
+{
+    return QString("第%1轮 检测点%2 (%3MPa) %4")
+        .arg(m_currentRound + 1)
+        .arg(m_currentDetectionPoint + 1)
+        .arg(m_detectionPoints.isEmpty() ? 0.0 : m_detectionPoints[m_currentDetectionPoint])
+        .arg(m_isForwardStroke ? "正行程" : "反行程");
 }
