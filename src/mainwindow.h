@@ -190,6 +190,7 @@ private:
     double m_angle;
     const PointerDetectionConfig* m_config;  // 配置参数指针
     cv::Point2f m_axisCenter;  // BYQ转轴中心
+    float m_axisRadius;        // BYQ转轴半径
     
 public:
     explicit highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config = nullptr);

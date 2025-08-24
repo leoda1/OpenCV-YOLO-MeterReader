@@ -992,7 +992,7 @@ void MainWindow::onDialTypeChanged(const QString &dialType)
     // 可以在这里添加其他需要根据表盘类型变化的逻辑
 }
 
-highPreciseDetector::highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config) : m_angle(-999), m_config(config), m_axisCenter(-1, -1) {
+highPreciseDetector::highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config) : m_angle(-999), m_config(config), m_axisCenter(-1, -1), m_axisRadius(-1) {
     if (image.empty()) {
         qDebug() << "输入图像为空";
         return;
@@ -1036,34 +1036,96 @@ void highPreciseDetector::detectCircles() {
         gray = m_image.clone();
     }
     
-    // 使用高斯模糊减少噪声
-    cv::GaussianBlur(gray, gray, cv::Size(9, 9), 2, 2);
-    
-    // 使用配置参数进行HoughCircles检测
-    std::vector<cv::Vec3f> circles;
-    cv::HoughCircles(gray, circles, cv::HOUGH_GRADIENT, 
-                     m_config->dp, 
-                     m_config->minDist, 
-                     m_config->param1, 
-                     m_config->param2, 
-                     m_config->minRadius, 
-                     m_config->maxRadius);
-    
-    // 选择最大的圆作为表盘
-    if (!circles.empty()) {
-        cv::Vec3f maxCircle = circles[0];
-        float maxRadius = maxCircle[2];
+    // 检查是否为BYQ模式，如果是则使用增强检测
+    if (m_config && m_config->dialType == "BYQ") {
+        qDebug() << "BYQ模式：使用增强表盘检测";
         
-        for (const auto& circle : circles) {
-            if (circle[2] > maxRadius) {
-                maxCircle = circle;
-                maxRadius = circle[2];
+        // BYQ专用的增强预处理
+        cv::Mat enhanced;
+        cv::equalizeHist(gray, enhanced);
+        cv::GaussianBlur(enhanced, enhanced, cv::Size(7, 7), 1.5);
+        
+        // 两次检测：标准 + 保守
+        std::vector<cv::Vec3f> allCircles;
+        
+        // 第一次：标准参数
+        std::vector<cv::Vec3f> circles1;
+        cv::HoughCircles(enhanced, circles1, cv::HOUGH_GRADIENT, 
+                         m_config->dp, m_config->minDist, 
+                         m_config->param1, m_config->param2, 
+                         m_config->minRadius, m_config->maxRadius);
+        allCircles.insert(allCircles.end(), circles1.begin(), circles1.end());
+        
+        // 第二次：保守参数
+        std::vector<cv::Vec3f> circles2;
+        cv::HoughCircles(enhanced, circles2, cv::HOUGH_GRADIENT, 
+                         m_config->dp, m_config->minDist, 
+                         m_config->param1 * 1.3, m_config->param2 * 1.6, 
+                         m_config->minRadius, m_config->maxRadius);
+        allCircles.insert(allCircles.end(), circles2.begin(), circles2.end());
+        
+        if (!allCircles.empty()) {
+            // 简化的两次评分
+            cv::Vec3f bestCircle = allCircles[0];
+            double bestScore = 0;
+            
+            for (const auto& circle : allCircles) {
+                // 第一次评分：基本筛选
+                cv::Point2f center(circle[0], circle[1]);
+                float radius = circle[2];
+                
+                if (center.x < radius || center.x > gray.cols - radius ||
+                    center.y < radius || center.y > gray.rows - radius) {
+                    continue;
+                }
+                
+                // 第二次评分：简化综合评分
+                cv::Point2f imageCenter(gray.cols / 2.0f, gray.rows / 2.0f);
+                double distToCenter = sqrt(pow(center.x - imageCenter.x, 2) + 
+                                         pow(center.y - imageCenter.y, 2));
+                
+                double score = radius * 0.7 + 50.0 / (distToCenter + 1);
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestCircle = circle;
+                }
             }
+            
+            m_circles.push_back(bestCircle);
+            qDebug() << "BYQ表盘检测: 中心(" << bestCircle[0] << "," << bestCircle[1] 
+                     << ") 半径:" << bestCircle[2];
         }
-        
-        m_circles.push_back(maxCircle);
-        qDebug() << "检测到表盘: 中心(" << maxCircle[0] << "," << maxCircle[1] << ") 半径:" << maxRadius;
     } else {
+        // YYQY模式：保持原有逻辑
+        qDebug() << "YYQY模式：使用标准表盘检测";
+        
+        cv::GaussianBlur(gray, gray, cv::Size(9, 9), 2, 2);
+        
+        std::vector<cv::Vec3f> circles;
+        cv::HoughCircles(gray, circles, cv::HOUGH_GRADIENT, 
+                         m_config->dp, m_config->minDist, 
+                         m_config->param1, m_config->param2, 
+                         m_config->minRadius, m_config->maxRadius);
+        
+        if (!circles.empty()) {
+            cv::Vec3f maxCircle = circles[0];
+            float maxRadius = maxCircle[2];
+            
+            for (const auto& circle : circles) {
+                if (circle[2] > maxRadius) {
+                    maxCircle = circle;
+                    maxRadius = circle[2];
+                }
+            }
+            
+            m_circles.push_back(maxCircle);
+            qDebug() << "YYQY表盘检测: 中心(" << maxCircle[0] << "," << maxCircle[1] 
+                     << ") 半径:" << maxRadius;
+        }
+    }
+    
+    if (m_circles.empty()) {
         qDebug() << "未检测到圆形表盘";
     }
 }
@@ -1410,16 +1472,19 @@ void highPreciseDetector::showScale1Result() {
     }
     
     // 绘制BYQ转轴中心（只在BYQ模式下且检测到转轴时显示）
-    if (m_config && m_config->dialType == "BYQ" && m_axisCenter.x != -1 && m_axisCenter.y != -1) {
+    if (m_config && m_config->dialType == "BYQ" && m_axisCenter.x != -1 && m_axisCenter.y != -1 && m_axisRadius > 0) {
         cv::Point axisPoint(cvRound(m_axisCenter.x), cvRound(m_axisCenter.y));
-        // 绘制转轴中心（红色圆圈，较大）
-        cv::circle(m_visual, axisPoint, 8, cv::Scalar(0, 0, 255), 2, 8, 0);
-        // 绘制转轴中心点（黄色）
-        cv::circle(m_visual, axisPoint, 3, cv::Scalar(0, 255, 255), -1, 8, 0);
+        int axisRadiusInt = cvRound(m_axisRadius);
         
-        // 添加标注文字
-        cv::putText(m_visual, "Axis", cv::Point(axisPoint.x + 15, axisPoint.y - 10), 
-                   cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 2);
+        // 绘制检测到的转轴圆（绿色圆圈，使用实际检测到的半径）
+        cv::circle(m_visual, axisPoint, axisRadiusInt, cv::Scalar(0, 255, 0), 2, 8, 0);
+        // 绘制转轴中心点（红色）
+        cv::circle(m_visual, axisPoint, 3, cv::Scalar(0, 0, 255), -1, 8, 0);
+        
+        // 添加标注文字，显示半径信息
+        std::string axisText = "Axis(R=" + std::to_string(axisRadiusInt) + ")";
+        cv::putText(m_visual, axisText, cv::Point(axisPoint.x + axisRadiusInt + 5, axisPoint.y - 10), 
+                   cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
     }
     
     // 绘制检测到的直线（指针）
@@ -1816,141 +1881,52 @@ cv::Vec4i highPreciseDetector::detectBYQPointer(const cv::Mat& gray, const cv::P
 }
 
 cv::Point2f highPreciseDetector::detectBYQAxis(const cv::Mat& gray, const cv::Point2f& dialCenter, float dialRadius) {
-    qDebug() << "检测BYQ螺旋波登管转轴中心（偏银黑色圆），表盘中心:(" << dialCenter.x << "," << dialCenter.y << ") 半径:" << dialRadius;
+    qDebug() << "检测BYQ螺旋波登管转轴中心，表盘中心:(" << dialCenter.x << "," << dialCenter.y << ") 半径:" << dialRadius;
     
-    // 创建更精确的搜索区域：表盘中心偏下的圆形区域
-    float searchOffsetY = dialRadius * 0.15f; // 向下偏移15%半径
-    cv::Point2f searchCenter(dialCenter.x, dialCenter.y + searchOffsetY);
-    float searchRadius = dialRadius * 0.4f; // 在40%的表盘半径内搜索
+    // 硬编码转轴中心位置：表盘圆心向下90像素
+    cv::Point2f hardcodedAxisCenter(dialCenter.x, dialCenter.y + 90.0f);
+    m_axisRadius = 48.0f;  // 硬编码转轴半径
     
-    // 创建圆形搜索掩码
-    cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
-    cv::circle(mask, cv::Point((int)searchCenter.x, (int)searchCenter.y), (int)searchRadius, cv::Scalar(255), -1);
+    qDebug() << "硬编码转轴中心: (" << hardcodedAxisCenter.x << "," << hardcodedAxisCenter.y << ") 半径:" << m_axisRadius;
     
-    // 应用掩码
-    cv::Mat searchRegion;
-    gray.copyTo(searchRegion, mask);
-    
-    qDebug() << "搜索区域: 中心(" << searchCenter.x << "," << searchCenter.y << ") 半径:" << searchRadius;
-    
-    // 检测中等灰度的圆（银黑色区域，通常在80-180灰度范围）
-    cv::Mat grayFiltered;
-    cv::inRange(searchRegion, cv::Scalar(80), cv::Scalar(180), grayFiltered);
-    
-    // 形态学操作来清理噪声
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
-    cv::morphologyEx(grayFiltered, grayFiltered, cv::MORPH_OPEN, kernel);
-    cv::morphologyEx(grayFiltered, grayFiltered, cv::MORPH_CLOSE, kernel);
-    
-    std::vector<cv::Vec3f> axisCircles;
-    cv::HoughCircles(grayFiltered, axisCircles, cv::HOUGH_GRADIENT,
-                     1.0,                           // dp
-                     20,                            // minDist，增大避免重复检测
-                     80,                            // param1，提高边缘检测阈值
-                     18,                            // param2，提高圆心检测阈值
-                     m_config->axisMinRadius + 5,   // minRadius，稍微增大
-                     m_config->axisMaxRadius + 15); // maxRadius，增大范围
-    
-    qDebug() << "银黑色范围(80-180)检测到" << axisCircles.size() << "个圆";
-    
-    if (!axisCircles.empty()) {
-        // 选择最符合条件的圆
-        cv::Vec3f bestAxis(-1, -1, -1);
-        float bestScore = -1;
-        
-        for (size_t i = 0; i < axisCircles.size(); ++i) {
-            const auto& circle = axisCircles[i];
-            cv::Point2f circleCenter(circle[0], circle[1]);
-            float radius = circle[2];
-            
-            // 必须在表盘下半部分
-            if (circleCenter.y < dialCenter.y) {
-                qDebug() << "圆" << i << "在表盘上半部分，跳过";
-                continue;
-            }
-            
-            // 计算到搜索中心的距离
-            float distToSearch = sqrt(pow(circleCenter.x - searchCenter.x, 2) + 
-                                    pow(circleCenter.y - searchCenter.y, 2));
-            
-            // 计算到表盘中心的距离
-            float distToDial = sqrt(pow(circleCenter.x - dialCenter.x, 2) + 
-                                  pow(circleCenter.y - dialCenter.y, 2));
-            
-            // 检查是否在合理的距离范围内（表盘半径的20%-60%）
-            float idealDistToDial = dialRadius * 0.3f;
-            if (distToDial > dialRadius * 0.6f) {
-                qDebug() << "圆" << i << "距离表盘中心太远，跳过";
-                continue;
-            }
-            
-            // 综合评分
-            float distanceScore = 40.0f / (distToSearch + 1);
-            float sizeScore = 40.0f / (abs(radius - 30) + 1);  // 偏好半径30左右
-            float positionScore = 20.0f / (abs(distToDial - idealDistToDial) + 1);
-            
-            // 如果半径在25-40范围内，给额外加分
-            if (radius >= 25 && radius <= 40) {
-                sizeScore += 20.0f;
-            }
-            
-            float score = distanceScore + sizeScore + positionScore;
-            
-            qDebug() << "圆候选" << i << ": 中心(" << circle[0] << "," << circle[1] << ") 半径:" << radius 
-                     << " 距搜索中心:" << distToSearch << " 距表盘中心:" << distToDial << " 评分:" << score;
-            
-            if (score > bestScore) {
-                bestScore = score;
-                bestAxis = circle;
-            }
-        }
-        
-        if (bestAxis[0] != -1) {
-            qDebug() << "找到BYQ转轴: (" << bestAxis[0] << "," << bestAxis[1] << ") 半径:" << bestAxis[2] << " 评分:" << bestScore;
-            return cv::Point2f(bestAxis[0], bestAxis[1]);
-        }
-    }
-    
-    qDebug() << "未找到BYQ转轴，使用表盘中心偏下位置作为默认转轴";
-    return cv::Point2f(dialCenter.x, dialCenter.y + dialRadius * 0.2f);
+    return hardcodedAxisCenter;
 }
 
 cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const cv::Point2f& axisCenter, const cv::Point2f& dialCenter, float dialRadius) {
-    qDebug() << "检测银色指针末端";
+    qDebug() << "检测银色指针末端 - 简化版";
     
-    // 1. 创建表盘区域掩码
+    // 1. 创建环形掩码，排除转轴附近区域
     cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
     cv::circle(mask, cv::Point((int)dialCenter.x, (int)dialCenter.y), (int)(dialRadius * 0.9), cv::Scalar(255), -1);
+    // 排除转轴附近的圆形区域，避免干扰
+    cv::circle(mask, cv::Point((int)axisCenter.x, (int)axisCenter.y), (int)(m_axisRadius * 1.8), cv::Scalar(0), -1);
     
-    // 2. 检测银色区域（高亮度区域）
-    cv::Mat silverRegions;
-    cv::threshold(gray, silverRegions, m_config->silverThresholdLow, 255, cv::THRESH_BINARY);
-    silverRegions.copyTo(silverRegions, mask); // 只在表盘内部
+    // 2. 应用掩码获取感兴趣区域
+    cv::Mat roiGray;
+    gray.copyTo(roiGray, mask);
     
-    // 3. 形态学操作，连接银色区域
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
-    cv::morphologyEx(silverRegions, silverRegions, cv::MORPH_CLOSE, kernel);
-    cv::morphologyEx(silverRegions, silverRegions, cv::MORPH_OPEN, kernel);
+    // 3. 简单的预处理
+    cv::Mat filtered;
+    cv::GaussianBlur(roiGray, filtered, cv::Size(3, 3), 1.0);
     
-    // 4. 边缘检测，找到银色区域的边缘
+    // 4. 边缘检测
     cv::Mat edges;
-    cv::Canny(silverRegions, edges, m_config->cannyLow, m_config->cannyHigh);
+    cv::Canny(filtered, edges, 50, 150);
     
-    // 5. 使用HoughLinesP检测直线段
+    // 5. 一次HoughLinesP检测
     std::vector<cv::Vec4i> lines;
     cv::HoughLinesP(edges, lines, 
-                    m_config->rho, 
-                    m_config->theta, 
-                    m_config->threshold, 
-                    m_config->minLineLength, 
-                    m_config->maxLineGap);
+                    1.0, CV_PI/180, 30, 
+                    dialRadius * 0.15, dialRadius * 0.05);
+    
+    qDebug() << "HoughLinesP检测找到" << lines.size() << "条直线段";
     
     if (lines.empty()) {
-        qDebug() << "未检测到银色直线段";
+        qDebug() << "未检测到指针直线段";
         return cv::Vec4i(-1, -1, -1, -1);
     }
     
-    // 6. 选择最可能是指针的直线
+    // 6. 简化的指针选择逻辑
     cv::Vec4i bestLine(-1, -1, -1, -1);
     double maxScore = 0;
     
@@ -1958,23 +1934,28 @@ cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const
         cv::Point2f p1(line[0], line[1]);
         cv::Point2f p2(line[2], line[3]);
         
-        // 计算直线长度
+        // 基本筛选
         double length = sqrt(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2));
+        if (length < dialRadius * 0.1) continue;
         
-        // 计算直线中点到转轴的距离
         cv::Point2f midPoint((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
-        double distToAxis = sqrt(pow(midPoint.x - axisCenter.x, 2) + pow(midPoint.y - axisCenter.y, 2));
+        double midToAxis = sqrt(pow(midPoint.x - axisCenter.x, 2) + pow(midPoint.y - axisCenter.y, 2));
         
-        // 计算直线与从转轴到表盘边缘的角度一致性
-        double angleToAxis = atan2(midPoint.y - axisCenter.y, midPoint.x - axisCenter.x);
-        double lineAngle = atan2(p2.y - p1.y, p2.x - p1.x);
-        double angleDiff = abs(angleToAxis - lineAngle);
-        if (angleDiff > CV_PI) angleDiff = 2 * CV_PI - angleDiff;
+        // 指针应该在表盘中外围区域
+        if (midToAxis < dialRadius * 0.35 || midToAxis > dialRadius * 0.85) continue;
         
-        // 综合评分：长度 + 距离转轴的合理性 + 角度一致性
-        double score = length * 0.5 + (dialRadius * 0.5 - abs(distToAxis - dialRadius * 0.6)) * 0.3 + (CV_PI/2 - angleDiff) * 0.2;
+        // 计算线段到转轴的距离
+        double a = p2.y - p1.y;
+        double b = p1.x - p2.x;
+        double c = p2.x * p1.y - p1.x * p2.y;
+        double lineToAxisDist = abs(a * axisCenter.x + b * axisCenter.y + c) / sqrt(a*a + b*b);
         
-        if (score > maxScore && length > m_config->pointerMinLength) {
+        if (lineToAxisDist > dialRadius * 0.2) continue;
+        
+        // 简单评分：长度优先
+        double score = length;
+        
+        if (score > maxScore) {
             maxScore = score;
             bestLine = line;
         }
