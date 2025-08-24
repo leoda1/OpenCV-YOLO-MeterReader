@@ -945,25 +945,27 @@ void MainWindow::initPointerConfigs()
     m_byqConfig.minRadius = 50;
     m_byqConfig.maxRadius = 0;
     
-    // BYQ指针检测参数 - 针对银色指针末端检测
-    m_byqConfig.usePointerFromCenter = true;  // 使用专门的BYQ指针检测
-    m_byqConfig.pointerSearchRadius = 0.9;
-    m_byqConfig.pointerMinLength = 30;        // 银色末端可能较短
-    m_byqConfig.cannyLow = 40;               // 适合银色边缘检测
-    m_byqConfig.cannyHigh = 120;
-    m_byqConfig.rho = 1.0;
-    m_byqConfig.theta = CV_PI/180;
-    m_byqConfig.threshold = 40;              // 银色直线检测阈值
-    m_byqConfig.minLineLength = 25;          // 银色末端较短
-    m_byqConfig.maxLineGap = 8;
+    // BYQ指针检测参数 - 针对细指针末端检测
+    m_byqConfig.usePointerFromCenter = true;
     
-    // BYQ转轴检测参数
-    m_byqConfig.axisMinRadius = 8;           // 转轴最小半径
-    m_byqConfig.axisMaxRadius = 40;          // 转轴最大半径
-    m_byqConfig.axisParam1 = 80;             // 转轴检测参数1
-    m_byqConfig.axisParam2 = 20;             // 转轴检测参数2
-    m_byqConfig.silverThresholdLow = 150;    // 银色区域下阈值
-    m_byqConfig.silverThresholdHigh = 255;   // 银色区域上阈值
+    // 步骤1-2：掩码参数
+    m_byqConfig.pointerMaskRadius = 0.9;        // 表盘掩码半径比例
+    m_byqConfig.axisExcludeMultiplier = 1.8;    // 转轴排除区域倍数
+    
+    // 步骤3：预处理参数
+    m_byqConfig.morphKernelWidth = 1;           // 形态学核宽度
+    m_byqConfig.morphKernelHeight = 2;          // 形态学核高度
+    m_byqConfig.gaussianKernelSize = 3;         // 高斯核大小
+    m_byqConfig.gaussianSigma = 0.8;            // 高斯标准差
+    
+    // 步骤4：边缘检测参数
+    m_byqConfig.cannyLowThreshold = 30;         // Canny低阈值
+    m_byqConfig.cannyHighThreshold = 100;       // Canny高阈值
+    
+    // 步骤5：HoughLinesP参数
+    m_byqConfig.houghThreshold = 20;            // 直线检测阈值
+    m_byqConfig.minLineLengthRatio = 0.12;      // 最小长度比例
+    m_byqConfig.maxLineGapRatio = 0.08;         // 最大间隙比例
     m_byqConfig.dialType = "BYQ";             // 设置表盘类型
     
     // 设置默认配置
@@ -1897,27 +1899,39 @@ cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const
     
     // 1. 创建环形掩码，排除转轴附近区域
     cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
-    cv::circle(mask, cv::Point((int)dialCenter.x, (int)dialCenter.y), (int)(dialRadius * 0.9), cv::Scalar(255), -1);
+    cv::circle(mask, cv::Point((int)dialCenter.x, (int)dialCenter.y), (int)(dialRadius * m_config->pointerMaskRadius), cv::Scalar(255), -1);
     // 排除转轴附近的圆形区域，避免干扰
-    cv::circle(mask, cv::Point((int)axisCenter.x, (int)axisCenter.y), (int)(m_axisRadius * 1.8), cv::Scalar(0), -1);
+    cv::circle(mask, cv::Point((int)axisCenter.x, (int)axisCenter.y), (int)(m_axisRadius * m_config->axisExcludeMultiplier), cv::Scalar(0), -1);
     
     // 2. 应用掩码获取感兴趣区域
     cv::Mat roiGray;
     gray.copyTo(roiGray, mask);
     
-    // 3. 简单的预处理
-    cv::Mat filtered;
-    cv::GaussianBlur(roiGray, filtered, cv::Size(3, 3), 1.0);
+    // 3. 针对细指针的预处理 - 增强与白色背景的反差
+    cv::Mat enhanced;
     
-    // 4. 边缘检测
+    // 3.1 反转图像，让暗色指针变成亮线（更容易检测）
+    cv::bitwise_not(roiGray, enhanced, mask);
+    
+    // 3.2 形态学操作增强细线
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(m_config->morphKernelWidth, m_config->morphKernelHeight));
+    cv::morphologyEx(enhanced, enhanced, cv::MORPH_CLOSE, kernel);
+    
+    // 3.3 轻微的高斯滤波减少噪声
+    cv::GaussianBlur(enhanced, enhanced, cv::Size(m_config->gaussianKernelSize, m_config->gaussianKernelSize), m_config->gaussianSigma);
+    
+    // 4. 边缘检测 - 使用配置的参数检测细线
     cv::Mat edges;
-    cv::Canny(filtered, edges, 50, 150);
+    cv::Canny(enhanced, edges, m_config->cannyLowThreshold, m_config->cannyHighThreshold);
     
-    // 5. 一次HoughLinesP检测
+    // 5. HoughLinesP检测 - 使用配置的参数
     std::vector<cv::Vec4i> lines;
     cv::HoughLinesP(edges, lines, 
-                    1.0, CV_PI/180, 30, 
-                    dialRadius * 0.15, dialRadius * 0.05);
+                    1.0,                                        // rho: 1像素精度
+                    CV_PI/180,                                 // theta: 1度精度
+                    m_config->houghThreshold,                  // 使用配置的阈值
+                    dialRadius * m_config->minLineLengthRatio, // 使用配置的最小长度比例
+                    dialRadius * m_config->maxLineGapRatio);   // 使用配置的最大间隙比例
     
     qDebug() << "HoughLinesP检测找到" << lines.size() << "条直线段";
     
@@ -1926,60 +1940,39 @@ cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const
         return cv::Vec4i(-1, -1, -1, -1);
     }
     
-    // 6. 简化的指针选择逻辑
+    // 6. 简单逻辑：找最长的直线，连接到转轴中心
     cv::Vec4i bestLine(-1, -1, -1, -1);
-    double maxScore = 0;
+    double maxLength = 0;
     
     for (const auto& line : lines) {
         cv::Point2f p1(line[0], line[1]);
         cv::Point2f p2(line[2], line[3]);
         
-        // 基本筛选
         double length = sqrt(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2));
-        if (length < dialRadius * 0.1) continue;
         
-        cv::Point2f midPoint((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
-        double midToAxis = sqrt(pow(midPoint.x - axisCenter.x, 2) + pow(midPoint.y - axisCenter.y, 2));
-        
-        // 指针应该在表盘中外围区域
-        if (midToAxis < dialRadius * 0.35 || midToAxis > dialRadius * 0.85) continue;
-        
-        // 计算线段到转轴的距离
-        double a = p2.y - p1.y;
-        double b = p1.x - p2.x;
-        double c = p2.x * p1.y - p1.x * p2.y;
-        double lineToAxisDist = abs(a * axisCenter.x + b * axisCenter.y + c) / sqrt(a*a + b*b);
-        
-        if (lineToAxisDist > dialRadius * 0.2) continue;
-        
-        // 简单评分：长度优先
-        double score = length;
-        
-        if (score > maxScore) {
-            maxScore = score;
+        if (length > maxLength) {
+            maxLength = length;
             bestLine = line;
         }
     }
     
     if (bestLine[0] != -1) {
-        // 确保直线从转轴指向外围
         cv::Point2f p1(bestLine[0], bestLine[1]);
         cv::Point2f p2(bestLine[2], bestLine[3]);
         
+        // 找出距离转轴更远的点
         double dist1 = sqrt(pow(p1.x - axisCenter.x, 2) + pow(p1.y - axisCenter.y, 2));
         double dist2 = sqrt(pow(p2.x - axisCenter.x, 2) + pow(p2.y - axisCenter.y, 2));
         
-        if (dist1 > dist2) {
-            // p1距离转轴更远，交换p1和p2
-            std::swap(bestLine[0], bestLine[2]);
-            std::swap(bestLine[1], bestLine[3]);
-        }
+        cv::Point2f farPoint = (dist1 > dist2) ? p1 : p2;
         
-        // 将直线起点设为转轴中心，终点为银色区域
+        // 直接从转轴中心连接到远点
         bestLine[0] = (int)axisCenter.x;
         bestLine[1] = (int)axisCenter.y;
+        bestLine[2] = (int)farPoint.x;
+        bestLine[3] = (int)farPoint.y;
         
-        qDebug() << "检测到银色指针末端: (" << bestLine[0] << "," << bestLine[1] 
+        qDebug() << "找到最长直线，从转轴中心连接: (" << bestLine[0] << "," << bestLine[1] 
                  << ") 到 (" << bestLine[2] << "," << bestLine[3] << ")";
     }
     
