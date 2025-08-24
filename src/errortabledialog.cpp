@@ -277,15 +277,9 @@ void ErrorTableDialog::setupDataArea()
     statusLayout->setSpacing(8);  // 减少间距
     m_currentPointLabel = new QLabel("当前检测点: 0.0 MPa");
     m_currentPointLabel->setStyleSheet("font-weight: bold; color: #2E86C1;");
-    m_directionCombo = new QComboBox();
-    m_directionCombo->addItem("正行程");
-    m_directionCombo->addItem("反行程");
-    m_directionCombo->setMinimumWidth(80);
     
     statusLayout->addWidget(m_currentPointLabel);
     statusLayout->addStretch();
-    statusLayout->addWidget(new QLabel("测量方向:"));
-    statusLayout->addWidget(m_directionCombo);
     layout->addLayout(statusLayout);
     
     // 数据表格
@@ -320,9 +314,6 @@ void ErrorTableDialog::setupDataArea()
     
     layout->addWidget(m_dataTable);
     
-    connect(m_directionCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index) {
-        m_isForwardDirection = (index == 0);
-    });
     connect(m_dataTable, &QTableWidget::cellClicked, this, &ErrorTableDialog::onTableCellClicked);
     // cellChanged信号连接将在updateDataTable中处理，避免初始化时的问题
 }
@@ -1463,10 +1454,8 @@ void ErrorTableDialog::onTableCellClicked(int row, int column)
         
         // 根据点击的列设置测量方向
         if (column == 2) {  // 正行程角度列
-            m_directionCombo->setCurrentIndex(0);  // 正行程
             m_isForwardDirection = true;
         } else if (column == 5) {  // 反行程角度列
-            m_directionCombo->setCurrentIndex(1);  // 反行程
             m_isForwardDirection = false;
         }
     }
@@ -1853,6 +1842,84 @@ void ErrorTableDialog::setCurrentRound(int round)
 int ErrorTableDialog::getCurrentRound() const
 {
     return m_currentRound;
+}
+
+// 批量设置主界面数据
+void ErrorTableDialog::setMainWindowData(const QVector<QVector<double>>& allRoundsForward, 
+                                        const QVector<QVector<double>>& allRoundsBackward, 
+                                        const QVector<double>& allRoundsMaxAngles)
+{
+    qDebug() << "开始批量设置主界面数据到误差表格";
+    
+    // 确保有足够的检测点数据
+    if (m_detectionData.isEmpty()) {
+        qDebug() << "检测点数据为空，无法设置数据";
+        return;
+    }
+    
+    // 主界面只有一个检测点（0压力点），所以我们更新第一个检测点的所有轮次数据
+    if (!m_detectionData.isEmpty()) {
+        DetectionPoint &firstPoint = m_detectionData[0];
+        
+        // 确保轮次数据结构存在
+        if (firstPoint.roundData.size() != 5) {
+            firstPoint.roundData.resize(5);
+        }
+        
+        // 设置所有5轮的数据
+        for (int round = 0; round < 5; ++round) {
+            if (round < allRoundsForward.size() && round < allRoundsBackward.size()) {
+                // 初始化轮次数据
+                if (firstPoint.roundData[round].forwardAngles.size() != m_maxMeasurementsPerRound) {
+                    firstPoint.roundData[round].forwardAngles.resize(m_maxMeasurementsPerRound);
+                }
+                if (firstPoint.roundData[round].backwardAngles.size() != m_maxMeasurementsPerRound) {
+                    firstPoint.roundData[round].backwardAngles.resize(m_maxMeasurementsPerRound);
+                }
+                
+                // 复制正行程数据
+                for (int i = 0; i < allRoundsForward[round].size() && i < m_maxMeasurementsPerRound; ++i) {
+                    firstPoint.roundData[round].forwardAngles[i] = allRoundsForward[round][i];
+                }
+                
+                // 复制反行程数据
+                for (int i = 0; i < allRoundsBackward[round].size() && i < m_maxMeasurementsPerRound; ++i) {
+                    firstPoint.roundData[round].backwardAngles[i] = allRoundsBackward[round][i];
+                }
+                
+                // 设置最大角度
+                if (round < allRoundsMaxAngles.size()) {
+                    firstPoint.roundData[round].maxAngle = allRoundsMaxAngles[round];
+                    if (round < m_maxAngles.size()) {
+                        m_maxAngles[round] = allRoundsMaxAngles[round];
+                    }
+                }
+                
+                qDebug() << "已设置第" << (round + 1) << "轮数据: 正行程" << allRoundsForward[round].size() 
+                         << "个, 反行程" << allRoundsBackward[round].size() << "个";
+            }
+        }
+        
+        // 更新显示的数据（向后兼容）
+        if (!firstPoint.roundData.isEmpty()) {
+            const MeasurementData &currentRoundData = firstPoint.roundData[m_currentRound];
+            if (!currentRoundData.forwardAngles.isEmpty()) {
+                firstPoint.forwardAngle = currentRoundData.forwardAngles[0];
+                firstPoint.hasForward = (firstPoint.forwardAngle != 0.0);
+            }
+            if (!currentRoundData.backwardAngles.isEmpty()) {
+                firstPoint.backwardAngle = currentRoundData.backwardAngles[0];
+                firstPoint.hasBackward = (firstPoint.backwardAngle != 0.0);
+            }
+        }
+    }
+    
+    // 更新界面显示
+    updateDataTable();
+    updateCurrentRoundDisplay();
+    updateRoundInfoDisplay();
+    
+    qDebug() << "批量数据设置完成";
 }
 
  

@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1277</width>
-    <height>651</height>
+    <height>664</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -291,120 +291,6 @@
         <property name="spacing">
          <number>2</number>
         </property>
-        <item row="2" column="3">
-         <widget class="QLabel" name="labelReverseData3">
-          <property name="font">
-           <font>
-            <pointsize>12</pointsize>
-            <bold>false</bold>
-           </font>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
-          </property>
-          <property name="text">
-           <string>采集数据3</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
-          </property>
-         </widget>
-        </item>
-        <item row="2" column="1">
-         <widget class="QLabel" name="labelReverseData1">
-          <property name="font">
-           <font>
-            <pointsize>12</pointsize>
-            <bold>false</bold>
-           </font>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
-          </property>
-          <property name="text">
-           <string>采集数据1</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
-          </property>
-         </widget>
-        </item>
-        <item row="1" column="5">
-         <widget class="QLabel" name="labelForwardData5">
-          <property name="font">
-           <font>
-            <pointsize>12</pointsize>
-            <bold>false</bold>
-           </font>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
-          </property>
-          <property name="text">
-           <string>采集数据5</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
-          </property>
-         </widget>
-        </item>
-        <item row="1" column="0">
-         <widget class="QLabel" name="labelForward">
-          <property name="font">
-           <font>
-            <pointsize>12</pointsize>
-            <bold>false</bold>
-           </font>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; }</string>
-          </property>
-          <property name="text">
-           <string>正行程</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
-          </property>
-         </widget>
-        </item>
-        <item row="1" column="1">
-         <widget class="QLabel" name="labelForwardData1">
-          <property name="font">
-           <font>
-            <pointsize>12</pointsize>
-            <bold>false</bold>
-           </font>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
-          </property>
-          <property name="text">
-           <string>采集数据1</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
-          </property>
-         </widget>
-        </item>
-        <item row="3" column="0" colspan="2">
-         <widget class="QLabel" name="labelMaxAngle">
-          <property name="font">
-           <font>
-            <pointsize>12</pointsize>
-            <bold>false</bold>
-           </font>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; }</string>
-          </property>
-          <property name="text">
-           <string>当前最大角度：</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
-          </property>
-         </widget>
-        </item>
         <item row="3" column="2" colspan="2">
          <widget class="QLabel" name="labelMaxAngleValue">
           <property name="font">
@@ -424,27 +310,8 @@
           </property>
          </widget>
         </item>
-        <item row="3" column="4" colspan="2">
-         <widget class="QLabel" name="labelSaveCount">
-          <property name="font">
-           <font>
-            <pointsize>12</pointsize>
-            <bold>false</bold>
-           </font>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #d4edda; }</string>
-          </property>
-          <property name="text">
-           <string>当前采集轮次：0</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
-          </property>
-         </widget>
-        </item>
-        <item row="2" column="5">
-         <widget class="QLabel" name="labelReverseData5">
+        <item row="2" column="3">
+         <widget class="QLabel" name="labelReverseData3">
           <property name="font">
            <font>
             <pointsize>12</pointsize>
@@ -455,7 +322,26 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据5</string>
+           <string>采集数据3</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="6">
+         <widget class="QLabel" name="labelForwardData6">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据6</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -481,8 +367,27 @@
           </property>
          </widget>
         </item>
-        <item row="2" column="2">
-         <widget class="QLabel" name="labelReverseData2">
+        <item row="3" column="4" colspan="2">
+         <widget class="QLabel" name="labelSaveCount">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #d4edda; }</string>
+          </property>
+          <property name="text">
+           <string>当前采集轮次：0</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QLabel" name="labelReverseData1">
           <property name="font">
            <font>
             <pointsize>12</pointsize>
@@ -493,7 +398,76 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据2</string>
+           <string>采集数据1</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="5">
+         <widget class="QPushButton" name="pushSave">
+          <property name="minimumSize">
+           <size>
+            <width>77</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>100</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>保存</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QPushButton" name="pushCaptureZero">
+          <property name="minimumSize">
+           <size>
+            <width>78</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>100</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>采集</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="5">
+         <widget class="QLabel" name="labelForwardData5">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据5</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -519,6 +493,25 @@
           </property>
          </widget>
         </item>
+        <item row="1" column="1">
+         <widget class="QLabel" name="labelForwardData1">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据1</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
         <item row="1" column="4">
          <widget class="QLabel" name="labelForwardData4">
           <property name="font">
@@ -538,8 +531,8 @@
           </property>
          </widget>
         </item>
-        <item row="1" column="3">
-         <widget class="QLabel" name="labelForwardData3">
+        <item row="2" column="5">
+         <widget class="QLabel" name="labelReverseData5">
           <property name="font">
            <font>
             <pointsize>12</pointsize>
@@ -550,7 +543,26 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据3</string>
+           <string>采集数据5</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="2">
+         <widget class="QLabel" name="labelReverseData2">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据2</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -576,86 +588,11 @@
           </property>
          </widget>
         </item>
-        <item row="0" column="0">
-         <widget class="QPushButton" name="pushResetZero">
-          <property name="minimumSize">
-           <size>
-            <width>60</width>
-            <height>30</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>100</width>
-            <height>30</height>
-           </size>
-          </property>
-          <property name="font">
-           <font>
-            <pointsize>12</pointsize>
-            <bold>false</bold>
-           </font>
-          </property>
-          <property name="text">
-           <string>归位</string>
-          </property>
-         </widget>
-        </item>
-        <item row="0" column="5">
-         <widget class="QPushButton" name="pushSave">
-          <property name="minimumSize">
-           <size>
-            <width>80</width>
-            <height>30</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>100</width>
-            <height>30</height>
-           </size>
-          </property>
-          <property name="font">
-           <font>
-            <pointsize>12</pointsize>
-            <bold>false</bold>
-           </font>
-          </property>
-          <property name="text">
-           <string>保存</string>
-          </property>
-         </widget>
-        </item>
-        <item row="0" column="1">
-         <widget class="QPushButton" name="pushCaptureZero">
-          <property name="minimumSize">
-           <size>
-            <width>60</width>
-            <height>30</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>100</width>
-            <height>30</height>
-           </size>
-          </property>
-          <property name="font">
-           <font>
-            <pointsize>12</pointsize>
-            <bold>false</bold>
-           </font>
-          </property>
-          <property name="text">
-           <string>采集</string>
-          </property>
-         </widget>
-        </item>
-        <item row="0" column="2">
+        <item row="0" column="3">
          <widget class="QPushButton" name="pushConfirm">
           <property name="minimumSize">
            <size>
-            <width>80</width>
+            <width>77</width>
             <height>30</height>
            </size>
           </property>
@@ -676,6 +613,207 @@
           </property>
          </widget>
         </item>
+        <item row="0" column="1">
+         <widget class="QPushButton" name="pushResetZero">
+          <property name="minimumSize">
+           <size>
+            <width>78</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>100</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>归位</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="6">
+         <widget class="QLabel" name="labelReverseData6">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据6</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="0" colspan="2">
+         <widget class="QLabel" name="labelMaxAngle">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; }</string>
+          </property>
+          <property name="text">
+           <string>当前最大角度：</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="3">
+         <widget class="QLabel" name="labelForwardData3">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
+          </property>
+          <property name="text">
+           <string>采集数据3</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="labelForward">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; }</string>
+          </property>
+          <property name="text">
+           <string>正行程</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="0">
+         <widget class="QPushButton" name="pushClear">
+          <property name="minimumSize">
+           <size>
+            <width>50</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>100</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>清空</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="6">
+         <widget class="QPushButton" name="pushSwitchDial">
+          <property name="minimumSize">
+           <size>
+            <width>77</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>120</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>切换表盘</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="4">
+         <widget class="QPushButton" name="pushMaxAngle">
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>120</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>最大角度采集</string>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="6">
+         <widget class="QPushButton" name="pushExit">
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>100</width>
+            <height>30</height>
+           </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>退出</string>
+          </property>
+         </widget>
+        </item>
        </layout>
       </item>
      </layout>
@@ -688,7 +826,7 @@
      <x>0</x>
      <y>0</y>
      <width>1277</width>
-     <height>24</height>
+     <height>37</height>
     </rect>
    </property>
   </widget>
