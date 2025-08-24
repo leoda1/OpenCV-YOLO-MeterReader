@@ -63,6 +63,17 @@ struct PointerDetectionConfig {
     double pointerSearchRadius = 0.9;   // 指针搜索半径比例（相对于表盘半径）
     int pointerMinLength = 50;          // 指针最小长度
     double angleOffset = 0.0;           // 角度偏移量
+    
+    // BYQ转轴检测参数
+    int axisMinRadius = 8;              // 转轴最小半径
+    int axisMaxRadius = 40;             // 转轴最大半径
+    double axisParam1 = 80;             // 转轴检测参数1
+    double axisParam2 = 20;             // 转轴检测参数2
+    int silverThresholdLow = 150;       // 银色区域下阈值
+    int silverThresholdHigh = 255;      // 银色区域上阈值
+    
+    // 表盘类型标识
+    QString dialType = "YYQY";          // 表盘类型（"YYQY"或"BYQ"）
 };
 
 class MainWindow : public QMainWindow
@@ -178,6 +189,7 @@ private:
     std::vector<cv::Vec4i> m_lines;
     double m_angle;
     const PointerDetectionConfig* m_config;  // 配置参数指针
+    cv::Point2f m_axisCenter;  // BYQ转轴中心
     
 public:
     explicit highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config = nullptr);
@@ -198,6 +210,11 @@ private:
     // 白色指针检测专用方法
     cv::Vec4i detectWhitePointer(const cv::Mat& gray, const cv::Point2f& center, float radius);
     cv::Vec4i detectWhitePointerByBrightness(const cv::Mat& gray, const cv::Point2f& center, float radius);
+    
+    // BYQ指针检测专用方法
+    cv::Vec4i detectBYQPointer(const cv::Mat& gray, const cv::Point2f& center, float radius);
+    cv::Point2f detectBYQAxis(const cv::Mat& gray, const cv::Point2f& dialCenter, float dialRadius);
+    cv::Vec4i detectSilverPointerEnd(const cv::Mat& gray, const cv::Point2f& axisCenter, const cv::Point2f& dialCenter, float dialRadius);
 };
 
 #endif // MAINWINDOW_H
