@@ -95,6 +95,11 @@ public:
     double calculateAverageMaxAngle() const; // 计算平均最大角度
     void setCurrentRound(int round);  // 设置当前轮次
     int getCurrentRound() const;      // 获取当前轮次
+    
+    // 批量设置主界面数据
+    void setMainWindowData(const QVector<QVector<double>>& allRoundsForward, 
+                          const QVector<QVector<double>>& allRoundsBackward, 
+                          const QVector<double>& allRoundsMaxAngles);
 
 private slots:
     void onConfigChanged();
@@ -140,7 +145,6 @@ private:
     QGroupBox *m_dataGroup;
     QTableWidget *m_dataTable;
     QLabel *m_currentPointLabel;
-    QComboBox *m_directionCombo;
     
     // 轮次切换界面
     QGroupBox *m_roundSwitchGroup;

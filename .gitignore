@@ -3,7 +3,6 @@ build/
 .vscode/
 .gitignore
 ref/
-images/
 ref2/
 .cursorignore
 .cache/
