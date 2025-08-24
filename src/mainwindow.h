@@ -149,13 +149,32 @@ private:
     bool   m_isForwardStroke = true;     // 当前是否为正行程（顺时针方向）
     int    m_strokeDirection = 0;        // 运动方向：1=正行程，-1=反行程，0=未知
     
-    // 数据采集相关
+    // 5轮数据采集相关
+    struct RoundData {
+        QVector<double> forwardAngles;    // 正行程角度数据
+        QVector<double> backwardAngles;   // 反行程角度数据
+        double maxAngle = 0.0;            // 该轮最大角度
+        bool isCompleted = false;         // 该轮是否完成
+    };
+    
+    QVector<RoundData> m_allRoundsData;  // 5轮完整数据
+    int m_currentRound = 0;              // 当前轮次（0-4）
+    int m_currentDetectionPoint = 0;     // 当前检测点索引
+    int m_maxMeasurementsPerRound = 6;   // 每轮最大测量次数（YYQY=6, BYQ=5）
+    
+    // 检测点配置
+    QVector<double> m_detectionPoints;   // 检测点压力值列表
+    
+    // 兼容性保留
     QVector<double> m_forwardData;       // 正行程数据（最多5个）
     QVector<double> m_reverseData;       // 反行程数据（最多5个）
     int m_currentForwardIndex = 0;       // 当前正行程数据索引
     int m_currentReverseIndex = 0;       // 当前反行程数据索引  
     int m_saveCount = 0;                 // 保存按钮点击次数
     double m_maxAngle = 0.0;             // 当前最大角度
+    
+    // 对话框管理
+    ErrorTableDialog* m_errorTableDialog = nullptr;  // 误差检测表格对话框指针
 
     bool grabOneFrame(cv::Mat &outBar);
     void runAlgoOnce();
@@ -173,6 +192,17 @@ private:
     void updateDataTable();
     void initializeDataArrays();
     void addDataToCurrentStroke(double angle);
+    
+    // 最大角度测量相关
+    void measureAndSaveMaxAngle();      // 测量并保存最大角度
+    void updateMaxAngleDisplay();       // 更新最大角度显示
+    
+    // 5轮数据管理方法
+    void initializeRoundsData();           // 初始化5轮数据结构
+    void addAngleToCurrentRound(double angle, bool isForward);  // 添加角度到当前轮次
+    void updateErrorTableWithAllRounds();  // 更新误差表格显示所有轮次数据
+    void setCurrentDetectionPoint(int pointIndex);  // 设置当前检测点
+    QString getCurrentStatusInfo() const;   // 获取当前状态信息
     
 
 private slots:
