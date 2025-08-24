@@ -1949,7 +1949,6 @@ cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const
         cv::Point2f p2(line[2], line[3]);
         
         double length = sqrt(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2));
-        if (length < dialRadius * 0.1) continue;
         
         if (length > maxLength) {
             maxLength = length;
