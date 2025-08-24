@@ -26,16 +26,28 @@
 #include <QCheckBox>
 #include <QTimer>
 
+// 单次测量数据结构
+struct MeasurementData {
+    QVector<double> forwardAngles;    // 正行程角度数据（YYQY每轮6次，BYQ每轮5次）
+    QVector<double> backwardAngles;   // 反行程角度数据（YYQY每轮6次，BYQ每轮5次）
+    double maxAngle;                  // 该轮次最大角度测量值
+    
+    MeasurementData() : maxAngle(0.0) {}
+};
+
 // 检测点数据结构
 struct DetectionPoint {
-    double pressure;           // 压力值(MPa)
-    double forwardAngle;      // 正行程角度
-    double backwardAngle;     // 反行程角度
-    bool hasForward;          // 是否有正行程数据
-    bool hasBackward;         // 是否有反行程数据
+    double pressure;                     // 压力值(MPa)
+    QVector<MeasurementData> roundData;  // 5轮测量数据
+    double forwardAngle;                 // 当前正行程角度（向后兼容）
+    double backwardAngle;                // 当前反行程角度（向后兼容）
+    bool hasForward;                     // 是否有正行程数据（向后兼容）
+    bool hasBackward;                    // 是否有反行程数据（向后兼容）
     
     DetectionPoint() : pressure(0.0), forwardAngle(0.0), backwardAngle(0.0), 
-                      hasForward(false), hasBackward(false) {}
+                      hasForward(false), hasBackward(false) {
+        roundData.resize(5);  // 预分配5轮数据
+    }
 };
 
 // 压力表配置参数
@@ -75,6 +87,14 @@ public:
     
     // 设置表盘类型
     void setDialType(const QString &dialType);
+    
+    // 轮次管理公共方法
+    void resetCurrentRound();        // 归位按钮：重置当前轮次数据
+    void saveCurrentRound();         // 保存按钮：保存当前轮次数据
+    void addMaxAngleData(double maxAngle);  // 添加最大角度数据
+    double calculateAverageMaxAngle() const; // 计算平均最大角度
+    void setCurrentRound(int round);  // 设置当前轮次
+    int getCurrentRound() const;      // 获取当前轮次
 
 private slots:
     void onConfigChanged();
@@ -90,6 +110,9 @@ private slots:
     void onTableCellClicked(int row, int column);
     void onDataTableCellChanged(int row, int column);
     void validateAndCheckErrors();
+    
+    // 轮次切换相关槽函数
+    void onRoundChanged(int roundIndex);    // 轮次切换槽函数
 
 private:
     // UI组件
@@ -119,6 +142,11 @@ private:
     QLabel *m_currentPointLabel;
     QComboBox *m_directionCombo;
     
+    // 轮次切换界面
+    QGroupBox *m_roundSwitchGroup;
+    QComboBox *m_roundCombo;
+    QLabel *m_roundInfoLabel;
+    
     // 误差分析结果
     QGroupBox *m_analysisGroup;
     QTextEdit *m_analysisText;
@@ -140,6 +168,11 @@ private:
     bool m_isForwardDirection;
     bool m_dialTypeSet;
     
+    // 轮次管理
+    int m_currentRound;              // 当前轮次（0-4）
+    int m_maxMeasurementsPerRound;   // 每轮最大测量次数（YYQY=6, BYQ=5）
+    QVector<double> m_maxAngles;     // 每轮的最大角度测量值
+    
     // 私有方法
     void setupUI();
     void setupConfigArea();
@@ -147,6 +180,7 @@ private:
     void setupDataArea();
     void setupAnalysisArea();
     void setupButtons();
+    void setupRoundSwitchArea();    // 设置轮次切换区域
     
     void updateConfigFromUI();
     void updateUIFromConfig();
@@ -167,6 +201,15 @@ private:
     void loadConfigFromFile(const QString &fileName);
     void autoLoadPreviousData();
     void checkAndLoadPreviousData();
+    
+    // 轮次管理辅助方法
+    void initializeRoundData();              // 初始化轮次数据
+    int getExpectedMeasurements() const;     // 获取预期测量次数（根据表盘类型）
+    void updateCurrentRoundDisplay();       // 更新当前轮次显示
+    void updateRoundInfoDisplay();          // 更新轮次信息显示
+    
+    // 数据导出相关新方法
+    QString generateMultiRoundExportData(); // 生成多轮次导出数据
 };
 
 #endif // ERRORTABLEDIALOG_H 
