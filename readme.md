@@ -16,3 +16,4 @@
 ```
 ## 当前效果：
 ![alt text](docs/fig_doc/image.png)
+![alt text](docs/fig_doc/image2.png)

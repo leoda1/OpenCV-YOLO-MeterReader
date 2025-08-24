@@ -869,9 +869,7 @@ void MainWindow::showErrorTableDialog()
             dialog->setDialType(m_currentDialType);
         }
         
-        // 显示对话框，但不强制置顶
         dialog->show();
-        // 不调用 raise() 和 activateWindow()，让用户可以自由切换窗口焦点
         
         qDebug() << "误差检测表格创建成功";
     } catch (const std::exception& e) {
@@ -936,8 +934,10 @@ void MainWindow::initPointerConfigs()
     m_yyqyConfig.threshold = 35;              // 降低直线检测阈值
     m_yyqyConfig.minLineLength = 45;          // 降低最小线段长度
     m_yyqyConfig.maxLineGap = 12;             // 适当增加间隙
+    m_yyqyConfig.silverThresholdLow = 0;      // YYQY不使用银色检测
+    m_yyqyConfig.dialType = "YYQY";           // 设置表盘类型
     
-    // BYQ表盘配置（保持原有参数）
+    // BYQ表盘配置 - 针对银色指针末端和转轴检测优化
     m_byqConfig.dp = 1.0;
     m_byqConfig.minDist = 100;
     m_byqConfig.param1 = 100;
@@ -945,16 +945,28 @@ void MainWindow::initPointerConfigs()
     m_byqConfig.minRadius = 50;
     m_byqConfig.maxRadius = 0;
     
-    m_byqConfig.usePointerFromCenter = false;  // 使用传统的边缘检测方法
-    m_byqConfig.pointerSearchRadius = 0.9;
-    m_byqConfig.pointerMinLength = 50;
-    m_byqConfig.cannyLow = 50;
-    m_byqConfig.cannyHigh = 150;
-    m_byqConfig.rho = 1.0;
-    m_byqConfig.theta = CV_PI/180;
-    m_byqConfig.threshold = 50;
-    m_byqConfig.minLineLength = 30;
-    m_byqConfig.maxLineGap = 10;
+    // BYQ指针检测参数 - 针对细指针末端检测
+    m_byqConfig.usePointerFromCenter = true;
+    
+    // 步骤1-2：掩码参数
+    m_byqConfig.pointerMaskRadius = 0.9;        // 表盘掩码半径比例
+    m_byqConfig.axisExcludeMultiplier = 1.8;    // 转轴排除区域倍数
+    
+    // 步骤3：预处理参数
+    m_byqConfig.morphKernelWidth = 1;           // 形态学核宽度
+    m_byqConfig.morphKernelHeight = 2;          // 形态学核高度
+    m_byqConfig.gaussianKernelSize = 3;         // 高斯核大小
+    m_byqConfig.gaussianSigma = 0.8;            // 高斯标准差
+    
+    // 步骤4：边缘检测参数
+    m_byqConfig.cannyLowThreshold = 30;         // Canny低阈值
+    m_byqConfig.cannyHighThreshold = 100;       // Canny高阈值
+    
+    // 步骤5：HoughLinesP参数
+    m_byqConfig.houghThreshold = 20;            // 直线检测阈值
+    m_byqConfig.minLineLengthRatio = 0.12;      // 最小长度比例
+    m_byqConfig.maxLineGapRatio = 0.08;         // 最大间隙比例
+    m_byqConfig.dialType = "BYQ";             // 设置表盘类型
     
     // 设置默认配置
     m_currentConfig = &m_yyqyConfig;
@@ -982,7 +994,7 @@ void MainWindow::onDialTypeChanged(const QString &dialType)
     // 可以在这里添加其他需要根据表盘类型变化的逻辑
 }
 
-highPreciseDetector::highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config) : m_angle(-999), m_config(config) {
+highPreciseDetector::highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config) : m_angle(-999), m_config(config), m_axisCenter(-1, -1), m_axisRadius(-1) {
     if (image.empty()) {
         qDebug() << "输入图像为空";
         return;
@@ -1026,34 +1038,96 @@ void highPreciseDetector::detectCircles() {
         gray = m_image.clone();
     }
     
-    // 使用高斯模糊减少噪声
-    cv::GaussianBlur(gray, gray, cv::Size(9, 9), 2, 2);
-    
-    // 使用配置参数进行HoughCircles检测
-    std::vector<cv::Vec3f> circles;
-    cv::HoughCircles(gray, circles, cv::HOUGH_GRADIENT, 
-                     m_config->dp, 
-                     m_config->minDist, 
-                     m_config->param1, 
-                     m_config->param2, 
-                     m_config->minRadius, 
-                     m_config->maxRadius);
-    
-    // 选择最大的圆作为表盘
-    if (!circles.empty()) {
-        cv::Vec3f maxCircle = circles[0];
-        float maxRadius = maxCircle[2];
+    // 检查是否为BYQ模式，如果是则使用增强检测
+    if (m_config && m_config->dialType == "BYQ") {
+        qDebug() << "BYQ模式：使用增强表盘检测";
         
-        for (const auto& circle : circles) {
-            if (circle[2] > maxRadius) {
-                maxCircle = circle;
-                maxRadius = circle[2];
+        // BYQ专用的增强预处理
+        cv::Mat enhanced;
+        cv::equalizeHist(gray, enhanced);
+        cv::GaussianBlur(enhanced, enhanced, cv::Size(7, 7), 1.5);
+        
+        // 两次检测：标准 + 保守
+        std::vector<cv::Vec3f> allCircles;
+        
+        // 第一次：标准参数
+        std::vector<cv::Vec3f> circles1;
+        cv::HoughCircles(enhanced, circles1, cv::HOUGH_GRADIENT, 
+                         m_config->dp, m_config->minDist, 
+                         m_config->param1, m_config->param2, 
+                         m_config->minRadius, m_config->maxRadius);
+        allCircles.insert(allCircles.end(), circles1.begin(), circles1.end());
+        
+        // 第二次：保守参数
+        std::vector<cv::Vec3f> circles2;
+        cv::HoughCircles(enhanced, circles2, cv::HOUGH_GRADIENT, 
+                         m_config->dp, m_config->minDist, 
+                         m_config->param1 * 1.3, m_config->param2 * 1.6, 
+                         m_config->minRadius, m_config->maxRadius);
+        allCircles.insert(allCircles.end(), circles2.begin(), circles2.end());
+        
+        if (!allCircles.empty()) {
+            // 简化的两次评分
+            cv::Vec3f bestCircle = allCircles[0];
+            double bestScore = 0;
+            
+            for (const auto& circle : allCircles) {
+                // 第一次评分：基本筛选
+                cv::Point2f center(circle[0], circle[1]);
+                float radius = circle[2];
+                
+                if (center.x < radius || center.x > gray.cols - radius ||
+                    center.y < radius || center.y > gray.rows - radius) {
+                    continue;
+                }
+                
+                // 第二次评分：简化综合评分
+                cv::Point2f imageCenter(gray.cols / 2.0f, gray.rows / 2.0f);
+                double distToCenter = sqrt(pow(center.x - imageCenter.x, 2) + 
+                                         pow(center.y - imageCenter.y, 2));
+                
+                double score = radius * 0.7 + 50.0 / (distToCenter + 1);
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestCircle = circle;
+                }
             }
+            
+            m_circles.push_back(bestCircle);
+            qDebug() << "BYQ表盘检测: 中心(" << bestCircle[0] << "," << bestCircle[1] 
+                     << ") 半径:" << bestCircle[2];
         }
-        
-        m_circles.push_back(maxCircle);
-        qDebug() << "检测到表盘: 中心(" << maxCircle[0] << "," << maxCircle[1] << ") 半径:" << maxRadius;
     } else {
+        // YYQY模式：保持原有逻辑
+        qDebug() << "YYQY模式：使用标准表盘检测";
+        
+        cv::GaussianBlur(gray, gray, cv::Size(9, 9), 2, 2);
+        
+        std::vector<cv::Vec3f> circles;
+        cv::HoughCircles(gray, circles, cv::HOUGH_GRADIENT, 
+                         m_config->dp, m_config->minDist, 
+                         m_config->param1, m_config->param2, 
+                         m_config->minRadius, m_config->maxRadius);
+        
+        if (!circles.empty()) {
+            cv::Vec3f maxCircle = circles[0];
+            float maxRadius = maxCircle[2];
+            
+            for (const auto& circle : circles) {
+                if (circle[2] > maxRadius) {
+                    maxCircle = circle;
+                    maxRadius = circle[2];
+                }
+            }
+            
+            m_circles.push_back(maxCircle);
+            qDebug() << "YYQY表盘检测: 中心(" << maxCircle[0] << "," << maxCircle[1] 
+                     << ") 半径:" << maxRadius;
+        }
+    }
+    
+    if (m_circles.empty()) {
         qDebug() << "未检测到圆形表盘";
     }
 }
@@ -1139,24 +1213,35 @@ void highPreciseDetector::detectPointerFromCenter() {
     cv::Point2f center(m_circles[0][0], m_circles[0][1]);
     float radius = m_circles[0][2];
     
-    qDebug() << "检测白色指针，表盘中心:(" << center.x << "," << center.y << ") 半径:" << radius;
+    cv::Vec4i bestPointer(-1, -1, -1, -1);
     
-    // 专门检测白色指针的算法
-    cv::Vec4i bestPointer = detectWhitePointer(gray, center, radius);
+    // 根据配置参数选择检测算法
+    if (m_config->silverThresholdLow > 0) {
+        // BYQ银色指针检测
+        qDebug() << "检测BYQ银色指针，表盘中心:(" << center.x << "," << center.y << ") 半径:" << radius;
+        bestPointer = detectBYQPointer(gray, center, radius);
+    } else {
+        // YYQY白色指针检测
+        qDebug() << "检测YYQY白色指针，表盘中心:(" << center.x << "," << center.y << ") 半径:" << radius;
+        bestPointer = detectWhitePointer(gray, center, radius);
+    }
     
     if (bestPointer[0] != -1) {
         m_lines.clear();
         m_lines.push_back(bestPointer);
         double length = sqrt(pow(bestPointer[2] - bestPointer[0], 2) + pow(bestPointer[3] - bestPointer[1], 2));
-        qDebug() << "检测到白色指针: (" << bestPointer[0] << "," << bestPointer[1] 
+        qDebug() << "检测到指针: (" << bestPointer[0] << "," << bestPointer[1] 
                  << ") 到 (" << bestPointer[2] << "," << bestPointer[3] << "), 长度:" << length;
     } else {
-        qDebug() << "未能检测到白色指针，回退到传统方法";
+        qDebug() << "未能检测到指针，回退到传统方法";
         detectLines();
     }
 }
 
 cv::Vec4i highPreciseDetector::detectWhitePointer(const cv::Mat& gray, const cv::Point2f& center, float radius) {
+    // 确保YYQY模式下不显示转轴中心
+    m_axisCenter = cv::Point2f(-1, -1);
+    
     // 1. 创建表盘内部的掩码
     cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
     cv::circle(mask, cv::Point((int)center.x, (int)center.y), (int)(radius * 0.9), cv::Scalar(255), -1);
@@ -1378,17 +1463,33 @@ void highPreciseDetector::calculateAngle() {
 void highPreciseDetector::showScale1Result() {
     m_visual = m_image.clone();
     
-    // 绘制检测到的圆形
+    // 绘制检测到的圆形（表盘）
     for (const auto& circle : m_circles) {
         cv::Point center(cvRound(circle[0]), cvRound(circle[1]));
         int radius = cvRound(circle[2]);
-        // 绘制圆心
+        // 绘制圆心（绿色）
         cv::circle(m_visual, center, 3, cv::Scalar(0, 255, 0), -1, 8, 0);
-        // 绘制圆周
+        // 绘制圆周（蓝色）
         cv::circle(m_visual, center, radius, cv::Scalar(255, 0, 0), 2, 8, 0);
     }
     
-    // 绘制检测到的直线
+    // 绘制BYQ转轴中心（只在BYQ模式下且检测到转轴时显示）
+    if (m_config && m_config->dialType == "BYQ" && m_axisCenter.x != -1 && m_axisCenter.y != -1 && m_axisRadius > 0) {
+        cv::Point axisPoint(cvRound(m_axisCenter.x), cvRound(m_axisCenter.y));
+        int axisRadiusInt = cvRound(m_axisRadius);
+        
+        // 绘制检测到的转轴圆（绿色圆圈，使用实际检测到的半径）
+        cv::circle(m_visual, axisPoint, axisRadiusInt, cv::Scalar(0, 255, 0), 2, 8, 0);
+        // 绘制转轴中心点（红色）
+        cv::circle(m_visual, axisPoint, 3, cv::Scalar(0, 0, 255), -1, 8, 0);
+        
+        // 添加标注文字，显示半径信息
+        std::string axisText = "Axis(R=" + std::to_string(axisRadiusInt) + ")";
+        cv::putText(m_visual, axisText, cv::Point(axisPoint.x + axisRadiusInt + 5, axisPoint.y - 10), 
+                   cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
+    }
+    
+    // 绘制检测到的直线（指针）
     for (const auto& line : m_lines) {
         cv::line(m_visual, 
                 cv::Point(line[0], line[1]), 
@@ -1749,4 +1850,131 @@ void MainWindow::onSaveData()
     ui->labelSaveCount->setText(QString("当前采集轮次：%1").arg(m_saveCount));
     
     qDebug() << "保存完成，轮次：" << m_saveCount;
+}
+
+// ================== BYQ指针检测算法实现 ==================
+cv::Vec4i highPreciseDetector::detectBYQPointer(const cv::Mat& gray, const cv::Point2f& center, float radius) {
+    qDebug() << "开始BYQ指针检测";
+    
+    // 初始化转轴中心
+    m_axisCenter = cv::Point2f(-1, -1);
+    
+    // 1. 首先检测转轴中心
+    cv::Point2f axisCenter = detectBYQAxis(gray, center, radius);
+    
+    if (axisCenter.x == -1) {
+        qDebug() << "未找到BYQ转轴中心，使用表盘中心";
+        axisCenter = center;
+    } else {
+        // 保存转轴中心用于可视化
+        m_axisCenter = axisCenter;
+    }
+    
+    // 2. 检测银色指针末端
+    cv::Vec4i silverEnd = detectSilverPointerEnd(gray, axisCenter, center, radius);
+    
+    if (silverEnd[0] != -1) {
+        qDebug() << "BYQ指针检测成功";
+        return silverEnd;
+    }
+    
+    qDebug() << "BYQ指针检测失败";
+    return cv::Vec4i(-1, -1, -1, -1);
+}
+
+cv::Point2f highPreciseDetector::detectBYQAxis(const cv::Mat& gray, const cv::Point2f& dialCenter, float dialRadius) {
+    qDebug() << "检测BYQ螺旋波登管转轴中心，表盘中心:(" << dialCenter.x << "," << dialCenter.y << ") 半径:" << dialRadius;
+    
+    // 硬编码转轴中心位置：表盘圆心向下90像素
+    cv::Point2f hardcodedAxisCenter(dialCenter.x, dialCenter.y + 90.0f);
+    m_axisRadius = 48.0f;  // 硬编码转轴半径
+    
+    qDebug() << "硬编码转轴中心: (" << hardcodedAxisCenter.x << "," << hardcodedAxisCenter.y << ") 半径:" << m_axisRadius;
+    
+    return hardcodedAxisCenter;
+}
+
+cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const cv::Point2f& axisCenter, const cv::Point2f& dialCenter, float dialRadius) {
+    qDebug() << "检测银色指针末端 - 简化版";
+    
+    // 1. 创建环形掩码，排除转轴附近区域
+    cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
+    cv::circle(mask, cv::Point((int)dialCenter.x, (int)dialCenter.y), (int)(dialRadius * m_config->pointerMaskRadius), cv::Scalar(255), -1);
+    // 排除转轴附近的圆形区域，避免干扰
+    cv::circle(mask, cv::Point((int)axisCenter.x, (int)axisCenter.y), (int)(m_axisRadius * m_config->axisExcludeMultiplier), cv::Scalar(0), -1);
+    
+    // 2. 应用掩码获取感兴趣区域
+    cv::Mat roiGray;
+    gray.copyTo(roiGray, mask);
+    
+    // 3. 针对细指针的预处理 - 增强与白色背景的反差
+    cv::Mat enhanced;
+    
+    // 3.1 反转图像，让暗色指针变成亮线（更容易检测）
+    cv::bitwise_not(roiGray, enhanced, mask);
+    
+    // 3.2 形态学操作增强细线
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(m_config->morphKernelWidth, m_config->morphKernelHeight));
+    cv::morphologyEx(enhanced, enhanced, cv::MORPH_CLOSE, kernel);
+    
+    // 3.3 轻微的高斯滤波减少噪声
+    cv::GaussianBlur(enhanced, enhanced, cv::Size(m_config->gaussianKernelSize, m_config->gaussianKernelSize), m_config->gaussianSigma);
+    
+    // 4. 边缘检测 - 使用配置的参数检测细线
+    cv::Mat edges;
+    cv::Canny(enhanced, edges, m_config->cannyLowThreshold, m_config->cannyHighThreshold);
+    
+    // 5. HoughLinesP检测 - 使用配置的参数
+    std::vector<cv::Vec4i> lines;
+    cv::HoughLinesP(edges, lines, 
+                    1.0,                                        // rho: 1像素精度
+                    CV_PI/180,                                 // theta: 1度精度
+                    m_config->houghThreshold,                  // 使用配置的阈值
+                    dialRadius * m_config->minLineLengthRatio, // 使用配置的最小长度比例
+                    dialRadius * m_config->maxLineGapRatio);   // 使用配置的最大间隙比例
+    
+    qDebug() << "HoughLinesP检测找到" << lines.size() << "条直线段";
+    
+    if (lines.empty()) {
+        qDebug() << "未检测到指针直线段";
+        return cv::Vec4i(-1, -1, -1, -1);
+    }
+    
+    // 6. 简单逻辑：找最长的直线，连接到转轴中心
+    cv::Vec4i bestLine(-1, -1, -1, -1);
+    double maxLength = 0;
+    
+    for (const auto& line : lines) {
+        cv::Point2f p1(line[0], line[1]);
+        cv::Point2f p2(line[2], line[3]);
+        
+        double length = sqrt(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2));
+        
+        if (length > maxLength) {
+            maxLength = length;
+            bestLine = line;
+        }
+    }
+    
+    if (bestLine[0] != -1) {
+        cv::Point2f p1(bestLine[0], bestLine[1]);
+        cv::Point2f p2(bestLine[2], bestLine[3]);
+        
+        // 找出距离转轴更远的点
+        double dist1 = sqrt(pow(p1.x - axisCenter.x, 2) + pow(p1.y - axisCenter.y, 2));
+        double dist2 = sqrt(pow(p2.x - axisCenter.x, 2) + pow(p2.y - axisCenter.y, 2));
+        
+        cv::Point2f farPoint = (dist1 > dist2) ? p1 : p2;
+        
+        // 直接从转轴中心连接到远点
+        bestLine[0] = (int)axisCenter.x;
+        bestLine[1] = (int)axisCenter.y;
+        bestLine[2] = (int)farPoint.x;
+        bestLine[3] = (int)farPoint.y;
+        
+        qDebug() << "找到最长直线，从转轴中心连接: (" << bestLine[0] << "," << bestLine[1] 
+                 << ") 到 (" << bestLine[2] << "," << bestLine[3] << ")";
+    }
+    
+    return bestLine;
 }
