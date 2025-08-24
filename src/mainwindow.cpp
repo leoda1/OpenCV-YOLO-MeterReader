@@ -74,6 +74,7 @@ MainWindow::MainWindow(QWidget *parent) :
     setupDialTypeSelector();   // 设置表盘类型选择器
     initPointerConfigs();      // 初始化指针识别配置
     initializeDataArrays();    // 初始化数据数组
+    initializeRoundsData();    // 初始化5轮数据结构
 
     smallSize = QSize(750,this->height());
     bigSize = this->size();
@@ -753,8 +754,31 @@ void MainWindow::onResetZero()
         
         qDebug() << "零位设置成功，角度:" << m_zeroAngle;
         
+        // 归位操作：清空当前轮次所有数据，然后添加零度数据到采集数据1
+        if (m_currentRound < m_allRoundsData.size()) {
+            RoundData &currentRound = m_allRoundsData[m_currentRound];
+            
+            // 清空当前轮次的所有数据
+            currentRound.forwardAngles.fill(0.0);
+            currentRound.backwardAngles.fill(0.0);
+            currentRound.maxAngle = 0.0;
+            currentRound.isCompleted = false;
+            
+            // 将归位的0度数据写入采集数据1（第一个正行程位置）
+            if (!currentRound.forwardAngles.isEmpty()) {
+                currentRound.forwardAngles[0] = 0.0;  // 零度写入采集数据1
+            }
+            
+            qDebug() << "第" << (m_currentRound + 1) << "轮数据已清空，零度已写入采集数据1";
+        }
+        
+        // 同时更新误差表格（如果打开的话）
+        updateErrorTableWithAllRounds();
+        
         // 更新界面显示
-        ui->labelAngle->setText(QString("零位已设置: %1°").arg(angle, 0, 'f', 2));
+        ui->labelAngle->setText(QString("零位已设置: %1° (第%2轮数据已清空，0°已写入采集数据1)")
+            .arg(angle, 0, 'f', 2)
+            .arg(m_currentRound + 1));
         
         // 显示检测结果到右侧区域
         det.showScale1Result();
@@ -858,18 +882,31 @@ void MainWindow::showErrorTableDialog()
     qDebug() << "打开误差检测表格";
     
     try {
-        // 每次创建新的对话框实例，避免重用导致的问题
-        auto dialog = new ErrorTableDialog(this);
+        // 如果对话框已存在，直接显示并激活
+        if (m_errorTableDialog) {
+            m_errorTableDialog->show();
+            m_errorTableDialog->raise();
+            m_errorTableDialog->activateWindow();
+            return;
+        }
         
-        // 设置对话框关闭时自动删除
-        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        // 创建新的对话框实例
+        m_errorTableDialog = new ErrorTableDialog(this);
+        
+        // 连接关闭信号，在对话框关闭时清空指针
+        connect(m_errorTableDialog, &QDialog::finished, this, [this]() {
+            m_errorTableDialog = nullptr;
+        });
         
         // 根据当前选择的表盘类型设置默认配置
         if (!m_currentDialType.isEmpty()) {
-            dialog->setDialType(m_currentDialType);
+            m_errorTableDialog->setDialType(m_currentDialType);
         }
         
-        dialog->show();
+        // 同步所有轮次的数据到误差表格
+        updateErrorTableWithAllRounds();
+        
+        m_errorTableDialog->show();
         
         qDebug() << "误差检测表格创建成功";
     } catch (const std::exception& e) {
@@ -991,7 +1028,11 @@ void MainWindow::onDialTypeChanged(const QString &dialType)
     switchPointerConfig(dialType);  // 切换指针识别配置
     qDebug() << "表盘类型切换为:" << dialType;
     
-    // 可以在这里添加其他需要根据表盘类型变化的逻辑
+    // 重新初始化轮次数据
+    initializeRoundsData();
+    
+    // 更新界面显示
+    updateDataTable();
 }
 
 highPreciseDetector::highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config) : m_angle(-999), m_config(config), m_axisCenter(-1, -1), m_axisRadius(-1) {
@@ -1724,54 +1765,78 @@ void MainWindow::initializeDataArrays()
 // 更新数据表格显示
 void MainWindow::updateDataTable()
 {
-    // 更新正行程数据显示
+    // 更新正行程数据显示（显示当前轮次的数据）
     QLabel* forwardLabels[5] = {
         ui->labelForwardData1, ui->labelForwardData2, ui->labelForwardData3,
         ui->labelForwardData4, ui->labelForwardData5
     };
     
-    for (int i = 0; i < 5; ++i) {
-        if (i < m_currentForwardIndex && m_forwardData[i] != 0.0) {
-            forwardLabels[i]->setText(QString::number(m_forwardData[i], 'f', 2) + "°");
-            forwardLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #d4edda; }");
-        } else {
+    // 获取当前轮次的数据
+    if (m_currentRound < m_allRoundsData.size()) {
+        const RoundData &currentRound = m_allRoundsData[m_currentRound];
+        
+        for (int i = 0; i < 5; ++i) {
+            if (i < currentRound.forwardAngles.size()) {
+                // 第一个位置：显示0.0度（归位数据）或其他数值
+                // 其他位置：只有非零数据才显示
+                bool shouldShow = (i == 0) || (currentRound.forwardAngles[i] != 0.0);
+                
+                if (shouldShow) {
+                    forwardLabels[i]->setText(QString::number(currentRound.forwardAngles[i], 'f', 2) + "°");
+                    forwardLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #d4edda; }");
+                } else {
+                    forwardLabels[i]->setText("采集数据" + QString::number(i + 1));
+                    forwardLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }");
+                }
+            } else {
+                forwardLabels[i]->setText("采集数据" + QString::number(i + 1));
+                forwardLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }");
+            }
+        }
+    } else {
+        // 如果当前轮次无效，显示空数据
+        for (int i = 0; i < 5; ++i) {
             forwardLabels[i]->setText("采集数据" + QString::number(i + 1));
             forwardLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }");
         }
     }
     
-    // 更新反行程数据显示
+    // 更新反行程数据显示（显示当前轮次的数据）
     QLabel* reverseLabels[5] = {
         ui->labelReverseData1, ui->labelReverseData2, ui->labelReverseData3,
         ui->labelReverseData4, ui->labelReverseData5
     };
     
-    for (int i = 0; i < 5; ++i) {
-        if (i < m_currentReverseIndex && m_reverseData[i] != 0.0) {
-            reverseLabels[i]->setText(QString::number(m_reverseData[i], 'f', 2) + "°");
-            reverseLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #cce7ff; }");
+    if (m_currentRound < m_allRoundsData.size()) {
+        const RoundData &currentRound = m_allRoundsData[m_currentRound];
+        
+        for (int i = 0; i < 5; ++i) {
+            if (i < currentRound.backwardAngles.size() && currentRound.backwardAngles[i] != 0.0) {
+                reverseLabels[i]->setText(QString::number(currentRound.backwardAngles[i], 'f', 2) + "°");
+                reverseLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #cce7ff; }");
+            } else {
+                reverseLabels[i]->setText("采集数据" + QString::number(i + 1));
+                reverseLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }");
+            }
+        }
+        
+        // 更新最大角度显示（使用当前轮次的最大角度）
+        if (currentRound.maxAngle != 0.0) {
+            ui->labelMaxAngleValue->setText(QString::number(currentRound.maxAngle, 'f', 2) + "°");
         } else {
+            ui->labelMaxAngleValue->setText("--");
+        }
+    } else {
+        // 如果当前轮次无效，显示空数据
+        for (int i = 0; i < 5; ++i) {
             reverseLabels[i]->setText("采集数据" + QString::number(i + 1));
             reverseLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }");
         }
-    }
-    
-    // 更新最大角度显示（取采集数据5的值）
-    double maxAngleToShow = 0.0;
-    if (m_currentForwardIndex >= 5 && m_forwardData[4] != 0.0) {
-        maxAngleToShow = m_forwardData[4];
-    } else if (m_currentReverseIndex >= 5 && m_reverseData[4] != 0.0) {
-        maxAngleToShow = m_reverseData[4];
-    }
-    
-    if (maxAngleToShow != 0.0) {
-        ui->labelMaxAngleValue->setText(QString::number(maxAngleToShow, 'f', 2) + "°");
-    } else {
         ui->labelMaxAngleValue->setText("--");
     }
     
-    // 更新保存次数
-    ui->labelSaveCount->setText(QString("当前采集轮次：%1").arg(m_saveCount));
+    // 更新当前轮次显示
+    ui->labelSaveCount->setText(QString("当前轮次：第%1轮/共5轮").arg(m_currentRound + 1));
 }
 
 // 添加数据到当前行程
@@ -1796,7 +1861,7 @@ void MainWindow::addDataToCurrentStroke(double angle)
     updateDataTable();
 }
 
-// 确定按钮点击处理
+// 确定按钮点击处理 - 添加当前测量数据
 void MainWindow::onConfirmData()
 {
     if (!m_hasZero) {
@@ -1819,37 +1884,49 @@ void MainWindow::onConfirmData()
     if (angleDelta > 180) angleDelta -= 360;
     if (angleDelta < -180) angleDelta += 360;
     
-    // 更新指针方向
-    updatePointerDirection(currentAngle);
+    // 添加到当前轮次数据中
+    addAngleToCurrentRound(abs(angleDelta), m_isForwardStroke);
     
-    // 添加到相应的行程数据中
-    addDataToCurrentStroke(abs(angleDelta));
+    // 同时更新误差表格（如果打开的话）
+    updateErrorTableWithAllRounds();
     
     QMessageBox::information(this, "确认", 
-        QString("已将当前数据（%1°）添加到%2")
+        QString("已添加数据（%1°）到第%2轮 %3 第%4个检测点")
         .arg(abs(angleDelta), 0, 'f', 2)
-        .arg(m_strokeDirection == 1 ? "正行程" : "反行程"));
+        .arg(m_currentRound + 1)
+        .arg(m_isForwardStroke ? "正行程" : "反行程")
+        .arg(m_currentDetectionPoint + 1));
 }
 
-// 保存按钮点击处理
+// 保存按钮点击处理 - 当前轮次+1
 void MainWindow::onSaveData()
 {
-    // 增加保存计数
-    m_saveCount++;
+    if (m_currentRound >= 4) {  // 如果已经是第5轮，不能再增加
+        QMessageBox::information(this, "提示", "已经是最后一轮（第5轮）！");
+        return;
+    }
     
-    // 这里可以添加导出到Excel的功能
+    // 标记当前轮次为完成
+    if (m_currentRound < m_allRoundsData.size()) {
+        m_allRoundsData[m_currentRound].isCompleted = true;
+    }
+    
+    // 进入下一轮
+    int oldRound = m_currentRound;
+    m_currentRound++;
+    
     QMessageBox::information(this, "保存", 
-        QString("第%1轮数据已保存！\n正行程数据：%2个\n反行程数据：%3个")
-        .arg(m_saveCount)
-        .arg(m_currentForwardIndex)
-        .arg(m_currentReverseIndex));
+        QString("第%1轮已完成！\n开始第%2轮测量")
+        .arg(oldRound + 1)
+        .arg(m_currentRound + 1));
     
-    // 重置当前轮次的数据，准备下一轮
-    initializeDataArrays();
-    m_saveCount++; // 保持计数不重置
-    ui->labelSaveCount->setText(QString("当前采集轮次：%1").arg(m_saveCount));
+    // 同时更新误差表格（如果打开的话）
+    updateErrorTableWithAllRounds();
     
-    qDebug() << "保存完成，轮次：" << m_saveCount;
+    // 更新数据显示
+    updateDataTable();
+    
+    qDebug() << "从第" << (oldRound + 1) << "轮推进到第" << (m_currentRound + 1) << "轮";
 }
 
 // ================== BYQ指针检测算法实现 ==================
@@ -1977,4 +2054,203 @@ cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const
     }
     
     return bestLine;
+}
+
+// 测量并保存最大角度
+void MainWindow::measureAndSaveMaxAngle()
+{
+    if (!m_hasZero) {
+        QMessageBox::warning(this, "警告", "请先进行归位操作！");
+        return;
+    }
+    
+    // 获取当前图像
+    cv::Mat frame;
+    if (!grabOneFrame(frame)) {
+        QMessageBox::warning(this, "警告", "无法获取图像！");
+        return;
+    }
+    
+    // 多次测量取平均值，提高精度
+    double currentAngle = measureAngleMultipleTimes(frame, 5);  // 测量5次取平均
+    double angleDelta = currentAngle - m_zeroAngle;
+    
+    // 处理角度跨越边界
+    if (angleDelta > 180) angleDelta -= 360;
+    if (angleDelta < -180) angleDelta += 360;
+    
+    // 保存绝对值角度
+    double maxAngle = abs(angleDelta);
+    m_maxAngle = maxAngle;
+    
+    // 如果误差检测表格窗口打开，将最大角度数据传递给它
+    if (m_errorTableDialog) {
+        m_errorTableDialog->addMaxAngleData(maxAngle);
+    }
+    
+    // 更新界面显示
+    updateMaxAngleDisplay();
+    
+    qDebug() << "最大角度测量完成:" << maxAngle << "度";
+    
+    QMessageBox::information(this, "最大角度测量", 
+        QString("最大角度测量完成\n当前角度: %1°\n平均最大角度: %2°")
+        .arg(maxAngle, 0, 'f', 2)
+        .arg(m_errorTableDialog ? m_errorTableDialog->calculateAverageMaxAngle() : maxAngle, 0, 'f', 2));
+}
+
+// 更新最大角度显示
+void MainWindow::updateMaxAngleDisplay()
+{
+    if (m_errorTableDialog) {
+        double avgMaxAngle = m_errorTableDialog->calculateAverageMaxAngle();
+        // 这里可以更新界面上的最大角度显示标签
+        // 例如: ui->labelMaxAngle->setText(QString("平均最大角度: %1°").arg(avgMaxAngle, 0, 'f', 2));
+        qDebug() << "当前轮次最大角度:" << m_maxAngle << "平均最大角度:" << avgMaxAngle;
+    }
+}
+
+// ================== 5轮数据管理方法实现 ==================
+
+void MainWindow::initializeRoundsData()
+{
+    qDebug() << "初始化5轮数据结构";
+    
+    // 初始化5轮数据
+    m_allRoundsData.clear();
+    m_allRoundsData.resize(5);
+    
+    // 根据当前表盘类型设置测量次数和检测点
+    if (m_currentDialType == "YYQY-13") {
+        m_maxMeasurementsPerRound = 6;
+        m_detectionPoints = {0.0, 0.6, 1.2, 1.8, 2.4, 3.0};
+    } else if (m_currentDialType == "BYQ-19") {
+        m_maxMeasurementsPerRound = 5;
+        m_detectionPoints = {0.0, 0.75, 1.5, 2.25, 3.0};
+    } else {
+        // 默认配置
+        m_maxMeasurementsPerRound = 6;
+        m_detectionPoints = {0.0, 1.0, 2.0, 3.0};
+    }
+    
+    // 为每轮初始化数据结构
+    for (int round = 0; round < 5; ++round) {
+        m_allRoundsData[round].forwardAngles.resize(m_maxMeasurementsPerRound);
+        m_allRoundsData[round].backwardAngles.resize(m_maxMeasurementsPerRound);
+        m_allRoundsData[round].forwardAngles.fill(0.0);
+        m_allRoundsData[round].backwardAngles.fill(0.0);
+        m_allRoundsData[round].maxAngle = 0.0;
+        m_allRoundsData[round].isCompleted = false;
+    }
+    
+    // 重置状态
+    m_currentRound = 0;
+    m_currentDetectionPoint = 0;
+    
+    qDebug() << "5轮数据结构初始化完成，表盘类型:" << m_currentDialType 
+             << "每轮测量次数:" << m_maxMeasurementsPerRound
+             << "检测点数量:" << m_detectionPoints.size();
+}
+
+void MainWindow::addAngleToCurrentRound(double angle, bool isForward)
+{
+    if (m_currentRound >= m_allRoundsData.size()) {
+        qDebug() << "当前轮次超出范围:" << m_currentRound;
+        return;
+    }
+    
+    RoundData &currentRound = m_allRoundsData[m_currentRound];
+    
+    if (isForward) {
+        // 找到第一个空的正行程位置
+        for (int i = 0; i < currentRound.forwardAngles.size(); ++i) {
+            if (currentRound.forwardAngles[i] == 0.0 && i == 0) {
+                // 第一个位置可以是0.0（零位）
+                currentRound.forwardAngles[i] = angle;
+                qDebug() << "添加第" << (m_currentRound + 1) << "轮正行程第" << (i + 1) << "次数据:" << angle;
+                break;
+            } else if (currentRound.forwardAngles[i] == 0.0 && angle != 0.0) {
+                // 其他位置不能是0.0，除非确实是零位
+                currentRound.forwardAngles[i] = angle;
+                qDebug() << "添加第" << (m_currentRound + 1) << "轮正行程第" << (i + 1) << "次数据:" << angle;
+                break;
+            }
+        }
+    } else {
+        // 找到第一个空的反行程位置
+        for (int i = 0; i < currentRound.backwardAngles.size(); ++i) {
+            if (currentRound.backwardAngles[i] == 0.0 && angle != 0.0) {
+                currentRound.backwardAngles[i] = angle;
+                qDebug() << "添加第" << (m_currentRound + 1) << "轮反行程第" << (i + 1) << "次数据:" << angle;
+                break;
+            }
+        }
+    }
+    
+    // 更新状态显示
+    updateDataTable();
+}
+
+void MainWindow::updateErrorTableWithAllRounds()
+{
+    if (!m_errorTableDialog) {
+        return;  // 如果表格窗口没有打开，就不更新
+    }
+    
+    qDebug() << "开始同步5轮数据到误差表格";
+    
+    // 简化同步逻辑：直接传递数据而不是通过addAngleData方法
+    // 这需要在ErrorTableDialog中添加一个直接设置多轮数据的方法
+    
+    // 暂时保持现有的逻辑，但只同步当前主界面的轮次
+    m_errorTableDialog->setCurrentRound(m_currentRound);
+    
+    // 为当前轮次同步数据
+    if (m_currentRound < m_allRoundsData.size()) {
+        const RoundData &currentRoundData = m_allRoundsData[m_currentRound];
+        
+        // 简单起见，我们只同步非零数据
+        for (int i = 0; i < currentRoundData.forwardAngles.size(); ++i) {
+            if (currentRoundData.forwardAngles[i] != 0.0 || (i == 0 && currentRoundData.forwardAngles[i] == 0.0)) {
+                // 这里需要设置检测点，但简化逻辑，我们假设只有一个检测点
+                if (!m_detectionPoints.isEmpty()) {
+                    m_errorTableDialog->setCurrentPressurePoint(m_detectionPoints[0]);
+                    m_errorTableDialog->addAngleData(currentRoundData.forwardAngles[i], true);
+                }
+            }
+        }
+        
+        for (int i = 0; i < currentRoundData.backwardAngles.size(); ++i) {
+            if (currentRoundData.backwardAngles[i] != 0.0) {
+                if (!m_detectionPoints.isEmpty()) {
+                    m_errorTableDialog->setCurrentPressurePoint(m_detectionPoints[0]);
+                    m_errorTableDialog->addAngleData(currentRoundData.backwardAngles[i], false);
+                }
+            }
+        }
+        
+        // 添加最大角度数据
+        if (currentRoundData.maxAngle != 0.0) {
+            m_errorTableDialog->addMaxAngleData(currentRoundData.maxAngle);
+        }
+    }
+    
+    qDebug() << "当前轮次数据同步完成";
+}
+
+void MainWindow::setCurrentDetectionPoint(int pointIndex)
+{
+    if (pointIndex >= 0 && pointIndex < m_detectionPoints.size()) {
+        m_currentDetectionPoint = pointIndex;
+        qDebug() << "切换到检测点" << (pointIndex + 1) << ":" << m_detectionPoints[pointIndex] << "MPa";
+    }
+}
+
+QString MainWindow::getCurrentStatusInfo() const
+{
+    return QString("第%1轮 检测点%2 (%3MPa) %4")
+        .arg(m_currentRound + 1)
+        .arg(m_currentDetectionPoint + 1)
+        .arg(m_detectionPoints.isEmpty() ? 0.0 : m_detectionPoints[m_currentDetectionPoint])
+        .arg(m_isForwardStroke ? "正行程" : "反行程");
 }
