@@ -64,13 +64,26 @@ struct PointerDetectionConfig {
     int pointerMinLength = 50;          // 指针最小长度
     double angleOffset = 0.0;           // 角度偏移量
     
-    // BYQ转轴检测参数
-    int axisMinRadius = 8;              // 转轴最小半径
-    int axisMaxRadius = 40;             // 转轴最大半径
-    double axisParam1 = 80;             // 转轴检测参数1
-    double axisParam2 = 20;             // 转轴检测参数2
     int silverThresholdLow = 150;       // 银色区域下阈值
-    int silverThresholdHigh = 255;      // 银色区域上阈值
+    // BYQ指针检测关键参数
+    // 步骤1-2：掩码参数
+    double pointerMaskRadius = 0.9;     // 表盘掩码半径比例（调小=更靠近中心，调大=更靠近边缘）
+    double axisExcludeMultiplier = 1.8; // 转轴排除区域倍数（调小=排除区域小，调大=排除区域大）
+    
+    // 步骤3：预处理参数
+    int morphKernelWidth = 1;           // 形态学核宽度（1-3，调大=线条更粗）
+    int morphKernelHeight = 2;          // 形态学核高度（1-5，调大=连接更多断点）
+    int gaussianKernelSize = 3;         // 高斯核大小（3,5,7，调大=更平滑）
+    double gaussianSigma = 0.8;         // 高斯标准差（0.5-2.0，调大=更模糊）
+    
+    // 步骤4：边缘检测参数
+    int cannyLowThreshold = 30;         // Canny低阈值（20-50，调低=更多边缘）
+    int cannyHighThreshold = 100;       // Canny高阈值（80-150，调低=更多边缘）
+    
+    // 步骤5：直线检测参数
+    int houghThreshold = 20;            // 直线检测阈值（10-40，调低=更多直线）
+    double minLineLengthRatio = 0.12;   // 最小线长比例（0.08-0.2，调小=检测更短线）
+    double maxLineGapRatio = 0.08;      // 最大间隙比例（0.05-0.15，调大=连接更多断线）
     
     // 表盘类型标识
     QString dialType = "YYQY";          // 表盘类型（"YYQY"或"BYQ"）
@@ -137,16 +150,32 @@ private:
     bool   m_isForwardStroke = true;     // 当前是否为正行程（顺时针方向）
     int    m_strokeDirection = 0;        // 运动方向：1=正行程，-1=反行程，0=未知
     
-    // 数据采集相关
-    QVector<double> m_forwardData;       // 正行程数据（最多6个，根据表盘类型调整）
-    QVector<double> m_reverseData;       // 反行程数据（最多6个，根据表盘类型调整）
+    // 5轮数据采集相关
+    struct RoundData {
+        QVector<double> forwardAngles;    // 正行程角度数据
+        QVector<double> backwardAngles;   // 反行程角度数据
+        double maxAngle = 0.0;            // 该轮最大角度
+        bool isCompleted = false;         // 该轮是否完成
+    };
+    
+    QVector<RoundData> m_allRoundsData;  // 5轮完整数据
+    int m_currentRound = 0;              // 当前轮次（0-4）
+    int m_currentDetectionPoint = 0;     // 当前检测点索引
+    int m_maxMeasurementsPerRound = 6;   // 每轮最大测量次数（YYQY=6, BYQ=5）
+    
+    // 检测点配置
+    QVector<double> m_detectionPoints;   // 检测点压力值列表
+    
+    // 兼容性保留
+    QVector<double> m_forwardData;       // 正行程数据（最多5个）
+    QVector<double> m_reverseData;       // 反行程数据（最多5个）
     int m_currentForwardIndex = 0;       // 当前正行程数据索引
     int m_currentReverseIndex = 0;       // 当前反行程数据索引  
     int m_saveCount = 0;                 // 保存按钮点击次数
     double m_maxAngle = 0.0;             // 当前最大角度
     bool m_maxAngleCaptured = false;     // 是否已完成最大角度采集
     int m_requiredDataCount = 6;         // 当前表盘所需数据数量（YYQY=6, BYQ=5）
-
+    ErrorTableDialog* m_errorTableDialog = nullptr;  // 误差检测表格对话框指针
     bool grabOneFrame(cv::Mat &outBar);
     void runAlgoOnce();
     static void conv2(const Mat &img, const Mat& kernel, ConvolutionType type, Mat& dest);
@@ -163,6 +192,16 @@ private:
     void updateDataTable();
     void initializeDataArrays();
     void addDataToCurrentStroke(double angle);
+    // 最大角度测量相关
+    void measureAndSaveMaxAngle();      // 测量并保存最大角度
+    void updateMaxAngleDisplay();       // 更新最大角度显示
+    
+    // 5轮数据管理方法
+    void initializeRoundsData();           // 初始化5轮数据结构
+    void addAngleToCurrentRound(double angle, bool isForward);  // 添加角度到当前轮次
+    void updateErrorTableWithAllRounds();  // 更新误差表格显示所有轮次数据
+    void setCurrentDetectionPoint(int pointIndex);  // 设置当前检测点
+    QString getCurrentStatusInfo() const;   // 获取当前状态信息
     
 
 private slots:
@@ -197,6 +236,8 @@ private:
     double m_angle;
     const PointerDetectionConfig* m_config;  // 配置参数指针
     cv::Point2f m_axisCenter;  // BYQ转轴中心
+    float m_axisRadius;        // BYQ转轴半径
+    static double s_lastValidAngle;  // 上次有效角度，用于稳定性检查
     
 public:
     explicit highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config = nullptr);
