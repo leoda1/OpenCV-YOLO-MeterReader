@@ -771,6 +771,7 @@ void MainWindow::onResetZero()
             // 将归位的0度数据写入采集数据1（第一个正行程位置）
             if (!currentRound.forwardAngles.isEmpty()) {
                 currentRound.forwardAngles[0] = 0.0;  // 零度写入采集数据1
+                qDebug() << "归位操作：第" << (m_currentRound + 1) << "轮采集数据1已设置为0.0度";
             }
             
             qDebug() << "第" << (m_currentRound + 1) << "轮数据已清空，零度已写入采集数据1";
@@ -778,6 +779,9 @@ void MainWindow::onResetZero()
         
         // 同时更新误差表格（如果打开的话）
         updateErrorTableWithAllRounds();
+        
+        // 更新界面显示
+        updateDataTable();
         
         // 更新界面显示
         ui->labelAngle->setText(QString("零位已设置: %1°").arg(angle, 0, 'f', 2));
@@ -1725,6 +1729,14 @@ void MainWindow::updateDataDisplayVisibility()
 // 更新数据表格显示
 void MainWindow::updateDataTable()
 {
+    // 获取当前轮次数据
+    if (m_currentRound >= m_allRoundsData.size()) {
+        qDebug() << "当前轮次超出范围，无法更新数据表格";
+        return;
+    }
+    
+    const RoundData &currentRound = m_allRoundsData[m_currentRound];
+    
     // 更新正行程数据显示
     QLabel* forwardLabels[6] = {
         ui->labelForwardData1, ui->labelForwardData2, ui->labelForwardData3,
@@ -1732,8 +1744,12 @@ void MainWindow::updateDataTable()
     };
     
     for (int i = 0; i < 6; ++i) {
-        if (i < m_currentForwardIndex && m_forwardData[i] != 0.0) {
-            forwardLabels[i]->setText(QString::number(m_forwardData[i], 'f', 2) + "°");
+        if (i < currentRound.forwardAngles.size() && currentRound.forwardAngles[i] != 0.0) {
+            forwardLabels[i]->setText(QString::number(currentRound.forwardAngles[i], 'f', 2) + "°");
+            forwardLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #d4edda; }");
+        } else if (i < currentRound.forwardAngles.size() && currentRound.forwardAngles[i] == 0.0 && i == 0) {
+            // 第一个位置显示0度（归位数据）
+            forwardLabels[i]->setText("0.00°");
             forwardLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #d4edda; }");
         } else {
             forwardLabels[i]->setText("采集数据" + QString::number(i + 1));
@@ -1748,33 +1764,29 @@ void MainWindow::updateDataTable()
     };
     
     for (int i = 0; i < 6; ++i) {
-        if (i < m_currentReverseIndex && m_reverseData[i] != 0.0) {
-            reverseLabels[i]->setText(QString::number(m_reverseData[i], 'f', 2) + "°");
+        // 反行程数据从最后一个位置开始填写，需要正确的映射
+        // 数组位置6对应采集数据6，数组位置5对应采集数据5，以此类推
+        int dataIndex = i;  // 直接映射：采集数据1对应数组位置1，采集数据6对应数组位置6
+        
+        if (dataIndex >= 0 && dataIndex < currentRound.backwardAngles.size() && currentRound.backwardAngles[dataIndex] != 0.0) {
+            reverseLabels[i]->setText(QString::number(currentRound.backwardAngles[dataIndex], 'f', 2) + "°");
             reverseLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #cce7ff; }");
+            qDebug() << "反行程显示：采集数据" << (i + 1) << "显示数据" << currentRound.backwardAngles[dataIndex] << "（来自数组位置" << (dataIndex + 1) << "）";
         } else {
             reverseLabels[i]->setText("采集数据" + QString::number(i + 1));
             reverseLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }");
         }
     }
     
-    // 更新最大角度显示（根据表盘类型选择最后一个数据）
-    double maxAngleToShow = 0.0;
-    int lastDataIndex = m_requiredDataCount - 1;  // BYQ=4(第5个), YYQY=5(第6个)
-    
-    if (m_currentForwardIndex >= m_requiredDataCount && m_forwardData[lastDataIndex] != 0.0) {
-        maxAngleToShow = m_forwardData[lastDataIndex];
-    } else if (m_currentReverseIndex >= m_requiredDataCount && m_reverseData[lastDataIndex] != 0.0) {
-        maxAngleToShow = m_reverseData[lastDataIndex];
-    }
-    
-    if (maxAngleToShow != 0.0) {
-        ui->labelMaxAngleValue->setText(QString::number(maxAngleToShow, 'f', 2) + "°");
+    // 更新最大角度显示
+    if (currentRound.maxAngle != 0.0) {
+        ui->labelMaxAngleValue->setText(QString::number(currentRound.maxAngle, 'f', 2) + "°");
     } else {
         ui->labelMaxAngleValue->setText("--");
     }
     
     // 更新保存次数
-    ui->labelSaveCount->setText(QString("当前采集轮次：%1").arg(m_saveCount));
+    ui->labelSaveCount->setText(QString("当前采集轮次：%1").arg(m_currentRound + 1));
 }
 
 // 添加数据到当前行程
@@ -1782,13 +1794,7 @@ void MainWindow::addDataToCurrentStroke(double angle)
 {
     // 检查是否可以添加正行程数据
     if (m_strokeDirection == 1 && m_currentForwardIndex < m_requiredDataCount) {
-        // 正行程 - 检查是否需要最大角度采集
-        if (m_currentForwardIndex == m_requiredDataCount - 1 && !m_maxAngleCaptured) {
-            QMessageBox::warning(this, "提示", 
-                QString("请先点击\"最大角度采集\"按钮完成第%1个数据的采集！").arg(m_requiredDataCount));
-            return;
-        }
-        
+        // 正行程 - 允许添加数据，不强制要求最大角度采集
         m_forwardData[m_currentForwardIndex] = angle;
         m_currentForwardIndex++;
         qDebug() << "添加正行程数据：" << angle << "当前索引：" << m_currentForwardIndex << "/" << m_requiredDataCount;
@@ -1841,44 +1847,143 @@ void MainWindow::onConfirmData()
     // 更新指针方向
     updatePointerDirection(currentAngle);
     
-    // 添加到相应的行程数据中
-    addDataToCurrentStroke(abs(angleDelta));
+    // 检查当前轮次数据状态
+    if (m_currentRound < m_allRoundsData.size()) {
+        const RoundData &currentRound = m_allRoundsData[m_currentRound];
+        
+        // 检查正行程是否已完成
+        bool forwardComplete = true;
+        for (int i = 0; i < currentRound.forwardAngles.size(); ++i) {
+            if (currentRound.forwardAngles[i] == 0.0) {
+                forwardComplete = false;
+                break;
+            }
+        }
+        
+        // 确定数据应该填写到哪个行程
+        bool shouldAddToForward = true;
+        
+        if (forwardComplete && m_maxAngleCaptured) {
+            // 正行程已完成且最大角度已采集，切换到反行程
+            shouldAddToForward = false;
+            if (m_isForwardStroke) {
+                m_isForwardStroke = false;
+                QMessageBox::information(this, "自动切换", "正行程数据采集完成，已自动切换到反行程！");
+            }
+        } else if (!m_maxAngleCaptured) {
+            // 最大角度未采集，强制填写到正行程
+            shouldAddToForward = true;
+            if (!m_isForwardStroke) {
+                m_isForwardStroke = true;
+                QMessageBox::information(this, "提示", "最大角度未采集，数据将填写到正行程！");
+            }
+        }
+        
+        // 添加到当前轮次数据中
+        addAngleToCurrentRound(abs(angleDelta), shouldAddToForward);
+    } else {
+        // 添加到当前轮次数据中（使用当前状态）
+        addAngleToCurrentRound(abs(angleDelta), m_isForwardStroke);
+    }
+    
+    // 同时更新误差表格（如果打开的话）
+    updateErrorTableWithAllRounds();
+    
+    // 计算当前数据位置
+    int currentDataPosition = 0;
+    if (m_currentRound < m_allRoundsData.size()) {
+        const RoundData &currentRound = m_allRoundsData[m_currentRound];
+        
+        if (m_isForwardStroke) {
+            // 正行程：从前往后计算位置
+            for (int i = 0; i < currentRound.forwardAngles.size(); ++i) {
+                if (currentRound.forwardAngles[i] != 0.0) {
+                    currentDataPosition = i + 1;
+                }
+            }
+        } else {
+            // 反行程：从后往前计算位置（采集数据6,5,4,3,2,1）
+            for (int i = currentRound.backwardAngles.size() - 1; i >= 0; --i) {
+                if (currentRound.backwardAngles[i] != 0.0) {
+                    currentDataPosition = currentRound.backwardAngles.size() - i;
+                    break;
+                }
+            }
+            // 如果没有找到数据，说明这是第一个反行程数据，应该是采集数据6
+            if (currentDataPosition == 0) {
+                currentDataPosition = currentRound.backwardAngles.size();
+            }
+        }
+    }
     
     QMessageBox::information(this, "确认", 
-        QString("已将当前数据（%1°）添加到%2")
+        QString("已添加数据（%1°）到第%2轮 %3 采集数据%4")
         .arg(abs(angleDelta), 0, 'f', 2)
-        .arg(m_strokeDirection == 1 ? "正行程" : "反行程"));
+        .arg(m_currentRound + 1)
+        .arg(m_isForwardStroke ? "正行程" : "反行程")
+        .arg(currentDataPosition));
 }
 
 // 保存按钮点击处理
 void MainWindow::onSaveData()
 {
-    // 增加保存计数
-    m_saveCount++;
+    // 检查当前轮次是否完成
+    if (m_currentRound < m_allRoundsData.size()) {
+        RoundData &currentRound = m_allRoundsData[m_currentRound];
+        
+        // 标记当前轮次为已完成
+        currentRound.isCompleted = true;
+        
+        // 统计数据数量
+        int forwardCount = 0;
+        int backwardCount = 0;
+        
+        for (int i = 0; i < currentRound.forwardAngles.size(); ++i) {
+            if (currentRound.forwardAngles[i] != 0.0) {
+                forwardCount++;
+            }
+        }
+        
+        for (int i = 0; i < currentRound.backwardAngles.size(); ++i) {
+            if (currentRound.backwardAngles[i] != 0.0) {
+                backwardCount++;
+            }
+        }
+        
+        QMessageBox::information(this, "保存", 
+            QString("第%1轮数据已保存！\n正行程数据：%2个\n反行程数据：%3个")
+            .arg(m_currentRound + 1)
+            .arg(forwardCount)
+            .arg(backwardCount));
+        
+        // 移动到下一轮
+        if (m_currentRound < 4) {  // 最多5轮（0-4）
+            m_currentRound++;
+            m_currentDetectionPoint = 0;
+            m_maxAngleCaptured = false;  // 重置最大角度采集状态
+            
+            // 初始化新轮次的数据
+            if (m_currentRound < m_allRoundsData.size()) {
+                m_allRoundsData[m_currentRound].forwardAngles.fill(0.0);
+                m_allRoundsData[m_currentRound].backwardAngles.fill(0.0);
+                m_allRoundsData[m_currentRound].maxAngle = 0.0;
+                m_allRoundsData[m_currentRound].isCompleted = false;
+            }
+        } else {
+            QMessageBox::information(this, "完成", "所有5轮数据采集已完成！");
+        }
+        
+        // 更新界面显示
+        updateDataTable();
+        updateErrorTableWithAllRounds();
+    }
     
-    // 这里可以添加导出到Excel的功能
-    QMessageBox::information(this, "保存", 
-        QString("第%1轮数据已保存！\n正行程数据：%2个\n反行程数据：%3个")
-        .arg(m_saveCount)
-        .arg(m_currentForwardIndex)
-        .arg(m_currentReverseIndex));
-    
-    // 重置当前轮次的数据，准备下一轮
-    initializeDataArrays();
-    ui->labelSaveCount->setText(QString("当前采集轮次：%1").arg(m_saveCount + 1));
-    
-    qDebug() << "保存完成，轮次：" << m_saveCount;
+    qDebug() << "保存完成，当前轮次：" << (m_currentRound + 1);
 }
 
 void MainWindow::onClearData()
 {
     qDebug() << "清空数据按钮被点击";
-    
-    // 清空5轮采集数据
-    m_forwardData.clear();
-    m_reverseData.clear();
-    m_currentForwardIndex = 0;
-    m_currentReverseIndex = 0;
     
     // 重置零点相关状态
     m_hasZero = false;
@@ -1890,16 +1995,14 @@ void MainWindow::onClearData()
     m_isForwardStroke = true;
     m_strokeDirection = 0;
     
-    // 重置保存计数和最大角度采集状态
-    m_saveCount = 0;
+    // 重置最大角度采集状态
     m_maxAngleCaptured = false;
-    ui->labelSaveCount->setText(QString("当前采集轮次：%1").arg(m_saveCount + 1));
     
-    // 重新初始化数据数组（会自动设置正确的数据数量）
-    initializeDataArrays();
+    // 重新初始化5轮数据结构
+    initializeRoundsData();
     
     // 更新显示
-    updateCollectionDisplay();
+    updateDataTable();
     
     QMessageBox::information(this, "清空数据", "已清空所有5轮采集数据！");
     qDebug() << "已清空所有采集数据";
@@ -1967,51 +2070,47 @@ void MainWindow::onMaxAngleCapture()
         return;
     }
     
-    // 检查是否到了需要采集最大角度的时候
-    if (m_strokeDirection == 1) {  // 正行程
-        if (m_currentForwardIndex != m_requiredDataCount - 1) {
-            QMessageBox::warning(this, "提示", 
-                QString("请先完成前%1个数据的采集！\n当前已采集：%2个")
-                .arg(m_requiredDataCount - 1)
-                .arg(m_currentForwardIndex));
-            return;
-        }
-    }
-    
-    // 获取当前角度
-    cv::Mat frame;
-    if (!grabOneFrame(frame)) {
-        QMessageBox::warning(this, "警告", "无法获取图像！");
+    // 检查当前轮次数据状态
+    if (m_currentRound >= m_allRoundsData.size()) {
+        QMessageBox::warning(this, "错误", "当前轮次超出范围！");
         return;
     }
     
-    // 使用高精度测量
-    double currentAngle = measureAngleMultipleTimes(frame);
-    double angleDelta = currentAngle - m_zeroAngle;
+    const RoundData &currentRound = m_allRoundsData[m_currentRound];
     
-    // 处理角度跨越边界
-    if (angleDelta > 180) angleDelta -= 360;
-    if (angleDelta < -180) angleDelta += 360;
-    
-    double maxAngle = abs(angleDelta);
-    
-    // 保存最大角度数据
-    if (m_strokeDirection == 1 && m_currentForwardIndex == m_requiredDataCount - 1) {
-        m_forwardData[m_currentForwardIndex] = maxAngle;
-        m_currentForwardIndex++;
-        m_maxAngle = maxAngle;
-        m_maxAngleCaptured = true;
-        
-        QMessageBox::information(this, "最大角度采集", 
-            QString("最大角度采集完成！\n角度值：%1°\n现在可以进行反行程数据采集。")
-            .arg(maxAngle, 0, 'f', 2));
-        
-        qDebug() << "最大角度采集完成：" << maxAngle << "°";
-    } else {
-        QMessageBox::warning(this, "错误", "当前状态不允许进行最大角度采集！");
+    // 检查正行程数据是否已完成
+    bool forwardComplete = true;
+    int forwardCount = 0;
+    for (int i = 0; i < currentRound.forwardAngles.size(); ++i) {
+        if (currentRound.forwardAngles[i] != 0.0) {
+            forwardCount++;
+        } else {
+            forwardComplete = false;
+        }
     }
     
-    updateDataTable();
+    // 根据表盘类型确定需要的数据数量
+    int requiredForwardCount = 0;
+    if (m_currentDialType == "YYQY-13") {
+        requiredForwardCount = 6;  // YYQY表盘需要6个正行程数据
+    } else if (m_currentDialType == "BYQ-19") {
+        requiredForwardCount = 5;  // BYQ表盘需要5个正行程数据
+    } else {
+        requiredForwardCount = 6;  // 默认6个
+    }
+    
+    // 检查是否到了需要采集最大角度的时候
+    if (!forwardComplete || forwardCount < requiredForwardCount) {
+        QMessageBox::warning(this, "提示", 
+            QString("请先完成前%1个正行程数据的采集！\n当前已采集：%2个\n表盘类型：%3")
+            .arg(requiredForwardCount)
+            .arg(forwardCount)
+            .arg(m_currentDialType));
+        return;
+    }
+    
+    // 调用最大角度测量函数
+    measureAndSaveMaxAngle();
 }
 
 // ================== BYQ指针检测算法实现 ==================
@@ -2167,6 +2266,12 @@ void MainWindow::measureAndSaveMaxAngle()
     // 保存绝对值角度
     double maxAngle = abs(angleDelta);
     m_maxAngle = maxAngle;
+    m_maxAngleCaptured = true;  // 设置最大角度已采集标志
+    
+    // 将最大角度保存到当前轮次数据中
+    if (m_currentRound < m_allRoundsData.size()) {
+        m_allRoundsData[m_currentRound].maxAngle = maxAngle;
+    }
     
     // 如果误差检测表格窗口打开，将最大角度数据传递给它
     if (m_errorTableDialog) {
@@ -2175,13 +2280,59 @@ void MainWindow::measureAndSaveMaxAngle()
     
     // 更新界面显示
     updateMaxAngleDisplay();
+    updateDataTable();  // 更新数据表格显示
     
-    qDebug() << "最大角度测量完成:" << maxAngle << "度";
+    qDebug() << "最大角度测量完成:" << maxAngle << "度，最大角度采集状态已设置为true";
     
-    QMessageBox::information(this, "最大角度测量", 
-        QString("最大角度测量完成\n当前角度: %1°\n平均最大角度: %2°")
-        .arg(maxAngle, 0, 'f', 2)
-        .arg(m_errorTableDialog ? m_errorTableDialog->calculateAverageMaxAngle() : maxAngle, 0, 'f', 2));
+    // 检查是否应该自动切换到反行程
+    if (m_currentRound < m_allRoundsData.size()) {
+        const RoundData &currentRound = m_allRoundsData[m_currentRound];
+        
+        // 检查正行程是否已完成
+        bool forwardComplete = true;
+        for (int i = 0; i < currentRound.forwardAngles.size(); ++i) {
+            if (currentRound.forwardAngles[i] == 0.0) {
+                forwardComplete = false;
+                break;
+            }
+        }
+        
+        if (forwardComplete) {
+            m_isForwardStroke = false;  // 自动切换到反行程
+            
+            // 根据表盘类型确定需要的数据数量
+            int requiredForwardCount = 0;
+            if (m_currentDialType == "YYQY-13") {
+                requiredForwardCount = 6;  // YYQY表盘需要6个正行程数据
+            } else if (m_currentDialType == "BYQ-19") {
+                requiredForwardCount = 5;  // BYQ表盘需要5个正行程数据
+            } else {
+                requiredForwardCount = 6;  // 默认6个
+            }
+            
+            QMessageBox::information(this, "最大角度测量", 
+                QString("最大角度测量完成\n当前角度: %1°\n平均最大角度: %2°\n已完成%3个正行程数据采集\n已自动切换到反行程，现在可以进行反行程数据采集")
+                .arg(maxAngle, 0, 'f', 2)
+                .arg(m_errorTableDialog ? m_errorTableDialog->calculateAverageMaxAngle() : maxAngle, 0, 'f', 2)
+                .arg(requiredForwardCount));
+        } else {
+            // 根据表盘类型确定需要的数据数量
+            int requiredForwardCount = 0;
+            if (m_currentDialType == "YYQY-13") {
+                requiredForwardCount = 6;  // YYQY表盘需要6个正行程数据
+            } else if (m_currentDialType == "BYQ-19") {
+                requiredForwardCount = 5;  // BYQ表盘需要5个正行程数据
+            } else {
+                requiredForwardCount = 6;  // 默认6个
+            }
+            
+            QMessageBox::information(this, "最大角度测量", 
+                QString("最大角度测量完成\n当前角度: %1°\n平均最大角度: %2°\n请继续完成正行程数据采集（需要%3个数据）")
+                .arg(maxAngle, 0, 'f', 2)
+                .arg(m_errorTableDialog ? m_errorTableDialog->calculateAverageMaxAngle() : maxAngle, 0, 'f', 2)
+                .arg(requiredForwardCount));
+        }
+    }
 }
 
 // 更新最大角度显示
@@ -2247,26 +2398,85 @@ void MainWindow::addAngleToCurrentRound(double angle, bool isForward)
     RoundData &currentRound = m_allRoundsData[m_currentRound];
     
     if (isForward) {
+        // 检查是否已经完成正行程数据采集
+        bool forwardComplete = true;
+        for (int i = 0; i < currentRound.forwardAngles.size(); ++i) {
+            if (currentRound.forwardAngles[i] == 0.0) {
+                forwardComplete = false;
+                break;
+            }
+        }
+        
+        if (forwardComplete) {
+            // 根据表盘类型确定需要的数据数量
+            int requiredForwardCount = 0;
+            if (m_currentDialType == "YYQY-13") {
+                requiredForwardCount = 6;  // YYQY表盘需要6个正行程数据
+            } else if (m_currentDialType == "BYQ-19") {
+                requiredForwardCount = 5;  // BYQ表盘需要5个正行程数据
+            } else {
+                requiredForwardCount = 6;  // 默认6个
+            }
+            
+            QMessageBox::warning(this, "提示", 
+                QString("正行程数据已采集完成（%1个数据），请进行最大角度采集或切换到反行程！\n表盘类型：%2")
+                .arg(requiredForwardCount)
+                .arg(m_currentDialType));
+            return;
+        }
+        
         // 找到第一个空的正行程位置
         for (int i = 0; i < currentRound.forwardAngles.size(); ++i) {
-            if (currentRound.forwardAngles[i] == 0.0 && i == 0) {
-                // 第一个位置可以是0.0（零位）
+            if (currentRound.forwardAngles[i] == 0.0) {
+                // 允许添加数据到空位置（包括0度数据）
                 currentRound.forwardAngles[i] = angle;
                 qDebug() << "添加第" << (m_currentRound + 1) << "轮正行程第" << (i + 1) << "次数据:" << angle;
-                break;
-            } else if (currentRound.forwardAngles[i] == 0.0 && angle != 0.0) {
-                // 其他位置不能是0.0，除非确实是零位
-                currentRound.forwardAngles[i] = angle;
-                qDebug() << "添加第" << (m_currentRound + 1) << "轮正行程第" << (i + 1) << "次数据:" << angle;
+                
+                // 检查是否完成正行程数据采集
+                bool allForwardFilled = true;
+                for (int j = 0; j < currentRound.forwardAngles.size(); ++j) {
+                    if (currentRound.forwardAngles[j] == 0.0) {
+                        allForwardFilled = false;
+                        break;
+                    }
+                }
+                
+                if (allForwardFilled) {
+                    qDebug() << "正行程数据采集完成，可以进行最大角度采集";
+                }
                 break;
             }
         }
     } else {
-        // 找到第一个空的反行程位置
+        // 检查是否已经完成反行程数据采集
+        bool backwardComplete = true;
         for (int i = 0; i < currentRound.backwardAngles.size(); ++i) {
-            if (currentRound.backwardAngles[i] == 0.0 && angle != 0.0) {
+            if (currentRound.backwardAngles[i] == 0.0) {
+                backwardComplete = false;
+                break;
+            }
+        }
+        
+        if (backwardComplete) {
+            QMessageBox::warning(this, "提示", "反行程数据已采集完成！");
+            return;
+        }
+        
+        // 反行程从最后一个位置开始往回填写（采集数据6,5,4,3,2,1）
+        for (int i = currentRound.backwardAngles.size() - 1; i >= 0; --i) {
+            if (currentRound.backwardAngles[i] == 0.0) {
                 currentRound.backwardAngles[i] = angle;
-                qDebug() << "添加第" << (m_currentRound + 1) << "轮反行程第" << (i + 1) << "次数据:" << angle;
+                int displayPosition = currentRound.backwardAngles.size() - i;  // 显示位置（6,5,4,3,2,1）
+                qDebug() << "添加第" << (m_currentRound + 1) << "轮反行程采集数据" << displayPosition << "（数组位置" << (i + 1) << "）:" << angle;
+                
+                // 打印当前反行程数组状态
+                QString arrayState = "反行程数组状态：[";
+                for (int j = 0; j < currentRound.backwardAngles.size(); ++j) {
+                    arrayState += QString::number(currentRound.backwardAngles[j], 'f', 2);
+                    if (j < currentRound.backwardAngles.size() - 1) arrayState += ", ";
+                }
+                arrayState += "]";
+                qDebug() << arrayState;
                 break;
             }
         }
@@ -2305,7 +2515,9 @@ void MainWindow::updateErrorTableWithAllRounds()
             }
         }
         
-        for (int i = 0; i < currentRoundData.backwardAngles.size(); ++i) {
+        // 反行程数据需要按照正确的顺序同步到误差表格
+        // 反行程数据在数组中是从后往前填写的，但在误差表格中需要按照正确的顺序显示
+        for (int i = currentRoundData.backwardAngles.size() - 1; i >= 0; --i) {
             if (currentRoundData.backwardAngles[i] != 0.0) {
                 if (!m_detectionPoints.isEmpty()) {
                     m_errorTableDialog->setCurrentPressurePoint(m_detectionPoints[0]);
