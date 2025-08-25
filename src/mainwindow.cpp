@@ -1902,16 +1902,10 @@ void MainWindow::onConfirmData()
                 }
             }
         } else {
-            // 反行程：从后往前计算位置（采集数据6,5,4,3,2,1）
-            for (int i = currentRound.backwardAngles.size() - 1; i >= 0; --i) {
+            for (int i = 0; i < currentRound.backwardAngles.size(); ++i) {
                 if (currentRound.backwardAngles[i] != 0.0) {
-                    currentDataPosition = currentRound.backwardAngles.size() - i;
-                    break;
+                    currentDataPosition = i + 1;
                 }
-            }
-            // 如果没有找到数据，说明这是第一个反行程数据，应该是采集数据6
-            if (currentDataPosition == 0) {
-                currentDataPosition = currentRound.backwardAngles.size();
             }
         }
     }
@@ -2466,7 +2460,7 @@ void MainWindow::addAngleToCurrentRound(double angle, bool isForward)
         for (int i = currentRound.backwardAngles.size() - 1; i >= 0; --i) {
             if (currentRound.backwardAngles[i] == 0.0) {
                 currentRound.backwardAngles[i] = angle;
-                int displayPosition = currentRound.backwardAngles.size() - i;  // 显示位置（6,5,4,3,2,1）
+                int displayPosition = i + 1;
                 qDebug() << "添加第" << (m_currentRound + 1) << "轮反行程采集数据" << displayPosition << "（数组位置" << (i + 1) << "）:" << angle;
                 
                 // 打印当前反行程数组状态
