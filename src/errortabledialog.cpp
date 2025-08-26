@@ -518,9 +518,9 @@ void ErrorTableDialog::updateDataTable()
         // 检测点压力
         m_dataTable->setItem(i, 0, new QTableWidgetItem(QString::number(point.pressure, 'f', 1)));
         
-        // 检测点对应的刻度盘角度(理论角度)
-        double expectedAngle = pressureToAngle(point.pressure);
-        m_dataTable->setItem(i, 1, new QTableWidgetItem(QString::number(expectedAngle, 'f', 2)));
+        // 检测点对应的刻度盘角度 = 5轮正反行程当前检测点角度的平均值（10个采集数据）
+        double avgAngle = calculateAverageAngleForDetectionPoint(i);
+        m_dataTable->setItem(i, 1, new QTableWidgetItem(QString::number(avgAngle, 'f', 2)));
         
         // 获取当前轮次的数据
         double currentForwardAngle = 0.0;
@@ -557,17 +557,19 @@ void ErrorTableDialog::updateDataTable()
             m_dataTable->setItem(i, 2, new QTableWidgetItem("--"));
         }
         
-        // 正行程角度误差
-        if (hasForwardData) {
-            double angleError = calculateAngleError(currentForwardAngle, expectedAngle);
+        // 正行程角度误差 - 5轮完成后计算
+        if (hasForwardData && isAllRoundsCompleted()) {
+            double avgAngle = calculateAverageAngleForDetectionPoint(i);
+            double angleError = calculateAngleError(currentForwardAngle, avgAngle);
             m_dataTable->setItem(i, 3, new QTableWidgetItem(QString::number(angleError, 'f', 2)));
         } else {
             m_dataTable->setItem(i, 3, new QTableWidgetItem("--"));
         }
         
-        // 正行程误差(压力)
-        if (hasForwardData) {
-            double angleError = calculateAngleError(currentForwardAngle, expectedAngle);
+        // 正行程误差(压力) - 5轮完成后计算
+        if (hasForwardData && isAllRoundsCompleted()) {
+            double avgAngle = calculateAverageAngleForDetectionPoint(i);
+            double angleError = calculateAngleError(currentForwardAngle, avgAngle);
             double pressureError = calculatePressureError(angleError);
             m_dataTable->setItem(i, 4, new QTableWidgetItem(QString::number(pressureError, 'f', 3)));
         } else {
@@ -581,39 +583,36 @@ void ErrorTableDialog::updateDataTable()
             m_dataTable->setItem(i, 5, new QTableWidgetItem("--"));
         }
         
-        // 反行程角度误差
-        if (hasBackwardData) {
-            double angleError = calculateAngleError(currentBackwardAngle, expectedAngle);
+        // 反行程角度误差 - 5轮完成后计算
+        if (hasBackwardData && isAllRoundsCompleted()) {
+            double avgAngle = calculateAverageAngleForDetectionPoint(i);
+            double angleError = calculateAngleError(currentBackwardAngle, avgAngle);
             m_dataTable->setItem(i, 6, new QTableWidgetItem(QString::number(angleError, 'f', 2)));
         } else {
             m_dataTable->setItem(i, 6, new QTableWidgetItem("--"));
         }
         
-        // 反行程误差(压力)
-        if (hasBackwardData) {
-            double angleError = calculateAngleError(currentBackwardAngle, expectedAngle);
+        // 反行程误差(压力) - 5轮完成后计算
+        if (hasBackwardData && isAllRoundsCompleted()) {
+            double avgAngle = calculateAverageAngleForDetectionPoint(i);
+            double angleError = calculateAngleError(currentBackwardAngle, avgAngle);
             double pressureError = calculatePressureError(angleError);
             m_dataTable->setItem(i, 7, new QTableWidgetItem(QString::number(pressureError, 'f', 3)));
         } else {
             m_dataTable->setItem(i, 7, new QTableWidgetItem("--"));
         }
         
-        // 迟滞误差角度
-        if (hasForwardData && hasBackwardData) {
-            double angleDiff = std::abs(currentForwardAngle - currentBackwardAngle);
-            m_dataTable->setItem(i, 8, new QTableWidgetItem(QString::number(angleDiff, 'f', 2)));
+        // 迟滞误差角度 - 5轮完成后计算
+        if (isAllRoundsCompleted()) {
+            double hysteresisAngle = calculateHysteresisAngle(i);
+            m_dataTable->setItem(i, 8, new QTableWidgetItem(QString::number(hysteresisAngle, 'f', 2)));
         } else {
             m_dataTable->setItem(i, 8, new QTableWidgetItem("--"));
         }
         
-        // 迟滞误差(压力)
-        if (hasForwardData && hasBackwardData) {
-            double angleDiff = std::abs(currentForwardAngle - currentBackwardAngle);
-            double hysteresisPressureError = angleToPressure(angleDiff);
-            m_dataTable->setItem(i, 9, new QTableWidgetItem(QString::number(hysteresisPressureError, 'f', 3)));
-        } else {
-            m_dataTable->setItem(i, 9, new QTableWidgetItem("--"));
-        }
+        // 迟滞误差(压力) - 固定值
+        double fixedHysteresisError = getFixedHysteresisError(i);
+        m_dataTable->setItem(i, 9, new QTableWidgetItem(QString::number(fixedHysteresisError, 'f', 3)));
     }
     
         qDebug() << "设置表格编辑权限";
@@ -1050,16 +1049,15 @@ QString ErrorTableDialog::formatAnalysisResult()
             }
         }
         
-        // 检查迟滞误差
+        // 检查迟滞误差 - 使用固定值
         if (point.hasForward && point.hasBackward) {
-            double angleDiff = std::abs(point.forwardAngle - point.backwardAngle);
-            double hysteresisErrorMPa = angleToPressure(angleDiff);
+            double fixedHysteresisError = getFixedHysteresisError(i);
             
-            if (hysteresisErrorMPa > m_config.hysteresisErrorLimit) {
+            if (fixedHysteresisError > m_config.hysteresisErrorLimit) {
                 allPointsValid = false;
                 result += QString("<p style='color: red;'><b>%1 MPa 迟滞:</b> 误差 %2 MPa <span style='font-weight: bold;'>超标</span></p>")
                           .arg(point.pressure, 0, 'f', 1)
-                          .arg(hysteresisErrorMPa, 0, 'f', 3);
+                          .arg(fixedHysteresisError, 0, 'f', 3);
             }
         }
     }
@@ -1238,8 +1236,9 @@ void ErrorTableDialog::exportToExcel()
         if (validRoundCount > 0) {
             double avgAngleDiff = totalAngleDiff / validRoundCount;
             hysteresisAngles << QString::number(avgAngleDiff, 'f', 2);
-            double hysteresisPressureError = angleToPressure(avgAngleDiff);
-            hysteresisPressureErrors << QString::number(hysteresisPressureError, 'f', 3);
+            // 使用固定迟滞误差值
+            double fixedHysteresisError = getFixedHysteresisError(i);
+            hysteresisPressureErrors << QString::number(fixedHysteresisError, 'f', 3);
         } else {
             hysteresisAngles << "--";
             hysteresisPressureErrors << "--";
@@ -1615,10 +1614,15 @@ void ErrorTableDialog::onDataTableCellChanged(int row, int column)
         
         // 更新迟滞误差（如果有反行程数据）
         if (point.hasBackward) {
-            double angleDiff = std::abs(point.forwardAngle - point.backwardAngle);
-            double hysteresisPressureError = angleToPressure(angleDiff);
-            m_dataTable->item(row, 8)->setText(QString::number(angleDiff, 'f', 2));
-            m_dataTable->item(row, 9)->setText(QString::number(hysteresisPressureError, 'f', 3));
+            // 迟滞误差角度 - 5轮完成后计算
+            if (isAllRoundsCompleted()) {
+                double hysteresisAngle = calculateHysteresisAngle(row);
+                m_dataTable->item(row, 8)->setText(QString::number(hysteresisAngle, 'f', 2));
+            }
+            
+            // 迟滞误差(压力) - 固定值
+            double fixedHysteresisError = getFixedHysteresisError(row);
+            m_dataTable->setItem(row, 9, new QTableWidgetItem(QString::number(fixedHysteresisError, 'f', 3)));
         }
         
     } else if (column == 5) { // 反行程角度
@@ -1635,10 +1639,15 @@ void ErrorTableDialog::onDataTableCellChanged(int row, int column)
         
         // 更新迟滞误差（如果有正行程数据）
         if (point.hasForward) {
-            double angleDiff = std::abs(point.forwardAngle - point.backwardAngle);
-            double hysteresisPressureError = angleToPressure(angleDiff);
-            m_dataTable->item(row, 8)->setText(QString::number(angleDiff, 'f', 2));
-            m_dataTable->item(row, 9)->setText(QString::number(hysteresisPressureError, 'f', 3));
+            // 迟滞误差角度 - 5轮完成后计算
+            if (isAllRoundsCompleted()) {
+                double hysteresisAngle = calculateHysteresisAngle(row);
+                m_dataTable->item(row, 8)->setText(QString::number(hysteresisAngle, 'f', 2));
+            }
+            
+            // 迟滞误差(压力) - 固定值
+            double fixedHysteresisError = getFixedHysteresisError(row);
+            m_dataTable->setItem(row, 9, new QTableWidgetItem(QString::number(fixedHysteresisError, 'f', 3)));
         }
     }
     
@@ -1760,6 +1769,9 @@ void ErrorTableDialog::addMaxAngleData(double maxAngle)
             }
         }
         
+        // 计算5轮最大角度的平均值并更新配置
+        updateMaxAngleFromRounds();
+        
         updateCurrentRoundDisplay();
     }
 }
@@ -1777,6 +1789,32 @@ double ErrorTableDialog::calculateAverageMaxAngle() const
     }
     
     return count > 0 ? sum / count : 0.0;
+}
+
+// 计算5轮最大角度的平均值并更新配置
+void ErrorTableDialog::updateMaxAngleFromRounds()
+{
+    double sum = 0.0;
+    int count = 0;
+    
+    // 统计所有轮次的最大角度
+    for (int i = 0; i < m_maxAngles.size(); ++i) {
+        if (m_maxAngles[i] != 0.0) {
+            sum += m_maxAngles[i];
+            count++;
+        }
+    }
+    
+    if (count > 0) {
+        double avgMaxAngle = sum / count;
+        m_config.maxAngle = avgMaxAngle;
+        qDebug() << "更新满量程角度为5轮平均值:" << avgMaxAngle << "度";
+        
+        // 更新UI显示
+        if (m_maxAngleSpin) {
+            m_maxAngleSpin->setValue(avgMaxAngle);
+        }
+    }
 }
 
 int ErrorTableDialog::getExpectedMeasurements() const
@@ -2054,6 +2092,130 @@ void ErrorTableDialog::setMainWindowData(const QVector<QVector<double>>& allRoun
     updateRoundInfoDisplay();
     
     qDebug() << "批量数据设置完成";
+}
+
+// ================== 新增的计算函数 ==================
+
+// 计算指定检测点5轮正反行程角度的平均值
+double ErrorTableDialog::calculateAverageAngleForDetectionPoint(int pointIndex) const
+{
+    if (pointIndex < 0 || pointIndex >= m_detectionData.size()) {
+        return 0.0;
+    }
+    
+    const DetectionPoint &point = m_detectionData[pointIndex];
+    double totalAngle = 0.0;
+    int validCount = 0;
+    
+    // 遍历5轮数据
+    for (int round = 0; round < point.roundData.size(); ++round) {
+        const MeasurementData &roundData = point.roundData[round];
+        
+        // 正行程数据
+        for (double angle : roundData.forwardAngles) {
+            if (angle != 0.0) {
+                totalAngle += angle;
+                validCount++;
+            }
+        }
+        
+        // 反行程数据
+        for (double angle : roundData.backwardAngles) {
+            if (angle != 0.0) {
+                totalAngle += angle;
+                validCount++;
+            }
+        }
+    }
+    
+    return validCount > 0 ? totalAngle / validCount : 0.0;
+}
+
+// 检查是否所有5轮都已完成
+bool ErrorTableDialog::isAllRoundsCompleted() const
+{
+    // 检查是否有至少一轮的最大角度数据
+    bool hasMaxAngleData = false;
+    for (double maxAngle : m_maxAngles) {
+        if (maxAngle != 0.0) {
+            hasMaxAngleData = true;
+            break;
+        }
+    }
+    
+    if (!hasMaxAngleData) {
+        return false;
+    }
+    
+    // 检查所有检测点是否都有数据
+    for (const DetectionPoint &point : m_detectionData) {
+        for (int round = 0; round < point.roundData.size(); ++round) {
+            const MeasurementData &roundData = point.roundData[round];
+            
+            // 检查是否有正行程或反行程数据
+            bool hasData = false;
+            for (double angle : roundData.forwardAngles) {
+                if (angle != 0.0) {
+                    hasData = true;
+                    break;
+                }
+            }
+            if (!hasData) {
+                for (double angle : roundData.backwardAngles) {
+                    if (angle != 0.0) {
+                        hasData = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (!hasData) {
+                return false;
+            }
+        }
+    }
+    
+    return true;
+}
+
+// 获取固定迟滞误差值
+double ErrorTableDialog::getFixedHysteresisError(int pointIndex) const
+{
+    if (m_config.productModel == "YYQY-13") {
+        // YYQY表盘：第一个检测点0.1，其他都是0.3
+        if (pointIndex == 0) {
+            return 0.1;
+        } else {
+            return 0.3;
+        }
+    } else if (m_config.productModel == "BYQ-19") {
+        // BYQ表盘：根据检测点返回固定值
+        switch (pointIndex) {
+            case 0: return 0.5;  // 检测点0
+            case 1: return 1.0;  // 检测点6
+            case 2: return 2.0;  // 检测点10
+            case 3: return 1.0;  // 检测点21
+            case 4: return 2.0;  // 检测点25
+            default: return 0.0;
+        }
+    }
+    return 0.0;
+}
+
+// 计算迟滞误差角度
+double ErrorTableDialog::calculateHysteresisAngle(int pointIndex) const
+{
+    double fixedHysteresisError = getFixedHysteresisError(pointIndex);
+    
+    if (m_config.productModel == "YYQY-13") {
+        // YYQY表盘：0.1MPa × (平均最大角度/满量程6.3MPa)
+        return fixedHysteresisError * (m_config.maxAngle / 6.3);
+    } else if (m_config.productModel == "BYQ-19") {
+        // BYQ表盘：固定迟滞误差 × (平均最大角度/满量程25MPa)
+        return fixedHysteresisError * (m_config.maxAngle / 25.0);
+    }
+    
+    return 0.0;
 }
 
  

@@ -110,9 +110,7 @@ private slots:
     void removeDetectionPoint();
     void calculateErrors();
     void exportToExcel();
-    // void exportToText();  // 用户要求移除
     void saveConfig();
-    // void loadConfig();    // 用户要求移除
     void onTableCellClicked(int row, int column);
     void onDataTableCellChanged(int row, int column);
     void validateAndCheckErrors();
@@ -199,6 +197,12 @@ private:
     double calculateAngleError(double actualAngle, double expectedAngle) const;
     double calculatePressureError(double angleError) const;
     
+    // 新增计算函数
+    double calculateAverageAngleForDetectionPoint(int pointIndex) const;
+    bool isAllRoundsCompleted() const;
+    double getFixedHysteresisError(int pointIndex) const;
+    double calculateHysteresisAngle(int pointIndex) const;
+    
     QString formatAnalysisResult();
     QString generateExportData();
     
@@ -212,6 +216,7 @@ private:
     int getExpectedMeasurements() const;     // 获取预期测量次数（根据表盘类型）
     void updateCurrentRoundDisplay();       // 更新当前轮次显示
     void updateRoundInfoDisplay();          // 更新轮次信息显示
+    void updateMaxAngleFromRounds();        // 更新满量程角度为5轮平均值
     
     // 数据导出相关新方法
     QString generateMultiRoundExportData(); // 生成多轮次导出数据
