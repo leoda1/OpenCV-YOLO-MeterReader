@@ -2488,45 +2488,44 @@ void MainWindow::updateErrorTableWithAllRounds()
     
     qDebug() << "开始同步5轮数据到误差表格";
     
-    // 简化同步逻辑：直接传递数据而不是通过addAngleData方法
-    // 这需要在ErrorTableDialog中添加一个直接设置多轮数据的方法
+    // 准备数据数组
+    QVector<QVector<double>> allRoundsForward;
+    QVector<QVector<double>> allRoundsBackward;
+    QVector<double> allRoundsMaxAngles;
     
-    // 暂时保持现有的逻辑，但只同步当前主界面的轮次
-    m_errorTableDialog->setCurrentRound(m_currentRound);
-    
-    // 为当前轮次同步数据
-    if (m_currentRound < m_allRoundsData.size()) {
-        const RoundData &currentRoundData = m_allRoundsData[m_currentRound];
+    // 从m_allRoundsData中提取数据
+    for (int round = 0; round < m_allRoundsData.size(); ++round) {
+        const RoundData &roundData = m_allRoundsData[round];
         
-        // 简单起见，我们只同步非零数据
-        for (int i = 0; i < currentRoundData.forwardAngles.size(); ++i) {
-            if (currentRoundData.forwardAngles[i] != 0.0 || (i == 0 && currentRoundData.forwardAngles[i] == 0.0)) {
-                // 这里需要设置检测点，但简化逻辑，我们假设只有一个检测点
-                if (!m_detectionPoints.isEmpty()) {
-                    m_errorTableDialog->setCurrentPressurePoint(m_detectionPoints[0]);
-                    m_errorTableDialog->addAngleData(currentRoundData.forwardAngles[i], true);
-                }
+        QVector<double> forwardData;
+        QVector<double> backwardData;
+        
+        // 提取正行程数据（只提取非零值）
+        for (int i = 0; i < roundData.forwardAngles.size(); ++i) {
+            if (roundData.forwardAngles[i] != 0.0) {
+                forwardData.append(roundData.forwardAngles[i]);
             }
         }
         
-        // 反行程数据需要按照正确的顺序同步到误差表格
-        // 反行程数据在数组中是从后往前填写的，但在误差表格中需要按照正确的顺序显示
-        for (int i = currentRoundData.backwardAngles.size() - 1; i >= 0; --i) {
-            if (currentRoundData.backwardAngles[i] != 0.0) {
-                if (!m_detectionPoints.isEmpty()) {
-                    m_errorTableDialog->setCurrentPressurePoint(m_detectionPoints[0]);
-                    m_errorTableDialog->addAngleData(currentRoundData.backwardAngles[i], false);
-                }
+        // 提取反行程数据（只提取非零值）
+        for (int i = 0; i < roundData.backwardAngles.size(); ++i) {
+            if (roundData.backwardAngles[i] != 0.0) {
+                backwardData.append(roundData.backwardAngles[i]);
             }
         }
         
-        // 添加最大角度数据
-        if (currentRoundData.maxAngle != 0.0) {
-            m_errorTableDialog->addMaxAngleData(currentRoundData.maxAngle);
-        }
+        allRoundsForward.append(forwardData);
+        allRoundsBackward.append(backwardData);
+        allRoundsMaxAngles.append(roundData.maxAngle);
+        
+        qDebug() << "第" << (round + 1) << "轮数据: 正行程" << forwardData.size() 
+                 << "个, 反行程" << backwardData.size() << "个, 最大角度" << roundData.maxAngle;
     }
     
-    qDebug() << "当前轮次数据同步完成";
+    // 使用批量设置方法
+    m_errorTableDialog->setMainWindowData(allRoundsForward, allRoundsBackward, allRoundsMaxAngles);
+    
+    qDebug() << "所有轮次数据同步完成";
 }
 
 void MainWindow::setCurrentDetectionPoint(int pointIndex)
