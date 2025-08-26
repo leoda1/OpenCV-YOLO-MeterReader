@@ -743,9 +743,9 @@ void ErrorTableDialog::setDialType(const QString &dialType)
         m_config.productModel = "YYQY-13";
         m_config.productName = "";
         m_config.detectionPoints.clear();
-        // YYQY-13默认6个检测点 (0, 0.6, 1.2, 1.8, 2.4, 3.0 MPa)
-        m_config.detectionPoints << 0.0 << 0.6 << 1.2 << 1.8 << 2.4 << 3.0;
-        m_config.maxPressure = 3.0;
+        // YYQY-13默认6个检测点 (0, 1, 2, 3, 4, 5 MPa)
+        m_config.detectionPoints << 0.0 << 1.0 << 2.0 << 3.0 << 4.0 << 5.0;
+        m_config.maxPressure = 6.3;
         m_config.maxAngle = 270.0;
         m_config.basicErrorLimit = 0.1;
         m_config.hysteresisErrorLimit = 0.15;
@@ -754,9 +754,9 @@ void ErrorTableDialog::setDialType(const QString &dialType)
         m_config.productModel = "BYQ-19";
         m_config.productName = "标准压力表";
         m_config.detectionPoints.clear();
-        // BYQ-19默认5个检测点 (0, 0.75, 1.5, 2.25, 3.0 MPa)
-        m_config.detectionPoints << 0.0 << 0.75 << 1.5 << 2.25 << 3.0;
-        m_config.maxPressure = 3.0;
+        // BYQ-19默认5个检测点 (0, 6, 10, 21, 30 MPa)
+        m_config.detectionPoints << 0.0 << 6.0 << 10.0 << 21.0 << 25.0;
+        m_config.maxPressure = 25.0;
         m_config.maxAngle = 270.0;
         m_config.basicErrorLimit = 0.075;  // 更严格的误差限值
         m_config.hysteresisErrorLimit = 0.1;
