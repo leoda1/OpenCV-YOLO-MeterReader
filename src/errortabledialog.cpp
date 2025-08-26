@@ -1080,7 +1080,6 @@ QString ErrorTableDialog::formatAnalysisResult()
 
 void ErrorTableDialog::exportToExcel()
 {
-    // 由于Qt默认不包含Excel导出功能，这里导出为CSV格式
     QString fileName = QFileDialog::getSaveFileName(this, "导出CSV文件", "", "CSV文件 (*.csv)");
     if (fileName.isEmpty()) return;
     
@@ -1090,92 +1089,168 @@ void ErrorTableDialog::exportToExcel()
         return;
     }
     
-    // 写入UTF-8 BOM头，确保Excel能正确显示中文
     file.write("\xEF\xBB\xBF");
     
     QTextStream out(&file);
     out.setEncoding(QStringConverter::Utf8);
     
-    // 写入产品信息
+    // 写入产品信息 - 按照新格式
     out << QString("产品型号：,%1,,产品名称：,%2,,,\n").arg(m_config.productModel, m_config.productName);
     out << QString("刻度盘图号：,%1,,支组编号：,%2,,,\n").arg(m_config.dialDrawingNo, m_config.groupNo);
     out << "\n"; // 空行
     
-    // 写入每轮测量次数说明
-    out << QString("测量说明：,%1表盘，每轮正反行程各测量%2次，共5轮数据\n")
-        .arg(m_config.productModel)
-        .arg(m_maxMeasurementsPerRound);
-    out << "\n"; // 空行
-    
-    // 收集检测点数据
-    QStringList detectionPoints;
-    for (const DetectionPoint &point : m_detectionData) {
-        detectionPoints << QString::number(point.pressure, 'f', 1);
-    }
-    
-    // 写入检测点行
-    out << QString("检测点,%1\n").arg(detectionPoints.join(","));
-    
-    // 为每轮数据写入正行程和反行程
-    for (int round = 0; round < 5; ++round) {
-        out << QString("\n第%1轮测量数据,\n").arg(round + 1);
-        
-        // 写入正行程数据（每次测量一行）
-        for (int measurement = 0; measurement < m_maxMeasurementsPerRound; ++measurement) {
-            QStringList forwardData;
-            for (const DetectionPoint &point : m_detectionData) {
-                if (round < point.roundData.size() && 
-                    measurement < point.roundData[round].forwardAngles.size() &&
-                    point.roundData[round].forwardAngles[measurement] != 0.0) {
-                    forwardData << QString::number(point.roundData[round].forwardAngles[measurement], 'f', 2);
-                } else {
-                    forwardData << "--";
-                }
-            }
-            out << QString("正行程第%1次,%2\n").arg(measurement + 1).arg(forwardData.join(","));
-        }
-        
-        // 写入反行程数据（每次测量一行）
-        for (int measurement = 0; measurement < m_maxMeasurementsPerRound; ++measurement) {
-            QStringList backwardData;
-            for (const DetectionPoint &point : m_detectionData) {
-                if (round < point.roundData.size() && 
-                    measurement < point.roundData[round].backwardAngles.size() &&
-                    point.roundData[round].backwardAngles[measurement] != 0.0) {
-                    backwardData << QString::number(point.roundData[round].backwardAngles[measurement], 'f', 2);
-                } else {
-                    backwardData << "--";
-                }
-            }
-            out << QString("反行程第%1次,%2\n").arg(measurement + 1).arg(backwardData.join(","));
-        }
-        
-        // 写入该轮的最大角度
-        QStringList maxAngles;
-        for (const DetectionPoint &point : m_detectionData) {
-            if (round < point.roundData.size() && point.roundData[round].maxAngle != 0.0) {
-                maxAngles << QString::number(point.roundData[round].maxAngle, 'f', 2);
-            } else {
-                maxAngles << "--";
-            }
-        }
-        out << QString("最大角度,%1\n").arg(maxAngles.join(","));
-    }
-    
-    // 写入汇总统计
-    out << QString("\n汇总统计,\n");
-    QStringList avgMaxAngles;
+    // 收集所有检测点数据（只显示一次）
+    QStringList detectionPoints, theoreticalAngles;
     for (int i = 0; i < m_detectionData.size(); ++i) {
-        double avgMaxAngle = calculateAverageMaxAngle();
-        avgMaxAngles << QString::number(avgMaxAngle, 'f', 2);
+        const DetectionPoint &point = m_detectionData[i];
+        double expectedAngle = pressureToAngle(point.pressure);
+        
+        // 检测点
+        detectionPoints << QString::number(point.pressure, 'f', 1);
+        // 理论角度
+        theoreticalAngles << QString::number(expectedAngle, 'f', 2);
     }
-    out << QString("平均最大角度,%1\n").arg(avgMaxAngles.join(","));
     
-    QMessageBox::information(this, "成功", 
-        QString("5轮测量数据已导出到CSV文件\n文件位置: %1\n包含%2轮数据，每轮正反行程各%3次测量")
-        .arg(fileName)
-        .arg(5)
-        .arg(m_maxMeasurementsPerRound));
+    // 写入检测点和理论角度（只显示一次）
+    out << QString("检测点,%1,,,\n").arg(detectionPoints.join(","));
+    out << QString("检测点对应的刻度盘角度,%1,,,\n").arg(theoreticalAngles.join(","));
+    
+    // 为每轮数据写入（不显示轮次标题）
+    for (int round = 0; round < 5; ++round) {
+        // 收集当前轮次的所有检测点数据
+        QStringList forwardAngles, forwardAngleErrors, forwardPressureErrors;
+        QStringList backwardAngles, backwardAngleErrors, backwardPressureErrors;
+        
+        for (int i = 0; i < m_detectionData.size(); ++i) {
+            const DetectionPoint &point = m_detectionData[i];
+            double expectedAngle = pressureToAngle(point.pressure);
+            
+            // 获取当前轮次的数据
+            double currentForwardAngle = 0.0;
+            double currentBackwardAngle = 0.0;
+            bool hasForwardData = false;
+            bool hasBackwardData = false;
+            
+            if (round < point.roundData.size()) {
+                const MeasurementData &currentRoundData = point.roundData[round];
+                
+                // 获取正行程数据（取第一个非零值）
+                for (double angle : currentRoundData.forwardAngles) {
+                    if (angle != 0.0) {
+                        currentForwardAngle = angle;
+                        hasForwardData = true;
+                        break;
+                    }
+                }
+                
+                // 获取反行程数据（取第一个非零值）
+                for (double angle : currentRoundData.backwardAngles) {
+                    if (angle != 0.0) {
+                        currentBackwardAngle = angle;
+                        hasBackwardData = true;
+                        break;
+                    }
+                }
+            }
+            
+            // 正行程数据
+            if (hasForwardData) {
+                forwardAngles << QString::number(currentForwardAngle, 'f', 2);
+                double angleError = calculateAngleError(currentForwardAngle, expectedAngle);
+                forwardAngleErrors << QString::number(angleError, 'f', 2);
+                double pressureError = calculatePressureError(angleError);
+                forwardPressureErrors << QString::number(pressureError, 'f', 3);
+            } else {
+                forwardAngles << "--";
+                forwardAngleErrors << "--";
+                forwardPressureErrors << "--";
+            }
+            
+            // 反行程数据
+            if (hasBackwardData) {
+                backwardAngles << QString::number(currentBackwardAngle, 'f', 2);
+                double angleError = calculateAngleError(currentBackwardAngle, expectedAngle);
+                backwardAngleErrors << QString::number(angleError, 'f', 2);
+                double pressureError = calculatePressureError(angleError);
+                backwardPressureErrors << QString::number(pressureError, 'f', 3);
+            } else {
+                backwardAngles << "--";
+                backwardAngleErrors << "--";
+                backwardPressureErrors << "--";
+            }
+        }
+        
+        // 按照垂直格式写入当前轮次的数据
+        out << QString("正行程角度,%1,,,\n").arg(forwardAngles.join(","));
+        out << QString("正行程角度误差,%1,,,\n").arg(forwardAngleErrors.join(","));
+        out << QString("正行程误差（MPa）,%1,,,\n").arg(forwardPressureErrors.join(","));
+        out << QString(",%1,,,\n").arg(forwardPressureErrors.join(",")); // 第二行（重复）
+        out << QString("反行程角度,%1,,,\n").arg(backwardAngles.join(","));
+        out << QString("反行程角度误差,%1,,,\n").arg(backwardAngleErrors.join(","));
+        out << QString("反行程误差（MPa）,%1,,,\n").arg(backwardPressureErrors.join(","));
+        out << QString(",%1,,,\n").arg(backwardPressureErrors.join(",")); // 第二行（重复）
+    }
+    
+    // 计算并显示迟滞误差（只显示一次，在最后两行）
+    QStringList hysteresisAngles, hysteresisPressureErrors;
+    for (int i = 0; i < m_detectionData.size(); ++i) {
+        const DetectionPoint &point = m_detectionData[i];
+        double expectedAngle = pressureToAngle(point.pressure);
+        
+        // 计算所有轮次的平均迟滞误差
+        double totalAngleDiff = 0.0;
+        int validRoundCount = 0;
+        
+        for (int round = 0; round < point.roundData.size() && round < 5; ++round) {
+            const MeasurementData &currentRoundData = point.roundData[round];
+            
+            double currentForwardAngle = 0.0;
+            double currentBackwardAngle = 0.0;
+            bool hasForwardData = false;
+            bool hasBackwardData = false;
+            
+            // 获取正行程数据
+            for (double angle : currentRoundData.forwardAngles) {
+                if (angle != 0.0) {
+                    currentForwardAngle = angle;
+                    hasForwardData = true;
+                    break;
+                }
+            }
+            
+            // 获取反行程数据
+            for (double angle : currentRoundData.backwardAngles) {
+                if (angle != 0.0) {
+                    currentBackwardAngle = angle;
+                    hasBackwardData = true;
+                    break;
+                }
+            }
+            
+            // 计算迟滞误差
+            if (hasForwardData && hasBackwardData) {
+                double angleDiff = std::abs(currentForwardAngle - currentBackwardAngle);
+                totalAngleDiff += angleDiff;
+                validRoundCount++;
+            }
+        }
+        
+        if (validRoundCount > 0) {
+            double avgAngleDiff = totalAngleDiff / validRoundCount;
+            hysteresisAngles << QString::number(avgAngleDiff, 'f', 2);
+            double hysteresisPressureError = angleToPressure(avgAngleDiff);
+            hysteresisPressureErrors << QString::number(hysteresisPressureError, 'f', 3);
+        } else {
+            hysteresisAngles << "--";
+            hysteresisPressureErrors << "--";
+        }
+    }
+    
+    // 写入迟滞误差（最后两行）
+    out << QString("迟滞误差角度,%1,,,\n").arg(hysteresisAngles.join(","));
+    out << QString("迟滞误差（MPa）,%1,,,\n").arg(hysteresisPressureErrors.join(","));
+    
+    QMessageBox::information(this, "成功", "5轮测量数据已导出到CSV文件，按照指定格式排列，可用Excel打开");
 }
 
 QString ErrorTableDialog::generateExportData()
