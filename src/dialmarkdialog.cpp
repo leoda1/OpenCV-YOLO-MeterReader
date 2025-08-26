@@ -1479,7 +1479,7 @@ void DialMarkDialog::drawBYQColorBands(QPainter& p, const QPointF& C, double out
     const bool clockwise = (spanDeg < 0);
 
     // ③ 颜色分段
-    const QColor Y07("#D8B64C"), G02("#2E5E36"), R03("#6A2A2A");
+    const QColor Y07("#D8B64C"), G02("#2E5E36"), R03("#FF0000");
     struct Seg { double v0, v1; QColor c; };
     const QVector<Seg> segs = {
         { 0.0,  5.9, Y07},
