@@ -26,13 +26,14 @@
 #include <QCheckBox>
 #include <QTimer>
 
-// 单次测量数据结构
+// 单次测量数据结构（与主界面RoundData保持一致）
 struct MeasurementData {
     QVector<double> forwardAngles;    // 正行程角度数据（YYQY每轮6次，BYQ每轮5次）
     QVector<double> backwardAngles;   // 反行程角度数据（YYQY每轮6次，BYQ每轮5次）
     double maxAngle;                  // 该轮次最大角度测量值
+    bool isCompleted;                 // 该轮是否完成
     
-    MeasurementData() : maxAngle(0.0) {}
+    MeasurementData() : maxAngle(0.0), isCompleted(false) {}
 };
 
 // 检测点数据结构
@@ -100,13 +101,13 @@ public:
     void setMainWindowData(const QVector<QVector<double>>& allRoundsForward, 
                           const QVector<QVector<double>>& allRoundsBackward, 
                           const QVector<double>& allRoundsMaxAngles);
+    void clearAllData();
 
 private slots:
     void onConfigChanged();
     void onDetectionPointsChanged();
     void addDetectionPoint();
     void removeDetectionPoint();
-    void clearAllData();
     void calculateErrors();
     void exportToExcel();
     // void exportToText();  // 用户要求移除
