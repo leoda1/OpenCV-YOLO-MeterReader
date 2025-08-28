@@ -86,6 +86,9 @@ MainWindow::MainWindow(QWidget *parent) :
     // 默认展开识别角度区域，使用布局管理器自动管理
     ui->destDisplay->setVisible(true);
     
+    // 设置按钮动画
+    setupButtonAnimations();
+    
     qDebug() << "UI initialized with default expanded layout";
 }
 
@@ -2603,25 +2606,28 @@ void MainWindow::setupButtonAnimations()
             // 设置按钮样式
             button->setStyleSheet(R"(
                 QPushButton {
-                    background-color: #f0f0f0;
-                    border: 2px solid #c0c0c0;
+                    background-color: #4A90E2;
+                    border: 2px solid #357ABD;
                     border-radius: 8px;
                     padding: 8px 16px;
                     font-weight: bold;
-                    color: #333333;
+                    color: white;
+                    font-size: 12px;
                 }
                 QPushButton:hover {
-                    background-color: #e0e0e0;
-                    border-color: #a0a0a0;
+                    background-color: #357ABD;
+                    border-color: #2E6DA4;
+                    transform: translateY(-1px);
                 }
                 QPushButton:pressed {
-                    background-color: #d0d0d0;
-                    border-color: #808080;
+                    background-color: #2E6DA4;
+                    border-color: #1B4F75;
+                    transform: translateY(1px);
                 }
                 QPushButton:disabled {
-                    background-color: #f8f8f8;
-                    border-color: #e0e0e0;
-                    color: #a0a0a0;
+                    background-color: #B8B8B8;
+                    border-color: #A0A0A0;
+                    color: #666666;
                 }
             )");
         }
@@ -2643,12 +2649,14 @@ void MainWindow::onButtonClicked()
     // 应用点击动画样式
     button->setStyleSheet(R"(
         QPushButton {
-            background-color: #4CAF50;
-            border: 2px solid #45a049;
+            background-color: #FF6B6B;
+            border: 2px solid #E74C3C;
             border-radius: 8px;
             padding: 8px 16px;
             font-weight: bold;
             color: white;
+            font-size: 12px;
+            transform: scale(0.95);
         }
     )");
     
@@ -2663,25 +2671,26 @@ void MainWindow::resetButtonStyle()
     // 恢复按钮原样式
     m_lastClickedButton->setStyleSheet(R"(
         QPushButton {
-            background-color: #f0f0f0;
-            border: 2px solid #c0c0c0;
+            background-color: #4A90E2;
+            border: 2px solid #357ABD;
             border-radius: 8px;
             padding: 8px 16px;
             font-weight: bold;
-            color: #333333;
+            color: white;
+            font-size: 12px;
         }
         QPushButton:hover {
-            background-color: #e0e0e0;
-            border-color: #a0a0a0;
+            background-color: #357ABD;
+            border-color: #2E6DA4;
         }
         QPushButton:pressed {
-            background-color: #d0d0d0;
-            border-color: #808080;
+            background-color: #2E6DA4;
+            border-color: #1B4F75;
         }
         QPushButton:disabled {
-            background-color: #f8f8f8;
-            border-color: #e0e0e0;
-            color: #a0a0a0;
+            background-color: #B8B8B8;
+            border-color: #A0A0A0;
+            color: #666666;
         }
     )");
     
