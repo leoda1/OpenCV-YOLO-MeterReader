@@ -153,6 +153,10 @@ private:
     // 角度差存储变量
     double m_lastCalculatedDelta = 0.0; // 采集按钮最后计算的角度差
     
+    // 按钮动画相关
+    QTimer* m_buttonAnimationTimer = nullptr;  // 按钮动画定时器
+    QPushButton* m_lastClickedButton = nullptr; // 最后点击的按钮
+    
     // 指针运动方向检测
     bool   m_hasPreviousAngle = false;   // 是否有上一次的角度记录
     double m_previousAngle = 0.0;        // 上一次的指针角度
@@ -211,6 +215,11 @@ private:
     void updateErrorTableWithAllRounds();  // 更新误差表格显示所有轮次数据
     void setCurrentDetectionPoint(int pointIndex);  // 设置当前检测点
     QString getCurrentStatusInfo() const;   // 获取当前状态信息
+    
+    // 按钮动画相关方法
+    void setupButtonAnimations();          // 设置按钮动画
+    void onButtonClicked();                // 按钮点击动画处理
+    void resetButtonStyle();               // 重置按钮样式
     
 
 private slots:

@@ -91,6 +91,13 @@ MainWindow::MainWindow(QWidget *parent) :
 
 MainWindow::~MainWindow()
 {
+    // 清理按钮动画定时器
+    if (m_buttonAnimationTimer) {
+        m_buttonAnimationTimer->stop();
+        delete m_buttonAnimationTimer;
+        m_buttonAnimationTimer = nullptr;
+    }
+    
     // 确保相机资源正确释放
     try {
         if (m_camera.IsGrabbing()) {
@@ -2048,6 +2055,17 @@ void MainWindow::onClearData()
 {
     qDebug() << "清空数据按钮被点击";
     
+    // 显示确认对话框
+    QMessageBox::StandardButton reply = QMessageBox::question(this, "确认清空", 
+        "确定要清空所有5轮采集数据吗？\n\n此操作将：\n• 重置零位设置\n• 清空所有采集数据\n• 重置最大角度采集状态\n\n此操作不可撤销！", 
+        QMessageBox::Yes | QMessageBox::No, 
+        QMessageBox::No);
+    
+    if (reply != QMessageBox::Yes) {
+        qDebug() << "用户取消清空操作";
+        return;
+    }
+    
     // 重置零点相关状态
     m_hasZero = false;
     m_zeroAngle = 0.0;
@@ -2075,7 +2093,7 @@ void MainWindow::onClearData()
     // 更新显示
     updateDataTable();
     
-    QMessageBox::information(this, "清空数据", "已清空所有5轮采集数据！");
+    QMessageBox::information(this, "清空完成", "已成功清空所有5轮采集数据！");
     qDebug() << "已清空所有采集数据";
 }
 
@@ -2533,6 +2551,125 @@ void MainWindow::initializeRoundsData()
     qDebug() << "5轮数据结构初始化完成，表盘类型:" << m_currentDialType 
              << "每轮测量次数:" << m_maxMeasurementsPerRound
              << "检测点数量:" << m_detectionPoints.size();
+}
+
+// ================== 按钮动画相关方法实现 ==================
+
+void MainWindow::setupButtonAnimations()
+{
+    qDebug() << "设置按钮动画";
+    
+    // 创建动画定时器
+    m_buttonAnimationTimer = new QTimer(this);
+    m_buttonAnimationTimer->setSingleShot(true);
+    m_buttonAnimationTimer->setInterval(150); // 150毫秒动画时长
+    
+    // 连接定时器信号
+    connect(m_buttonAnimationTimer, &QTimer::timeout, this, &MainWindow::resetButtonStyle);
+    
+    // 为所有主要按钮添加点击动画
+    QList<QPushButton*> buttons = {
+        ui->pushResetZero,      // 归位
+        ui->pushCaptureZero,    // 采集
+        ui->pushConfirm,        // 确定
+        ui->pushSave,           // 保存
+        ui->pushClear,          // 清空
+        ui->pushSwitchDial,     // 切换表盘
+        ui->pushMaxAngle,       // 最大角度采集
+        ui->pushExit            // 退出
+    };
+    
+    for (QPushButton* button : buttons) {
+        if (button) {
+            // 连接点击信号
+            connect(button, &QPushButton::clicked, this, &MainWindow::onButtonClicked);
+            
+            // 设置按钮样式
+            button->setStyleSheet(R"(
+                QPushButton {
+                    background-color: #f0f0f0;
+                    border: 2px solid #c0c0c0;
+                    border-radius: 8px;
+                    padding: 8px 16px;
+                    font-weight: bold;
+                    color: #333333;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
+                    border-color: #a0a0a0;
+                }
+                QPushButton:pressed {
+                    background-color: #d0d0d0;
+                    border-color: #808080;
+                }
+                QPushButton:disabled {
+                    background-color: #f8f8f8;
+                    border-color: #e0e0e0;
+                    color: #a0a0a0;
+                }
+            )");
+        }
+    }
+    
+    qDebug() << "按钮动画设置完成";
+}
+
+void MainWindow::onButtonClicked()
+{
+    QPushButton* button = qobject_cast<QPushButton*>(sender());
+    if (!button) return;
+    
+    qDebug() << "按钮点击动画:" << button->text();
+    
+    // 记录最后点击的按钮
+    m_lastClickedButton = button;
+    
+    // 应用点击动画样式
+    button->setStyleSheet(R"(
+        QPushButton {
+            background-color: #4CAF50;
+            border: 2px solid #45a049;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-weight: bold;
+            color: white;
+        }
+    )");
+    
+    // 启动定时器，延迟恢复原样式
+    m_buttonAnimationTimer->start();
+}
+
+void MainWindow::resetButtonStyle()
+{
+    if (!m_lastClickedButton) return;
+    
+    // 恢复按钮原样式
+    m_lastClickedButton->setStyleSheet(R"(
+        QPushButton {
+            background-color: #f0f0f0;
+            border: 2px solid #c0c0c0;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-weight: bold;
+            color: #333333;
+        }
+        QPushButton:hover {
+            background-color: #e0e0e0;
+            border-color: #a0a0a0;
+        }
+        QPushButton:pressed {
+            background-color: #d0d0d0;
+            border-color: #808080;
+        }
+        QPushButton:disabled {
+            background-color: #f8f8f8;
+            border-color: #e0e0e0;
+            color: #a0a0a0;
+        }
+    )");
+    
+    m_lastClickedButton = nullptr;
 }
 
 void MainWindow::addAngleToCurrentRound(double angle, bool isForward)

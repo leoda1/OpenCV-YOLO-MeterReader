@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1277</width>
+    <width>1300</width>
     <height>664</height>
    </rect>
   </property>
@@ -95,7 +95,7 @@
          </property>
          <property name="minimumSize">
           <size>
-           <width>640</width>
+           <width>650</width>
            <height>480</height>
           </size>
          </property>
@@ -718,7 +718,7 @@
          <widget class="QPushButton" name="pushClear">
           <property name="minimumSize">
            <size>
-            <width>50</width>
+            <width>65</width>
             <height>30</height>
            </size>
           </property>
@@ -743,7 +743,7 @@
          <widget class="QPushButton" name="pushSwitchDial">
           <property name="minimumSize">
            <size>
-            <width>77</width>
+            <width>60</width>
             <height>30</height>
            </size>
           </property>
@@ -825,7 +825,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1277</width>
+     <width>1300</width>
      <height>37</height>
     </rect>
    </property>
