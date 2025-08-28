@@ -322,7 +322,7 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据3</string>
+           <string>10 MPa</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -341,7 +341,7 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据6</string>
+           <string>30 MPa</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -360,7 +360,7 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据2</string>
+           <string>6 MPa</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -398,7 +398,7 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据1</string>
+           <string>0 MPa</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -467,7 +467,7 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据5</string>
+           <string>25 MPa</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -505,7 +505,7 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据1</string>
+           <string>0 MPa</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -524,7 +524,7 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据4</string>
+           <string>21 MPa</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -543,7 +543,7 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据5</string>
+           <string>25 MPa</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -562,7 +562,7 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据2</string>
+           <string>6 MPa</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -581,7 +581,7 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据4</string>
+           <string>21 MPa</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -650,7 +650,7 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据6</string>
+           <string>30 MPa</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -688,7 +688,7 @@
            <string notr="true">QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }</string>
           </property>
           <property name="text">
-           <string>采集数据3</string>
+           <string>10 MPa</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignCenter</set>

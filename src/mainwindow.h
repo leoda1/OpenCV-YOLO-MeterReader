@@ -221,6 +221,10 @@ private:
     void onButtonClicked();                // 按钮点击动画处理
     void resetButtonStyle();               // 重置按钮样式
     
+    // 检测点显示相关方法
+    void updateDetectionPointLabels();     // 更新检测点标签显示
+    void setDetectionPointValues();        // 设置检测点数值
+    
 
 private slots:
     void startPreview();

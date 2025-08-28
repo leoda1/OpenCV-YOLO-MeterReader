@@ -804,6 +804,9 @@ void MainWindow::onResetZero()
         // 同时更新误差表格（如果打开的话）
         updateErrorTableWithAllRounds();
         
+        // 更新检测点标签显示
+        updateDetectionPointLabels();
+        
         // 更新界面显示
         updateDataTable();
         
@@ -1065,6 +1068,9 @@ void MainWindow::onDialTypeChanged(const QString &dialType)
     
     // 重新初始化数据数组和显示
     initializeDataArrays();
+    
+    // 更新检测点标签显示
+    updateDetectionPointLabels();
     
     qDebug() << "表盘类型切换为:" << dialType << "需要数据数量:" << m_requiredDataCount;
 }
@@ -1798,8 +1804,6 @@ void MainWindow::updateDataTable()
     };
     
     for (int i = 0; i < 6; ++i) {
-        // 反行程数据从最后一个位置开始填写，需要正确的映射
-        // 数组位置6对应采集数据6，数组位置5对应采集数据5，以此类推
         int dataIndex = i;  // 直接映射：采集数据1对应数组位置1，采集数据6对应数组位置6
         
         if (dataIndex >= 0 && dataIndex < currentRound.backwardAngles.size() && currentRound.backwardAngles[dataIndex] != 0.0) {
@@ -2043,6 +2047,9 @@ void MainWindow::onSaveData()
             QMessageBox::information(this, "完成", "所有5轮数据采集已完成！");
         }
         
+        // 更新检测点标签显示
+        updateDetectionPointLabels();
+        
         // 更新界面显示
         updateDataTable();
         updateErrorTableWithAllRounds();
@@ -2090,6 +2097,9 @@ void MainWindow::onClearData()
     // 重新初始化5轮数据结构
     initializeRoundsData();
     
+    // 更新检测点标签显示
+    updateDetectionPointLabels();
+    
     // 更新显示
     updateDataTable();
     
@@ -2116,6 +2126,9 @@ void MainWindow::onSwitchDialType()
     
     // 重新初始化数据数组（会自动设置正确的数据数量）
     initializeDataArrays();
+    
+    // 更新检测点标签显示
+    updateDetectionPointLabels();
     
     // 显示切换信息
     QMessageBox::information(this, "表盘切换", 
@@ -2548,6 +2561,9 @@ void MainWindow::initializeRoundsData()
     m_tempMaxAngle = 0.0;
     m_tempCurrentAngle = 0.0;
     
+    // 更新检测点标签显示
+    updateDetectionPointLabels();
+    
     qDebug() << "5轮数据结构初始化完成，表盘类型:" << m_currentDialType 
              << "每轮测量次数:" << m_maxMeasurementsPerRound
              << "检测点数量:" << m_detectionPoints.size();
@@ -2833,4 +2849,59 @@ QString MainWindow::getCurrentStatusInfo() const
         .arg(m_currentDetectionPoint + 1)
         .arg(m_detectionPoints.isEmpty() ? 0.0 : m_detectionPoints[m_currentDetectionPoint])
         .arg(m_isForwardStroke ? "正行程" : "反行程");
+}
+
+void MainWindow::updateDetectionPointLabels()
+{
+    // 根据表盘类型设置检测点数量
+    if (m_currentConfig->dialType == "YYQY") {
+        // YYQY表盘：6个检测点，显示 0, 1, 2, 3, 4, 5 MPa
+        m_requiredDataCount = 6;
+        m_detectionPoints = {0, 1, 2, 3, 4, 5}; // YYQY表盘的检测点压力值
+        
+        // 更新正行程检测点标签
+        ui->labelForwardData1->setText("0 MPa");
+        ui->labelForwardData2->setText("1 MPa");
+        ui->labelForwardData3->setText("2 MPa");
+        ui->labelForwardData4->setText("3 MPa");
+        ui->labelForwardData5->setText("4 MPa");
+        ui->labelForwardData6->setText("5 MPa");
+        
+        // 更新反行程检测点标签
+        ui->labelReverseData1->setText("0 MPa");
+        ui->labelReverseData2->setText("1 MPa");
+        ui->labelReverseData3->setText("2 MPa");
+        ui->labelReverseData4->setText("3 MPa");
+        ui->labelReverseData5->setText("4 MPa");
+        ui->labelReverseData6->setText("5 MPa");
+        
+    } else if (m_currentConfig->dialType == "BYQ") {
+        // BYQ表盘：5个检测点，显示 0, 6, 10, 21, 25 MPa
+        m_requiredDataCount = 5;
+        m_detectionPoints = {0, 6, 10, 21, 25}; // BYQ表盘的检测点压力值
+        
+        // 更新正行程检测点标签
+        ui->labelForwardData1->setText("0 MPa");
+        ui->labelForwardData2->setText("6 MPa");
+        ui->labelForwardData3->setText("10 MPa");
+        ui->labelForwardData4->setText("21 MPa");
+        ui->labelForwardData5->setText("25 MPa");
+        ui->labelForwardData6->setText("--");  // BYQ表盘只有5个检测点
+        
+        // 更新反行程检测点标签
+        ui->labelReverseData1->setText("0 MPa");
+        ui->labelReverseData2->setText("6 MPa");
+        ui->labelReverseData3->setText("10 MPa");
+        ui->labelReverseData4->setText("21 MPa");
+        ui->labelReverseData5->setText("25 MPa");
+        ui->labelReverseData6->setText("--");  // BYQ表盘只有5个检测点
+    }
+    
+    qDebug() << "检测点标签已更新，表盘类型:" << m_currentConfig->dialType << "检测点数量:" << m_requiredDataCount;
+}
+
+void MainWindow::setDetectionPointValues()
+{
+    // 这个方法用于动态设置检测点数值，可以根据需要调用
+    updateDetectionPointLabels();
 }
