@@ -142,7 +142,16 @@ private:
     // angel
     bool   m_hasZero   = false;
     double m_zeroAngle = 0.0;
+    double m_angleOffset = 0.0;  // 角度偏移量，用于校准
     Mat m_lastRgb;
+    
+    // 最大角度采集临时变量
+    double m_tempMaxAngle = 0.0;        // 临时存储最大角度
+    double m_tempCurrentAngle = 0.0;    // 临时存储当前角度
+    bool m_maxAngleCaptureMode = false; // 是否处于最大角度采集模式
+    
+    // 角度差存储变量
+    double m_lastCalculatedDelta = 0.0; // 采集按钮最后计算的角度差
     
     // 指针运动方向检测
     bool   m_hasPreviousAngle = false;   // 是否有上一次的角度记录

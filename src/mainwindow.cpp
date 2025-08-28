@@ -658,16 +658,20 @@ void MainWindow::onCaptureZero()
         // 更新指针运动方向
         updatePointerDirection(now);
 
-        // 计算角度差
-        double delta = now - m_zeroAngle;
+        // 计算角度差 - 相对于零位的角度差
+        double delta = now - m_zeroAngle;  // 当前角度减去零位角度
+        // 处理跨越360度边界的情况，确保角度差在合理范围内
         if (delta > 180)  delta -= 360;
         if (delta < -180) delta += 360;
 
-        qDebug() << "零位:" << m_zeroAngle << "当前:" << now << "角度差:" << delta << "行程:" << getStrokeDirectionString();
+        // 保存角度差，供确定按钮使用
+        m_lastCalculatedDelta = delta;
+
+        qDebug() << "采集按钮 - 零位角度:" << m_zeroAngle << "当前角度:" << now << "角度差:" << delta << "行程:" << getStrokeDirectionString();
+        qDebug() << "采集按钮 - 3次测量平均值:" << now << "度，角度差已保存:" << delta << "度";
 
         ui->labelAngle->setText(
-            QString("零位: %1° | 当前: %2° | 角度差: %3° | 行程: %4")
-                .arg(m_zeroAngle, 0, 'f', 2)
+            QString("零位: 0° | 当前: %1° | 角度差: %2° | 行程: %3")
                 .arg(now, 0, 'f', 2)
                 .arg(delta, 0, 'f', 2)
                 .arg(getStrokeDirectionString()));
@@ -676,6 +680,19 @@ void MainWindow::onCaptureZero()
         highPreciseDetector visDetector(frame, m_currentConfig);
         visDetector.showScale1Result();
         cv::Mat vis = visDetector.visual();
+        
+        // 在图像上显示相对于零位的角度差
+        if (visDetector.getAngle() != -999) {
+            double relativeAngle = visDetector.getAngle() - m_zeroAngle;
+            // 处理跨越360度边界的情况
+            if (relativeAngle > 180) relativeAngle -= 360;
+            if (relativeAngle < -180) relativeAngle += 360;
+            
+            std::string relativeAngleText = "Relative: " + std::to_string(relativeAngle) + "°";
+            cv::putText(vis, relativeAngleText, cv::Point(10, 60), 
+                       cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 255), 2);
+        }
+        
         cv::cvtColor(vis, vis, cv::COLOR_BGR2RGB);
         QImage q(vis.data, vis.cols, vis.rows, vis.step, QImage::Format_RGB888);
         ui->destDisplay->setPixmap(QPixmap::fromImage(q)
@@ -749,14 +766,14 @@ void MainWindow::onResetZero()
             return;
         }
         
-        // 设置零位
-        m_zeroAngle = angle;
+        // 设置零位 - 记录检测到的角度作为全局0度参考点
+        m_zeroAngle = angle;  // 记录这个角度作为参考点
         m_hasZero = true;
         
         // 重置行程跟踪
         resetStrokeTracking();
         
-        qDebug() << "零位设置成功，角度:" << m_zeroAngle;
+        qDebug() << "零位设置成功，检测角度:" << angle << "度，设为全局0度参考点";
         
         // 归位操作：清空当前轮次所有数据，然后添加零度数据到采集数据1
         if (m_currentRound < m_allRoundsData.size()) {
@@ -783,12 +800,18 @@ void MainWindow::onResetZero()
         // 更新界面显示
         updateDataTable();
         
-        // 更新界面显示
-        ui->labelAngle->setText(QString("零位已设置: %1°").arg(angle, 0, 'f', 2));
+        // 更新界面显示 - 显示为0度（全局0度参考点）
+        ui->labelAngle->setText(QString("零位已设置: 0°"));
         
         // 显示检测结果到右侧区域
         det.showScale1Result();
         cv::Mat vis = det.visual();
+        
+        // 在图像上显示归位时的0度
+        std::string zeroAngleText = "Zero: 0°";
+        cv::putText(vis, zeroAngleText, cv::Point(10, 60), 
+                   cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 255), 2);
+        
         cv::cvtColor(vis, vis, cv::COLOR_BGR2RGB);
         QImage q(vis.data, vis.cols, vis.rows, vis.step, QImage::Format_RGB888);
         ui->destDisplay->setPixmap(QPixmap::fromImage(q)
@@ -796,7 +819,7 @@ void MainWindow::onResetZero()
                                            Qt::KeepAspectRatio,
                                            Qt::SmoothTransformation));
         
-        QMessageBox::information(this, "成功", QString("零位设置成功！\n当前角度: %1°").arg(angle, 0, 'f', 2));
+        QMessageBox::information(this, "成功", QString("零位设置成功！\n当前角度设为: 0°"));
         
     } catch (const std::exception& e) {
         qDebug() << "重置零位时发生异常:" << e.what();
@@ -1480,8 +1503,10 @@ void highPreciseDetector::showScale1Result() {
                 cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
     }
     
-    // 添加角度文本
+    // 添加角度文本 - 显示相对于零位的角度差
     if (m_angle != -999) {
+        // 这里需要外部传入零位角度来计算角度差
+        // 暂时显示原始角度，后续会通过参数传入零位角度
         std::string angleText = "Angle: " + std::to_string(m_angle) + "°";
         cv::putText(m_visual, angleText, cv::Point(10, 30), 
                    cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 0), 2);
@@ -1685,6 +1710,8 @@ double MainWindow::measureAngleMultipleTimes(const cv::Mat& frame, int measureCo
     return finalAverage;
 }
 
+
+
 // 初始化数据数组
 void MainWindow::initializeDataArrays()
 {
@@ -1829,22 +1856,59 @@ void MainWindow::onConfirmData()
         return;
     }
     
-    // 获取当前角度差值
+    // 检查是否处于最大角度采集模式
+    if (m_maxAngleCaptureMode) {
+        // 最大角度采集模式：保存最大角度
+        if (m_currentRound < m_allRoundsData.size()) {
+            m_allRoundsData[m_currentRound].maxAngle = m_tempMaxAngle;
+            m_maxAngle = m_tempMaxAngle;
+            m_maxAngleCaptured = true;
+            
+            // 退出最大角度采集模式
+            m_maxAngleCaptureMode = false;
+            
+            // 更新界面显示
+            updateDataTable();
+            updateErrorTableWithAllRounds();
+            
+            QMessageBox::information(this, "最大角度保存", 
+                QString("最大角度已保存：%1°\n当前角度：%2°\n角度差：%3°")
+                .arg(m_tempMaxAngle, 0, 'f', 2)
+                .arg(m_tempCurrentAngle, 0, 'f', 2)
+                .arg(m_tempMaxAngle, 0, 'f', 2));
+            
+            // 检查是否应该自动切换到反行程
+            const RoundData &currentRound = m_allRoundsData[m_currentRound];
+            bool forwardComplete = true;
+            for (int i = 0; i < currentRound.forwardAngles.size(); ++i) {
+                if (currentRound.forwardAngles[i] == 0.0) {
+                    forwardComplete = false;
+                    break;
+                }
+            }
+            
+            if (forwardComplete) {
+                m_isForwardStroke = false;  // 自动切换到反行程
+                QMessageBox::information(this, "自动切换", "正行程数据采集完成，已自动切换到反行程！");
+            }
+        }
+        return;
+    }
+    
+    // 正常数据采集模式
+    // 直接使用采集按钮时计算并保存的角度差
+    double angleDelta = m_lastCalculatedDelta;
+    
+    qDebug() << "确定按钮 - 直接使用采集按钮保存的角度差:" << angleDelta << "度";
+    
+    // 更新指针方向（使用当前检测到的角度）
     cv::Mat frame;
     if (!grabOneFrame(frame)) {
         QMessageBox::warning(this, "警告", "无法获取图像！");
         return;
     }
     
-    // 使用高精度测量
-    double currentAngle = measureAngleMultipleTimes(frame);
-    double angleDelta = currentAngle - m_zeroAngle;
-    
-    // 处理角度跨越边界
-    if (angleDelta > 180) angleDelta -= 360;
-    if (angleDelta < -180) angleDelta += 360;
-    
-    // 更新指针方向
+    double currentAngle = measureAngleMultipleTimes(frame, 3);
     updatePointerDirection(currentAngle);
     
     // 检查当前轮次数据状态
@@ -1956,6 +2020,11 @@ void MainWindow::onSaveData()
             m_currentDetectionPoint = 0;
             m_maxAngleCaptured = false;  // 重置最大角度采集状态
             
+            // 重置最大角度采集模式
+            m_maxAngleCaptureMode = false;
+            m_tempMaxAngle = 0.0;
+            m_tempCurrentAngle = 0.0;
+            
             // 初始化新轮次的数据
             if (m_currentRound < m_allRoundsData.size()) {
                 m_allRoundsData[m_currentRound].forwardAngles.fill(0.0);
@@ -1991,6 +2060,14 @@ void MainWindow::onClearData()
     
     // 重置最大角度采集状态
     m_maxAngleCaptured = false;
+    
+    // 重置最大角度采集模式
+    m_maxAngleCaptureMode = false;
+    m_tempMaxAngle = 0.0;
+    m_tempCurrentAngle = 0.0;
+    
+    // 重置角度差
+    m_lastCalculatedDelta = 0.0;
     
     // 重新初始化5轮数据结构
     initializeRoundsData();
@@ -2103,8 +2180,79 @@ void MainWindow::onMaxAngleCapture()
         return;
     }
     
-    // 调用最大角度测量函数
-    measureAndSaveMaxAngle();
+    // 获取当前图像并显示检测结果
+    cv::Mat frame;
+    if (!grabOneFrame(frame)) {
+        QMessageBox::warning(this, "警告", "无法获取图像！");
+        return;
+    }
+    
+    try {
+        // 创建检测器并显示检测结果
+        highPreciseDetector det(frame, m_currentConfig);
+        if (det.getCircles().empty() || det.getLine().empty()) {
+            QMessageBox::warning(this, "警告", "未检测到表盘或指针！");
+            return;
+        }
+        
+        // 显示检测结果到右侧区域（与采集按钮功能一致）
+        det.showScale1Result();
+        cv::Mat vis = det.visual();
+        
+        // 在图像上显示相对于零位的角度差
+        if (det.getAngle() != -999) {
+            double relativeAngle = det.getAngle() - m_zeroAngle;
+            // 处理跨越360度边界的情况
+            if (relativeAngle > 180) relativeAngle -= 360;
+            if (relativeAngle < -180) relativeAngle += 360;
+            
+            std::string relativeAngleText = "Relative: " + std::to_string(relativeAngle) + "°";
+            cv::putText(vis, relativeAngleText, cv::Point(10, 60), 
+                       cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 255), 2);
+        }
+        
+        cv::cvtColor(vis, vis, cv::COLOR_BGR2RGB);
+        QImage q(vis.data, vis.cols, vis.rows, vis.step, QImage::Format_RGB888);
+        ui->destDisplay->setPixmap(QPixmap::fromImage(q)
+                                   .scaled(ui->destDisplay->size(),
+                                           Qt::KeepAspectRatio,
+                                           Qt::SmoothTransformation));
+        
+        // 获取当前角度
+        double currentAngle = det.getAngle();
+        if (currentAngle == -999) {
+            QMessageBox::warning(this, "错误", "无法计算角度！");
+            return;
+        }
+        
+        // 计算角度差 - 相对于零位的角度差
+        double angleDelta = currentAngle - m_zeroAngle;
+        if (angleDelta > 180) angleDelta -= 360;
+        if (angleDelta < -180) angleDelta += 360;
+        
+        // 更新界面显示当前角度
+        ui->labelAngle->setText(
+            QString("零位: 0° | 当前: %1° | 角度差: %2° | 最大角度采集模式")
+                .arg(currentAngle, 0, 'f', 2)
+                .arg(angleDelta, 0, 'f', 2));
+        
+        // 保存当前角度和角度差，供确定按钮使用
+        m_tempMaxAngle = abs(angleDelta);
+        m_tempCurrentAngle = currentAngle;
+        m_maxAngleCaptureMode = true;  // 进入最大角度采集模式
+        
+        QMessageBox::information(this, "最大角度采集", 
+            QString("当前角度: %1°\n角度差: %2°\n请点击确定按钮保存最大角度")
+            .arg(currentAngle, 0, 'f', 2)
+            .arg(angleDelta, 0, 'f', 2));
+            
+    } catch (const std::exception& e) {
+        qDebug() << "最大角度采集时发生异常:" << e.what();
+        QMessageBox::critical(this, "错误", QString("最大角度采集失败: %1").arg(e.what()));
+    } catch (...) {
+        qDebug() << "最大角度采集时发生未知异常";
+        QMessageBox::critical(this, "错误", "最大角度采集时发生未知错误");
+    }
 }
 
 // ================== BYQ指针检测算法实现 ==================
@@ -2251,9 +2399,9 @@ void MainWindow::measureAndSaveMaxAngle()
     
     // 多次测量取平均值，提高精度
     double currentAngle = measureAngleMultipleTimes(frame, 5);  // 测量5次取平均
-    double angleDelta = currentAngle - m_zeroAngle;
     
-    // 处理角度跨越边界
+    // 计算角度差 - 相对于零位的角度差
+    double angleDelta = currentAngle - m_zeroAngle;  // 当前角度减去零位角度
     if (angleDelta > 180) angleDelta -= 360;
     if (angleDelta < -180) angleDelta += 360;
     
@@ -2276,7 +2424,7 @@ void MainWindow::measureAndSaveMaxAngle()
     updateMaxAngleDisplay();
     updateDataTable();  // 更新数据表格显示
     
-    qDebug() << "最大角度测量完成:" << maxAngle << "度，最大角度采集状态已设置为true";
+    qDebug() << "最大角度测量完成:" << maxAngle << "最大角度采集状态已设置为true";
     
     // 检查是否应该自动切换到反行程
     if (m_currentRound < m_allRoundsData.size()) {
@@ -2376,6 +2524,11 @@ void MainWindow::initializeRoundsData()
     // 重置状态
     m_currentRound = 0;
     m_currentDetectionPoint = 0;
+    
+    // 重置最大角度采集模式
+    m_maxAngleCaptureMode = false;
+    m_tempMaxAngle = 0.0;
+    m_tempCurrentAngle = 0.0;
     
     qDebug() << "5轮数据结构初始化完成，表盘类型:" << m_currentDialType 
              << "每轮测量次数:" << m_maxMeasurementsPerRound
