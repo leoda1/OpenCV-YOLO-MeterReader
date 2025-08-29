@@ -97,6 +97,10 @@ public:
     void setCurrentRound(int round);  // 设置当前轮次
     int getCurrentRound() const;      // 获取当前轮次
     
+    // 轮数配置方法
+    void setTotalRounds(int rounds);  // 设置总轮数
+    int getTotalRounds() const;       // 获取总轮数
+    
     // 批量设置主界面数据
     void setMainWindowData(const QVector<QVector<double>>& allRoundsForward, 
                           const QVector<QVector<double>>& allRoundsBackward, 
@@ -106,13 +110,9 @@ public:
 private slots:
     void onConfigChanged();
     void onDetectionPointsChanged();
-    void addDetectionPoint();
-    void removeDetectionPoint();
     void calculateErrors();
     void exportToExcel();
-    // void exportToText();  // 用户要求移除
     void saveConfig();
-    // void loadConfig();    // 用户要求移除
     void onTableCellClicked(int row, int column);
     void onDataTableCellChanged(int row, int column);
     void validateAndCheckErrors();
@@ -139,8 +139,6 @@ private:
     // 检测点配置
     QGroupBox *m_detectionPointsGroup;
     QTableWidget *m_detectionPointsTable;
-    QPushButton *m_addPointBtn;
-    QPushButton *m_removePointBtn;
     
     // 数据表格
     QGroupBox *m_dataGroup;
@@ -174,7 +172,8 @@ private:
     bool m_dialTypeSet;
     
     // 轮次管理
-    int m_currentRound;              // 当前轮次（0-4）
+    int m_currentRound;              // 当前轮次（0到m_totalRounds-1）
+    int m_totalRounds;               // 总轮数（可配置，默认5轮）
     int m_maxMeasurementsPerRound;   // 每轮最大测量次数（YYQY=6, BYQ=5）
     QVector<double> m_maxAngles;     // 每轮的最大角度测量值
     
@@ -193,11 +192,21 @@ private:
     void updateDataTable();
     void updateAnalysisText();
     
+    // 实时更新产品信息
+    void onProductInfoChanged();
+    
     // 计算相关
     double pressureToAngle(double pressure) const;
     double angleToPressure(double angle) const;
     double calculateAngleError(double actualAngle, double expectedAngle) const;
     double calculatePressureError(double angleError) const;
+    
+    // 新增计算函数
+    double calculateAverageAngleForDetectionPoint(int pointIndex) const;
+    double calculateFinalMeasuredAngleForDetectionPoint(int pointIndex) const;
+    bool isAllRoundsCompleted() const;
+    double getFixedHysteresisError(int pointIndex) const;
+    double calculateHysteresisAngle(int pointIndex) const;
     
     QString formatAnalysisResult();
     QString generateExportData();
@@ -212,6 +221,7 @@ private:
     int getExpectedMeasurements() const;     // 获取预期测量次数（根据表盘类型）
     void updateCurrentRoundDisplay();       // 更新当前轮次显示
     void updateRoundInfoDisplay();          // 更新轮次信息显示
+    void updateMaxAngleFromRounds();        // 更新满量程角度为5轮平均值
     
     // 数据导出相关新方法
     QString generateMultiRoundExportData(); // 生成多轮次导出数据
