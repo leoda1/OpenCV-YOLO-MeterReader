@@ -45,8 +45,8 @@ public:
     QString myattr;
     QString myvalue;
     int type;
-//    SaveMode RecordMethode = SaveMode::All;
-//    OutPutFile FileSelection = OutPutFile::Image;
+    
+    int totalRounds = 2;  // 默认2轮
 };
 
 #endif // SETTINGS_H

@@ -190,7 +190,7 @@ private:
     bool   m_isForwardStroke = true;     // 当前是否为正行程（顺时针方向）
     int    m_strokeDirection = 0;        // 运动方向：1=正行程，-1=反行程，0=未知
     
-    // 5轮数据采集相关
+    // 多轮数据采集相关
     struct RoundData {
         QVector<double> forwardAngles;    // 正行程角度数据（存“归位后的连续相对角”）
         QVector<double> backwardAngles;   // 反行程角度数据（存“归位后的连续相对角”）
@@ -198,8 +198,9 @@ private:
         bool isCompleted = false;         // 该轮是否完成
     };
     
-    QVector<RoundData> m_allRoundsData;  // 5轮完整数据
-    int m_currentRound = 0;              // 当前轮次（0-4）
+    QVector<RoundData> m_allRoundsData;  // 多轮完整数据
+    int m_totalRounds = 2;               // 总轮数（可配置，默认2轮）
+    int m_currentRound = 0;              // 当前轮次（0到m_totalRounds-1）
     int m_currentDetectionPoint = 0;     // 当前检测点索引
     int m_maxMeasurementsPerRound = 6;   // 每轮最大测量次数（YYQY=6, BYQ=5）
     
@@ -237,12 +238,16 @@ private:
     void measureAndSaveMaxAngle();      // 测量并保存最大角度
     void updateMaxAngleDisplay();       // 更新最大角度显示
     
-    // 5轮数据管理方法
-    void initializeRoundsData();           // 初始化5轮数据结构
+    // 多轮数据管理方法
+    void initializeRoundsData();           // 初始化多轮数据结构
     void addAngleToCurrentRound(double angle, bool isForward);  // 添加角度到当前轮次
     void updateErrorTableWithAllRounds();  // 更新误差表格显示所有轮次数据
     void setCurrentDetectionPoint(int pointIndex);  // 设置当前检测点
     QString getCurrentStatusInfo() const;   // 获取当前状态信息
+    
+    // 轮数配置方法
+    void setTotalRounds(int rounds);       // 设置总轮数
+    int getTotalRounds() const { return m_totalRounds; }  // 获取总轮数
     
     // 按钮动画相关方法
     void setupButtonAnimations();          // 设置按钮动画
@@ -274,6 +279,8 @@ private slots:
     void onSwitchDialType();        // 切换表盘类型槽函数
     void onExitApplication();       // 退出程序槽函数
     void onMaxAngleCapture();       // 最大角度采集槽函数
+    void onSetRounds2();            // 设置2轮槽函数
+    void onSetRounds5();            // 设置5轮槽函数
 
 };
 

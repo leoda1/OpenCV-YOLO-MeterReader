@@ -80,7 +80,7 @@ MainWindow::MainWindow(QWidget *parent) :
     initPointerConfigs();      // 初始化指针识别配置
     initializeDataArrays();    // 初始化数据数组
     updateDataDisplayVisibility();  // 初始化显示状态
-    initializeRoundsData();    // 初始化5轮数据结构
+    initializeRoundsData();    // 初始化多轮数据结构
     smallSize = QSize(750,this->height());
     bigSize = this->size();
     
@@ -90,7 +90,16 @@ MainWindow::MainWindow(QWidget *parent) :
     // 设置按钮动画
     setupButtonAnimations();
     
-    qDebug() << "UI initialized with default expanded layout";
+    // 从设置加载轮数，如果没有设置则默认为2轮
+    if (saveSettings->totalRounds >= 1 && saveSettings->totalRounds <= 10) {
+        setTotalRounds(saveSettings->totalRounds);
+        qDebug() << "从设置加载轮数:" << saveSettings->totalRounds << "轮";
+    } else {
+        setTotalRounds(2);
+        qDebug() << "使用默认轮数: 2轮";
+    }
+    
+    qDebug() << "UI initialized with default expanded layout, 轮数设置为" << m_totalRounds << "轮";
 }
 
 // ========================= NEW: Angle helper implementations =========================
@@ -461,6 +470,13 @@ void MainWindow::setting(){
     if (result == QDialog::Accepted) {
         // 复制设置
         *saveSettings = *(dialog->getSaveSettings());
+        
+        // 应用轮数设置
+        if (saveSettings->totalRounds != m_totalRounds) {
+            setTotalRounds(saveSettings->totalRounds);
+            qDebug() << "从设置对话框应用轮数设置:" << saveSettings->totalRounds << "轮";
+        }
+        
         startPreview();
     }
 }
@@ -533,6 +549,12 @@ void MainWindow::multiGrab(){
     int result = dialog->exec();
     if (result == QDialog::Accepted) {
         *saveSettings = *(dialog->getSaveSettings());
+        
+        // 应用轮数设置
+        if (saveSettings->totalRounds != m_totalRounds) {
+            setTotalRounds(saveSettings->totalRounds);
+            qDebug() << "从设置对话框应用轮数设置:" << saveSettings->totalRounds << "轮";
+        }
     }
     try {
         INodeMap& nodemap = m_camera.GetNodeMap();
@@ -1013,6 +1035,10 @@ void MainWindow::showErrorTableDialog()
         connect(m_errorTableDialog, &QDialog::finished, this, [this]() {
             m_errorTableDialog = nullptr;
         });
+        
+        // 设置轮数与主窗口同步
+        m_errorTableDialog->setTotalRounds(m_totalRounds);
+        qDebug() << "误差表格轮数设置为:" << m_totalRounds << "轮";
         
         // 根据当前选择的表盘类型设置默认配置
         if (!m_currentDialType.isEmpty()) {
@@ -1821,7 +1847,7 @@ void MainWindow::updateDataTable()
     }
     
     // 更新保存次数
-    ui->labelSaveCount->setText(QString("当前采集轮次：%1").arg(m_currentRound + 1));
+    ui->labelSaveCount->setText(QString("当前采集轮次：%1/%2").arg(m_currentRound + 1).arg(m_totalRounds));
 }
 
 // 添加数据到当前行程
@@ -2021,7 +2047,7 @@ void MainWindow::onSaveData()
             .arg(backwardCount));
         
         // 移动到下一轮
-        if (m_currentRound < 4) {  // 最多5轮（0-4）
+        if (m_currentRound < m_totalRounds - 1) {  // 最多m_totalRounds轮
             m_currentRound++;
             m_currentDetectionPoint = 0;
             m_maxAngleCaptured = false;  // 重置最大角度采集状态
@@ -2039,7 +2065,7 @@ void MainWindow::onSaveData()
                 m_allRoundsData[m_currentRound].isCompleted = false;
             }
         } else {
-            QMessageBox::information(this, "完成", "所有5轮数据采集已完成！");
+            QMessageBox::information(this, "完成", QString("所有%1轮数据采集已完成！").arg(m_totalRounds));
         }
         
         // 更新检测点标签显示
@@ -2059,7 +2085,7 @@ void MainWindow::onClearData()
     
     // 显示确认对话框
     QMessageBox::StandardButton reply = QMessageBox::question(this, "确认清空", 
-        "确定要清空所有5轮采集数据吗？\n\n此操作将：\n• 重置零位设置\n• 清空所有采集数据\n• 重置最大角度采集状态\n\n此操作不可撤销！", 
+        QString("确定要清空所有%1轮采集数据吗？\n\n此操作将：\n• 重置零位设置\n• 清空所有采集数据\n• 重置最大角度采集状态\n\n此操作不可撤销！").arg(m_totalRounds), 
         QMessageBox::Yes | QMessageBox::No, 
         QMessageBox::No);
     
@@ -2105,7 +2131,7 @@ void MainWindow::onClearData()
     // 更新显示
     updateDataTable();
     
-    QMessageBox::information(this, "清空完成", "已成功清空所有5轮采集数据！");
+    QMessageBox::information(this, "清空完成", QString("已成功清空所有%1轮采集数据！").arg(m_totalRounds));
     qDebug() << "已清空所有采集数据";
 }
 
@@ -2517,11 +2543,11 @@ void MainWindow::updateMaxAngleDisplay()
 
 void MainWindow::initializeRoundsData()
 {
-    qDebug() << "初始化5轮数据结构";
+    qDebug() << "初始化" << m_totalRounds << "轮数据结构";
     
-    // 初始化5轮数据
+    // 初始化多轮数据
     m_allRoundsData.clear();
-    m_allRoundsData.resize(5);
+    m_allRoundsData.resize(m_totalRounds);
     
     // 根据当前表盘类型设置测量次数和检测点
     if (m_currentDialType == "YYQY-13") {
@@ -2537,7 +2563,7 @@ void MainWindow::initializeRoundsData()
     }
     
     // 为每轮初始化数据结构
-    for (int round = 0; round < 5; ++round) {
+    for (int round = 0; round < m_totalRounds; ++round) {
         m_allRoundsData[round].forwardAngles.resize(m_maxMeasurementsPerRound);
         m_allRoundsData[round].backwardAngles.resize(m_maxMeasurementsPerRound);
         m_allRoundsData[round].forwardAngles.fill(0.0);
@@ -2558,7 +2584,7 @@ void MainWindow::initializeRoundsData()
     // 更新检测点标签显示
     updateDetectionPointLabels();
     
-    qDebug() << "5轮数据结构初始化完成，表盘类型:" << m_currentDialType 
+    qDebug() << m_totalRounds << "轮数据结构初始化完成，表盘类型:" << m_currentDialType 
              << "每轮测量次数:" << m_maxMeasurementsPerRound
              << "检测点数量:" << m_detectionPoints.size();
 }
@@ -2898,6 +2924,47 @@ void MainWindow::updateDetectionPointLabels()
     }
     
     qDebug() << "检测点标签已更新，表盘类型:" << m_currentDialType << "检测点数量:" << m_requiredDataCount;
+}
+
+// 设置总轮数
+void MainWindow::setTotalRounds(int rounds)
+{
+    if (rounds < 1 || rounds > 10) {
+        qDebug() << "轮数设置无效，必须在1-10之间，当前设置:" << rounds;
+        return;
+    }
+    
+    qDebug() << "设置总轮数从" << m_totalRounds << "改为" << rounds;
+    m_totalRounds = rounds;
+    
+    // 重新初始化数据结构
+    initializeRoundsData();
+    
+    // 更新界面显示
+    updateDataTable();
+    updateDetectionPointLabels();
+    
+    // 如果误差表格已打开，同步更新其轮数设置
+    if (m_errorTableDialog) {
+        m_errorTableDialog->setTotalRounds(m_totalRounds);
+        qDebug() << "同步更新误差表格轮数:" << m_totalRounds << "轮";
+    }
+    
+    qDebug() << "总轮数已设置为" << m_totalRounds << "轮";
+}
+
+// 快速设置2轮
+void MainWindow::onSetRounds2()
+{
+    setTotalRounds(2);
+    QMessageBox::information(this, "轮数设置", "已设置为2轮数据采集！");
+}
+
+// 快速设置5轮
+void MainWindow::onSetRounds5()
+{
+    setTotalRounds(5);
+    QMessageBox::information(this, "轮数设置", "已设置为5轮数据采集！");
 }
 
 void MainWindow::setDetectionPointValues()

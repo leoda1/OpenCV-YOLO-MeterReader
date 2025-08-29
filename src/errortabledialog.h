@@ -97,6 +97,10 @@ public:
     void setCurrentRound(int round);  // 设置当前轮次
     int getCurrentRound() const;      // 获取当前轮次
     
+    // 轮数配置方法
+    void setTotalRounds(int rounds);  // 设置总轮数
+    int getTotalRounds() const;       // 获取总轮数
+    
     // 批量设置主界面数据
     void setMainWindowData(const QVector<QVector<double>>& allRoundsForward, 
                           const QVector<QVector<double>>& allRoundsBackward, 
@@ -106,8 +110,6 @@ public:
 private slots:
     void onConfigChanged();
     void onDetectionPointsChanged();
-    void addDetectionPoint();
-    void removeDetectionPoint();
     void calculateErrors();
     void exportToExcel();
     void saveConfig();
@@ -137,8 +139,6 @@ private:
     // 检测点配置
     QGroupBox *m_detectionPointsGroup;
     QTableWidget *m_detectionPointsTable;
-    QPushButton *m_addPointBtn;
-    QPushButton *m_removePointBtn;
     
     // 数据表格
     QGroupBox *m_dataGroup;
@@ -172,7 +172,8 @@ private:
     bool m_dialTypeSet;
     
     // 轮次管理
-    int m_currentRound;              // 当前轮次（0-4）
+    int m_currentRound;              // 当前轮次（0到m_totalRounds-1）
+    int m_totalRounds;               // 总轮数（可配置，默认5轮）
     int m_maxMeasurementsPerRound;   // 每轮最大测量次数（YYQY=6, BYQ=5）
     QVector<double> m_maxAngles;     // 每轮的最大角度测量值
     
@@ -190,6 +191,9 @@ private:
     void updateDetectionPointsTable();
     void updateDataTable();
     void updateAnalysisText();
+    
+    // 实时更新产品信息
+    void onProductInfoChanged();
     
     // 计算相关
     double pressureToAngle(double pressure) const;
