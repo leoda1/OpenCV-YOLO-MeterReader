@@ -15,6 +15,7 @@
 #include <QComboBox>
 #include <QLabel>
 #include <memory>
+#include <cmath>  // 新增：角度计算需要
 
 #include "settings.h"
 #include "dialmarkdialog.h"
@@ -123,9 +124,9 @@ private:
     QString m_currentDialType;
     
     // 指针识别配置
-    PointerDetectionConfig m_yyqyConfig;  // YYQY表盘配置
-    PointerDetectionConfig m_byqConfig;   // BYQ表盘配置
-    PointerDetectionConfig* m_currentConfig;  // 当前使用的配置指针
+    PointerDetectionConfig m_yyqyConfig;     // YYQY表盘配置
+    PointerDetectionConfig m_byqConfig;      // BYQ表盘配置
+    PointerDetectionConfig* m_currentConfig; // 当前使用的配置指针
 
     void setButtons(bool inPreview);
     void setNoCamera();
@@ -139,35 +140,61 @@ private:
     void switchPointerConfig(const QString& dialType);  // 切换指针识别配置
     void updateDataDisplayVisibility();  // 根据表盘类型更新数据显示
 
-    // angel
+    // ================== 角度相关（新增：连续展开角修复边界问题） ==================
+    // 归位状态
     bool   m_hasZero   = false;
-    double m_zeroAngle = 0.0;
-    double m_angleOffset = 0.0;  // 角度偏移量，用于校准
+    double m_zeroAngle = 0.0;       // 仅用于显示（0~360）
+    double m_angleOffset = 0.0;     // 角度偏移量，用于校准
     Mat m_lastRgb;
-    
-    // 最大角度采集临时变量
-    double m_tempMaxAngle = 0.0;        // 临时存储最大角度
-    double m_tempCurrentAngle = 0.0;    // 临时存储当前角度
+
+    // —— 新增：展开角（Unwrapped Angle）机制 —— 
+    // 持续更新“连续角”，避免在 0/360° 处跳变
+    double m_unwrappedAngle = 0.0;  // 当前帧的连续角（单位：度，可为负/超360）
+    double m_zeroUnwrapped  = 0.0;  // 归位时的连续角（设为相对角 0 的参考）
+    double m_previousAbs    = 0.0;  // 上一帧的绝对角（0~360）
+    bool   m_hasUnwrapped   = false;// 是否已初始化展开角序列
+    double m_lastDelta      = 0.0;  // 最近一次“最短路”角度增量（-180,180]
+
+    // 角度工具函数（静态）
+    static double norm0_360(double deg);                         // 归一化到 [0,360)
+    static double wrapSigned180(double deg);                     // 包裹到 (-180,180]
+    static double circularMeanDeg(const std::vector<double>& angles); // 圆统计均值（返回 [0,360)）
+
+    // 用新的绝对角(0~360)更新展开角，返回本帧有符号增量（-180~180]
+    double updateUnwrappedFromAbs(double absDeg);
+
+    // 当前相对角（连续、可负/可超360）= m_unwrappedAngle - m_zeroUnwrapped
+    double currentRelativeAngle() const { return m_unwrappedAngle - m_zeroUnwrapped; }
+
+    // 一站式：传入当前绝对角，内部完成展开与方向更新，返回“相对角(连续)”
+    double processAbsAngle(double absDeg);
+
+    // 根据一帧增量更新行程方向（不改变展开角）
+    void updateStrokeDirectionFromDelta(double deltaDeg);
+
+    // ================== 最大角度采集临时变量 ==================
+    double m_tempMaxAngle = 0.0;        // 临时存储最大角度（通常取相对角幅值）
+    double m_tempCurrentAngle = 0.0;    // 临时存储当前绝对角
     bool m_maxAngleCaptureMode = false; // 是否处于最大角度采集模式
     
     // 角度差存储变量
-    double m_lastCalculatedDelta = 0.0; // 采集按钮最后计算的角度差
-    
+    double m_lastCalculatedDelta = 0.0; // “采集”按钮最后计算/展示的相对角（连续）
+
     // 按钮动画相关
     QTimer* m_buttonAnimationTimer = nullptr;  // 按钮动画定时器
     QPushButton* m_lastClickedButton = nullptr; // 最后点击的按钮
     
-    // 指针运动方向检测
-    bool   m_hasPreviousAngle = false;   // 是否有上一次的角度记录
-    double m_previousAngle = 0.0;        // 上一次的指针角度
+    // 指针运动方向检测（与展开角联动）
+    bool   m_hasPreviousAngle = false;   // 是否有上一次的角度记录（保留兼容）
+    double m_previousAngle = 0.0;        // 上一次的指针角度（保留兼容，不再用于差分）
     bool   m_isForwardStroke = true;     // 当前是否为正行程（顺时针方向）
     int    m_strokeDirection = 0;        // 运动方向：1=正行程，-1=反行程，0=未知
     
     // 5轮数据采集相关
     struct RoundData {
-        QVector<double> forwardAngles;    // 正行程角度数据
-        QVector<double> backwardAngles;   // 反行程角度数据
-        double maxAngle = 0.0;            // 该轮最大角度
+        QVector<double> forwardAngles;    // 正行程角度数据（存“归位后的连续相对角”）
+        QVector<double> backwardAngles;   // 反行程角度数据（存“归位后的连续相对角”）
+        double maxAngle = 0.0;            // 该轮最大角度（通常取相对角绝对值）
         bool isCompleted = false;         // 该轮是否完成
     };
     
@@ -180,8 +207,8 @@ private:
     QVector<double> m_detectionPoints;   // 检测点压力值列表
     
     // 兼容性保留
-    QVector<double> m_forwardData;       // 正行程数据（最多5个）
-    QVector<double> m_reverseData;       // 反行程数据（最多5个）
+    QVector<double> m_forwardData;       // 正行程数据（最多6个）
+    QVector<double> m_reverseData;       // 反行程数据（最多6个）
     int m_currentForwardIndex = 0;       // 当前正行程数据索引
     int m_currentReverseIndex = 0;       // 当前反行程数据索引  
     int m_saveCount = 0;                 // 保存按钮点击次数
@@ -189,16 +216,17 @@ private:
     bool m_maxAngleCaptured = false;     // 是否已完成最大角度采集
     int m_requiredDataCount = 6;         // 当前表盘所需数据数量（YYQY=6, BYQ=5）
     ErrorTableDialog* m_errorTableDialog = nullptr;  // 误差检测表格对话框指针
+
     bool grabOneFrame(cv::Mat &outBar);
     void runAlgoOnce();
     static void conv2(const Mat &img, const Mat& kernel, ConvolutionType type, Mat& dest);
     
-    // 指针运动方向检测方法
+    // 指针运动方向检测方法（实现中将仅依据 m_lastDelta 判定方向）
     void updatePointerDirection(double currentAngle);
     QString getStrokeDirectionString() const;
     void resetStrokeTracking();  // 重置行程跟踪
     
-    // 多次测量取平均的方法
+    // 多次测量取平均的方法（实现将采用圆统计均值）
     double measureAngleMultipleTimes(const cv::Mat& frame, int measureCount = 3);
     
     // 数据表格更新方法

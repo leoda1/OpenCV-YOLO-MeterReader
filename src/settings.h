@@ -34,7 +34,7 @@ public:
     ~Settings();
     int image2save = 200 ;
     GenICam_3_1_Basler_pylon_v3::gcstring acquisitionFrameRate = "60";
-    GenICam_3_1_Basler_pylon_v3::gcstring exposureTime = "50000";
+    GenICam_3_1_Basler_pylon_v3::gcstring exposureTime = "80000";
     GenICam_3_1_Basler_pylon_v3::gcstring width = "700";
     GenICam_3_1_Basler_pylon_v3::gcstring height = "540";
     QString FilePath = "";

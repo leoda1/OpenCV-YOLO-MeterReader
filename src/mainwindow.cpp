@@ -4,6 +4,7 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+#include <cmath>   // NEW: for fmod/atan2/cos/sin
 
 #include <pylon/usb/BaslerUsbInstantCamera.h>
 #include <stdio.h>
@@ -91,6 +92,74 @@ MainWindow::MainWindow(QWidget *parent) :
     
     qDebug() << "UI initialized with default expanded layout";
 }
+
+// ========================= NEW: Angle helper implementations =========================
+double MainWindow::norm0_360(double deg) {
+    double r = std::fmod(deg, 360.0);
+    if (r < 0) r += 360.0;
+    return r;
+}
+
+// wrap to (-180, 180]
+double MainWindow::wrapSigned180(double deg) {
+    double r = std::fmod(deg + 180.0, 360.0);
+    if (r <= 0) r += 360.0;
+    return r - 180.0;
+}
+
+// Circular mean in degrees, return [0,360)
+double MainWindow::circularMeanDeg(const std::vector<double>& angles) {
+    if (angles.empty()) return std::numeric_limits<double>::quiet_NaN();
+    double sx = 0.0, sy = 0.0;
+    for (double a : angles) {
+        double rad = a * CV_PI / 180.0;
+        sx += std::cos(rad);
+        sy += std::sin(rad);
+    }
+    double mean = std::atan2(sy, sx) * 180.0 / CV_PI; // [-180,180]
+    if (mean < 0) mean += 360.0;
+    return mean;
+}
+
+// Update unwrapped angle sequence from absolute [0,360) angle.
+// Returns shortest signed step (-180,180]
+double MainWindow::updateUnwrappedFromAbs(double absDeg) {
+    absDeg = norm0_360(absDeg);
+    if (!m_hasUnwrapped) {
+        m_unwrappedAngle = absDeg;
+        m_previousAbs = absDeg;
+        m_hasUnwrapped = true;
+        m_lastDelta = 0.0;
+        return 0.0;
+    }
+    double delta = wrapSigned180(absDeg - m_previousAbs);
+    m_unwrappedAngle += delta;
+    m_previousAbs = absDeg;
+    m_lastDelta = delta;
+    return delta;
+}
+
+void MainWindow::updateStrokeDirectionFromDelta(double deltaDeg) {
+    const double minAngleThreshold = 2.0; // deg
+    if (std::abs(deltaDeg) > minAngleThreshold) {
+        if (deltaDeg > 0) {
+            m_strokeDirection = 1;  // 顺时针 正行程
+            m_isForwardStroke = true;
+        } else {
+            m_strokeDirection = -1; // 逆时针 反行程
+            m_isForwardStroke = false;
+        }
+        m_hasPreviousAngle = true;
+    }
+}
+
+// One-stop: feed absolute angle -> maintain unwrapped + direction -> return relative (continuous)
+double MainWindow::processAbsAngle(double absDeg) {
+    double delta = updateUnwrappedFromAbs(absDeg);
+    updateStrokeDirectionFromDelta(delta);
+    return currentRelativeAngle();
+}
+// ======================= END NEW: Angle helper implementations =======================
 
 MainWindow::~MainWindow()
 {
@@ -658,32 +727,27 @@ void MainWindow::onCaptureZero()
         cv::Mat frame;
         cv::cvtColor(m_lastRgb, frame, cv::COLOR_RGB2BGR);
 
-        // 使用多次测量提高精度
-        double now = measureAngleMultipleTimes(frame, 3);
-        if (now == -999) {
+        // 使用多次测量提高精度（返回稳定 Abs 角 0~360）
+        double absNow = measureAngleMultipleTimes(frame, 3);
+        if (absNow == -999) {
             QMessageBox::warning(this, "错误", "计算角度失败");
             return;
         }
 
-        // 更新指针运动方向
-        updatePointerDirection(now);
+        // 统一用展开角与相对角
+        double rel = processAbsAngle(absNow);  // 更新展开角 & 行程方向
+        m_lastCalculatedDelta = rel;           // "确定"按钮直接用
 
-        // 计算角度差 - 相对于零位的角度差
-        double delta = now - m_zeroAngle;  // 当前角度减去零位角度
-        // 处理跨越360度边界的情况，确保角度差在合理范围内
-        if (delta > 180)  delta -= 360;
-        if (delta < -180) delta += 360;
-
-        // 保存角度差，供确定按钮使用
-        m_lastCalculatedDelta = delta;
-
-        qDebug() << "采集按钮 - 零位角度:" << m_zeroAngle << "当前角度:" << now << "角度差:" << delta << "行程:" << getStrokeDirectionString();
-        qDebug() << "采集按钮 - 3次测量平均值:" << now << "度，角度差已保存:" << delta << "度";
+        qDebug() << "采集按钮 - Abs:" << absNow
+                 << " Unwrapped:" << m_unwrappedAngle
+                 << " ZeroUnwrapped:" << m_zeroUnwrapped
+                 << " Relative:" << rel
+                 << " 行程:" << getStrokeDirectionString();
 
         ui->labelAngle->setText(
-            QString("零位: 0° | 当前: %1° | 角度差: %2° | 行程: %3")
-                .arg(now, 0, 'f', 2)
-                .arg(delta, 0, 'f', 2)
+            QString("零位: 0° | 当前(Abs): %1° | 相对: %2° | 行程: %3")
+                .arg(absNow, 0, 'f', 2)
+                .arg(rel, 0, 'f', 2)
                 .arg(getStrokeDirectionString()));
 
         // 右侧显示检测示意图 - 创建单次检测器用于可视化
@@ -691,14 +755,10 @@ void MainWindow::onCaptureZero()
         visDetector.showScale1Result();
         cv::Mat vis = visDetector.visual();
         
-        // 在图像上显示相对于零位的角度差
+        // 在图像上叠加"相对角（连续）"
         if (visDetector.getAngle() != -999) {
-            double relativeAngle = visDetector.getAngle() - m_zeroAngle;
-            // 处理跨越360度边界的情况
-            if (relativeAngle > 180) relativeAngle -= 360;
-            if (relativeAngle < -180) relativeAngle += 360;
-            
-            std::string relativeAngleText = "Relative: " + std::to_string(relativeAngle) + "°";
+            // 注意：这里使用我们刚算好的 rel；不再做手工环绕判断
+            std::string relativeAngleText = "Relative: " + std::to_string(rel) + "°";
             cv::putText(vis, relativeAngleText, cv::Point(10, 60), 
                        cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 255), 2);
         }
@@ -776,14 +836,19 @@ void MainWindow::onResetZero()
             return;
         }
         
-        // 设置零位 - 记录检测到的角度作为全局0度参考点
-        m_zeroAngle = angle;  // 记录这个角度作为参考点
+        // NEW: 归位基于"展开角"初始化；记录连续零位
+        updateUnwrappedFromAbs(angle);   // 初始化/对齐展开角序列
+        m_zeroUnwrapped = m_unwrappedAngle;
+        m_zeroAngle = angle;             // 仅用于 UI 显示（可保留）
         m_hasZero = true;
         
-        // 重置行程跟踪
+        // 重置方向跟踪
         resetStrokeTracking();
         
-        qDebug() << "零位设置成功，检测角度:" << angle << "度，设为全局0度参考点";
+        qDebug() << "零位设置成功 Abs:" << angle
+                 << " Unwrapped:" << m_unwrappedAngle
+                 << " ZeroUnwrapped:" << m_zeroUnwrapped
+                 << "（归位=Relative 0°）";
         
         // 归位操作：清空当前轮次所有数据，然后添加零度数据到采集数据1
         if (m_currentRound < m_allRoundsData.size()) {
@@ -804,6 +869,12 @@ void MainWindow::onResetZero()
             qDebug() << "第" << (m_currentRound + 1) << "轮数据已清空，零度已写入采集数据1";
         }
         
+        // 重置最大角度采集状态
+        m_maxAngleCaptured = false;
+        m_maxAngleCaptureMode = false;
+        m_tempMaxAngle = 0.0;
+        m_tempCurrentAngle = 0.0;
+        
         // 同时更新误差表格（如果打开的话）
         updateErrorTableWithAllRounds();
         
@@ -820,10 +891,13 @@ void MainWindow::onResetZero()
         det.showScale1Result();
         cv::Mat vis = det.visual();
         
-        // 在图像上显示归位时的0度
+        // 在图像上显示归位时的0度（相对角）
         std::string zeroAngleText = "Zero: 0°";
         cv::putText(vis, zeroAngleText, cv::Point(10, 60), 
                    cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 255), 2);
+        // 同时叠加 Relative: 0°
+        std::string relativeAngleText = "Relative: 0°";
+        cv::putText(vis, relativeAngleText, cv::Point(10, 90), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0,255,255), 2);
         
         cv::cvtColor(vis, vis, cv::COLOR_BGR2RGB);
         QImage q(vis.data, vis.cols, vis.rows, vis.step, QImage::Format_RGB888);
@@ -876,25 +950,25 @@ void MainWindow::runAlgoOnce()
 
         // 更新角度标签
         if (angle != -999) {
-            // 更新指针运动方向（如果已设置零位）
-            if (m_hasZero) {
-                updatePointerDirection(angle);
-            }
-            
+            // 统一通过展开角维护方向与相对角
+            double rel = m_hasZero ? processAbsAngle(angle) : 0.0;
             QString txt;
             if (m_hasZero) {
-                double delta = angle - m_zeroAngle;
-                if (delta > 180)  delta -= 360;
-                if (delta < -180) delta += 360;
-                txt = QString("零位: %1° | 当前: %2° | 角度差: %3° | 行程: %4")
-                        .arg(m_zeroAngle, 0, 'f', 2)
+                txt = QString("零位: 0° | 当前(Abs): %1° | 相对: %2° | 行程: %3")
                         .arg(angle, 0, 'f', 2)
-                        .arg(delta, 0, 'f', 2)
+                        .arg(rel, 0, 'f', 2)
                         .arg(getStrokeDirectionString());
             } else {
-                txt = QString("当前角度: %1°").arg(angle, 0, 'f', 2);
+                txt = QString("当前(Abs): %1°").arg(angle, 0, 'f', 2);
             }
             ui->labelAngle->setText(txt);
+
+            // 在可视化图上叠加 Relative
+            if (m_hasZero) {
+                std::string relativeAngleText = "Relative: " + std::to_string(rel) + "°";
+                cv::putText(vis, relativeAngleText, cv::Point(10, 60), 
+                           cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 255), 2);
+            }
         }
     }
     catch (const std::exception &e) {
@@ -1519,13 +1593,11 @@ void highPreciseDetector::showScale1Result() {
                 cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
     }
     
-    // 添加角度文本 - 显示相对于零位的角度差
+    // 添加角度文本 - 显示绝对角度（用于调试）
     if (m_angle != -999) {
-        // 这里需要外部传入零位角度来计算角度差
-        // 暂时显示原始角度，后续会通过参数传入零位角度
-        std::string angleText = "Angle: " + std::to_string(m_angle) + "°";
+        std::string angleText = "Abs: " + std::to_string(m_angle) + "°";
         cv::putText(m_visual, angleText, cv::Point(10, 30), 
-                   cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 0), 2);
+                   cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 0), 2);
     }
 }
 
@@ -1560,45 +1632,22 @@ void MainWindow::setupExpandedLayout()
 }
 
 void MainWindow::updatePointerDirection(double currentAngle) {
-    if (!m_hasPreviousAngle) {
-        // 第一次测量，记录当前角度
-        m_previousAngle = currentAngle;
-        m_hasPreviousAngle = true;
-        m_strokeDirection = 0;  // 未知方向
-        qDebug() << "初始化指针位置:" << currentAngle << "度";
-        return;
-    }
-    
-    // 计算角度变化，考虑360度跨越的情况
-    double angleDelta = currentAngle - m_previousAngle;
-    
-    // 处理跨越360度边界的情况
-    if (angleDelta > 180) {
-        angleDelta -= 360;  // 实际是逆时针运动
-    } else if (angleDelta < -180) {
-        angleDelta += 360;  // 实际是顺时针运动
-    }
-    
-    // 设置最小角度阈值，避免噪声影响
-    const double minAngleThreshold = 2.0;  // 2度阈值
-    
-    if (abs(angleDelta) > minAngleThreshold) {
+    // NEW: 方向判断统一基于最近一次展开角增量 m_lastDelta
+    Q_UNUSED(currentAngle);
+    const double minAngleThreshold = 2.0;
+    double angleDelta = m_lastDelta; // 已由 processAbsAngle 更新
+    if (std::abs(angleDelta) > minAngleThreshold) {
         if (angleDelta > 0) {
-            // 顺时针运动 - 正行程
             m_strokeDirection = 1;
             m_isForwardStroke = true;
             qDebug() << "检测到正行程（顺时针），角度变化:" << angleDelta << "度";
         } else {
-            // 逆时针运动 - 反行程
             m_strokeDirection = -1;
             m_isForwardStroke = false;
             qDebug() << "检测到反行程（逆时针），角度变化:" << angleDelta << "度";
         }
-        
-        // 更新上一次角度
-        m_previousAngle = currentAngle;
+        m_hasPreviousAngle = true;
     }
-    // 如果角度变化太小，保持当前方向状态不变
 }
 
 QString MainWindow::getStrokeDirectionString() const {
@@ -1618,23 +1667,23 @@ void MainWindow::resetStrokeTracking() {
     m_previousAngle = 0.0;
     m_strokeDirection = 0;
     m_isForwardStroke = true;
+    m_hasUnwrapped = false; // NEW: 清空展开角序列，下次归位/测量会重建
     qDebug() << "重置行程跟踪状态";
 }
 
 double MainWindow::measureAngleMultipleTimes(const cv::Mat& frame, int measureCount) {
     std::vector<double> angles;
-    
-    qDebug() << "开始进行" << measureCount << "次角度测量以提高精度";
-    
-    // 进行多次测量
+    angles.reserve(std::max(1, measureCount));
+
+    qDebug() << "开始进行" << measureCount << "次角度测量(圆统计均值)";
     for (int i = 0; i < measureCount; ++i) {
         try {
             highPreciseDetector det(frame, m_currentConfig);
             if (!det.getLine().empty()) {
-                double angle = det.getAngle();
-                if (angle != -999) {
-                    angles.push_back(angle);
-                    qDebug() << "第" << (i + 1) << "次测量角度:" << angle;
+                double a = det.getAngle(); // 0~360
+                if (a != -999) {
+                    angles.push_back(norm0_360(a));
+                    qDebug() << "第" << (i + 1) << "次测量角度:" << a;
                 } else {
                     qDebug() << "第" << (i + 1) << "次测量失败：角度计算错误";
                 }
@@ -1645,85 +1694,36 @@ double MainWindow::measureAngleMultipleTimes(const cv::Mat& frame, int measureCo
             qDebug() << "第" << (i + 1) << "次测量异常:" << e.what();
         }
     }
-    
+
     if (angles.empty()) {
         qDebug() << "所有测量都失败";
         return -999;
     }
-    
     if (angles.size() == 1) {
         qDebug() << "仅有1次有效测量，直接返回:" << angles[0];
         return angles[0];
     }
-    
-    // 异常值检测和过滤
-    std::vector<double> validAngles;
-    
-    if (angles.size() >= 2) {
-        // 计算所有角度的平均值和标准差
-        double sum = 0;
-        for (double angle : angles) {
-            sum += angle;
-        }
-        double mean = sum / angles.size();
-        
-        double variance = 0;
-        for (double angle : angles) {
-            double diff = angle - mean;
-            // 处理角度跨越360度边界的情况
-            if (diff > 180) diff -= 360;
-            if (diff < -180) diff += 360;
-            variance += diff * diff;
-        }
-        double stdDev = sqrt(variance / angles.size());
-        
-        qDebug() << "初步统计 - 平均值:" << mean << "标准差:" << stdDev;
-        
-        // 异常值阈值：2倍标准差或最小5度
-        double threshold = std::max(2.0 * stdDev, 5.0);
-        
-        // 过滤异常值
-        for (double angle : angles) {
-            double diff = angle - mean;
-            // 处理角度跨越360度边界的情况
-            if (diff > 180) diff -= 360;
-            if (diff < -180) diff += 360;
-            
-            if (abs(diff) <= threshold) {
-                validAngles.push_back(angle);
-                qDebug() << "保留有效角度:" << angle << "偏差:" << diff;
-            } else {
-                qDebug() << "过滤异常角度:" << angle << "偏差:" << diff << "超过阈值:" << threshold;
-            }
-        }
+
+    // 先做一次圆均值
+    double mean0 = circularMeanDeg(angles);
+
+    // 用"最短角差"的绝对偏差做简单鲁棒过滤
+    double sumAbsDiff = 0.0;
+    for (double a : angles) sumAbsDiff += std::abs(wrapSigned180(a - mean0));
+    double mad = sumAbsDiff / angles.size();
+    double thr = std::max(5.0, 2.5 * mad); // 至少5°或2.5*MAD
+
+    std::vector<double> filtered;
+    filtered.reserve(angles.size());
+    for (double a : angles) {
+        double d = std::abs(wrapSigned180(a - mean0));
+        if (d <= thr) filtered.push_back(a);
     }
-    
-    // 如果过滤后没有足够的有效值，使用所有测量值
-    if (validAngles.size() < 2) {
-        qDebug() << "过滤后有效角度不足，使用所有测量值";
-        validAngles = angles;
-    }
-    
-    // 计算最终平均值
-    double finalSum = 0;
-    for (double angle : validAngles) {
-        finalSum += angle;
-    }
-    double finalAverage = finalSum / validAngles.size();
-    
-    // 计算最终的精度评估
-    double maxDiff = 0;
-    for (double angle : validAngles) {
-        double diff = abs(angle - finalAverage);
-        if (diff > 180) diff = 360 - diff;  // 处理跨越边界的情况
-        maxDiff = std::max(maxDiff, diff);
-    }
-    
-    qDebug() << "最终结果 - 平均角度:" << finalAverage 
-             << "有效测量次数:" << validAngles.size() 
-             << "最大偏差:" << maxDiff << "度";
-    
-    return finalAverage;
+    if (filtered.size() < 2) filtered = angles; // 兜底
+
+    double mean = circularMeanDeg(filtered);
+    qDebug() << "圆均值:" << mean << " 样本数:" << filtered.size();
+    return mean; // 返回稳定 Abs 角 [0,360)
 }
 
 
@@ -1794,9 +1794,6 @@ void MainWindow::updateDataTable()
             // 第一个位置显示0度（归位数据）
             forwardLabels[i]->setText("0.00°");
             forwardLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #d4edda; }");
-        } else {
-            forwardLabels[i]->setText("采集数据" + QString::number(i + 1));
-            forwardLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }");
         }
     }
     
@@ -1813,10 +1810,7 @@ void MainWindow::updateDataTable()
             reverseLabels[i]->setText(QString::number(currentRound.backwardAngles[dataIndex], 'f', 2) + "°");
             reverseLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #cce7ff; }");
             qDebug() << "反行程显示：采集数据" << (i + 1) << "显示数据" << currentRound.backwardAngles[dataIndex] << "（来自数组位置" << (dataIndex + 1) << "）";
-        } else {
-            reverseLabels[i]->setText("采集数据" + QString::number(i + 1));
-            reverseLabels[i]->setStyleSheet("QLabel { border: 1px solid #ccc; padding: 3px; background-color: #f8f9fa; }");
-        }
+        } 
     }
     
     // 更新最大角度显示
@@ -1910,7 +1904,7 @@ void MainWindow::onConfirmData()
     }
     
     // 正常数据采集模式
-    // 直接使用采集按钮时计算并保存的角度差
+    // 直接使用采集按钮时计算并保存的角度差（连续相对角）
     double angleDelta = m_lastCalculatedDelta;
     
     qDebug() << "确定按钮 - 直接使用采集按钮保存的角度差:" << angleDelta << "度";
@@ -1923,7 +1917,7 @@ void MainWindow::onConfirmData()
     }
     
     double currentAngle = measureAngleMultipleTimes(frame, 3);
-    updatePointerDirection(currentAngle);
+    processAbsAngle(currentAngle); // 更新展开角 & 方向
     
     // 检查当前轮次数据状态
     if (m_currentRound < m_allRoundsData.size()) {
@@ -1948,20 +1942,18 @@ void MainWindow::onConfirmData()
                 m_isForwardStroke = false;
                 QMessageBox::information(this, "自动切换", "正行程数据采集完成，已自动切换到反行程！");
             }
-        } else if (!m_maxAngleCaptured) {
-            // 最大角度未采集，强制填写到正行程
+        } else if (!m_maxAngleCaptured && m_currentForwardIndex > 0 && !m_isForwardStroke) {
+            // 只有在已经采集了正行程数据、最大角度未采集、且当前不在正行程时，才提示
             shouldAddToForward = true;
-            if (!m_isForwardStroke) {
-                m_isForwardStroke = true;
-                QMessageBox::information(this, "提示", "最大角度未采集，数据将填写到正行程！");
-            }
+            m_isForwardStroke = true;
+            QMessageBox::information(this, "提示", "最大角度未采集，数据将填写到正行程！");
         }
         
         // 添加到当前轮次数据中
-        addAngleToCurrentRound(abs(angleDelta), shouldAddToForward);
+        addAngleToCurrentRound(angleDelta, shouldAddToForward);
     } else {
         // 添加到当前轮次数据中（使用当前状态）
-        addAngleToCurrentRound(abs(angleDelta), m_isForwardStroke);
+        addAngleToCurrentRound(angleDelta, m_isForwardStroke);
     }
     
     // 同时更新误差表格（如果打开的话）
@@ -2096,6 +2088,13 @@ void MainWindow::onClearData()
     
     // 重置角度差
     m_lastCalculatedDelta = 0.0;
+    
+    // 重置展开角状态
+    m_hasUnwrapped = false;
+    m_unwrappedAngle = 0.0;
+    m_zeroUnwrapped = 0.0;
+    m_previousAbs = 0.0;
+    m_lastDelta = 0.0;
     
     // 重新初始化5轮数据结构
     initializeRoundsData();
@@ -2233,17 +2232,11 @@ void MainWindow::onMaxAngleCapture()
         det.showScale1Result();
         cv::Mat vis = det.visual();
         
-        // 在图像上显示相对于零位的角度差
-        if (det.getAngle() != -999) {
-            double relativeAngle = det.getAngle() - m_zeroAngle;
-            // 处理跨越360度边界的情况
-            if (relativeAngle > 180) relativeAngle -= 360;
-            if (relativeAngle < -180) relativeAngle += 360;
-            
-            std::string relativeAngleText = "Relative: " + std::to_string(relativeAngle) + "°";
-            cv::putText(vis, relativeAngleText, cv::Point(10, 60), 
-                       cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 255), 2);
-        }
+        // 在图像上显示"连续相对角"
+        double relForVis = 0.0;
+        if (det.getAngle() != -999) relForVis = currentRelativeAngle();
+        std::string relativeAngleText = "Relative: " + std::to_string(relForVis) + "°";
+        cv::putText(vis, relativeAngleText, cv::Point(10, 60), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0,255,255), 2);
         
         cv::cvtColor(vis, vis, cv::COLOR_BGR2RGB);
         QImage q(vis.data, vis.cols, vis.rows, vis.step, QImage::Format_RGB888);
@@ -2259,26 +2252,24 @@ void MainWindow::onMaxAngleCapture()
             return;
         }
         
-        // 计算角度差 - 相对于零位的角度差
-        double angleDelta = currentAngle - m_zeroAngle;
-        if (angleDelta > 180) angleDelta -= 360;
-        if (angleDelta < -180) angleDelta += 360;
+        // 使用展开角得到连续相对角
+        double rel = processAbsAngle(currentAngle);
         
         // 更新界面显示当前角度
         ui->labelAngle->setText(
-            QString("零位: 0° | 当前: %1° | 角度差: %2° | 最大角度采集模式")
+            QString("零位: 0° | 当前(Abs): %1° | 相对: %2° | 最大角度采集模式")
                 .arg(currentAngle, 0, 'f', 2)
-                .arg(angleDelta, 0, 'f', 2));
+                .arg(rel, 0, 'f', 2));
         
         // 保存当前角度和角度差，供确定按钮使用
-        m_tempMaxAngle = abs(angleDelta);
+        m_tempMaxAngle = std::abs(rel);
         m_tempCurrentAngle = currentAngle;
         m_maxAngleCaptureMode = true;  // 进入最大角度采集模式
         
         QMessageBox::information(this, "最大角度采集", 
-            QString("当前角度: %1°\n角度差: %2°\n请点击确定按钮保存最大角度")
+            QString("当前角度(Abs): %1°\n相对: %2°\n请点击确定按钮保存最大角度")
             .arg(currentAngle, 0, 'f', 2)
-            .arg(angleDelta, 0, 'f', 2));
+            .arg(rel, 0, 'f', 2));
             
     } catch (const std::exception& e) {
         qDebug() << "最大角度采集时发生异常:" << e.what();
@@ -2431,16 +2422,16 @@ void MainWindow::measureAndSaveMaxAngle()
         return;
     }
     
-    // 多次测量取平均值，提高精度
-    double currentAngle = measureAngleMultipleTimes(frame, 5);  // 测量5次取平均
+    // 多次测量取平均值（Abs），随后以展开角得到连续相对角
+    double currentAbs = measureAngleMultipleTimes(frame, 5);
+    if (currentAbs == -999) {
+        QMessageBox::warning(this, "警告", "无法计算角度！");
+        return;
+    }
+    double rel = processAbsAngle(currentAbs); // 连续相对角
     
-    // 计算角度差 - 相对于零位的角度差
-    double angleDelta = currentAngle - m_zeroAngle;  // 当前角度减去零位角度
-    if (angleDelta > 180) angleDelta -= 360;
-    if (angleDelta < -180) angleDelta += 360;
-    
-    // 保存绝对值角度
-    double maxAngle = abs(angleDelta);
+    // 保存绝对值角度（满量程幅值）
+    double maxAngle = std::abs(rel);
     m_maxAngle = maxAngle;
     m_maxAngleCaptured = true;  // 设置最大角度已采集标志
     
@@ -2486,11 +2477,11 @@ void MainWindow::measureAndSaveMaxAngle()
                 requiredForwardCount = 6;  // 默认6个
             }
             
-            QMessageBox::information(this, "最大角度测量", 
-                QString("最大角度测量完成\n当前角度: %1°\n平均最大角度: %2°\n已完成%3个正行程数据采集\n已自动切换到反行程，现在可以进行反行程数据采集")
-                .arg(maxAngle, 0, 'f', 2)
-                .arg(m_errorTableDialog ? m_errorTableDialog->calculateAverageMaxAngle() : maxAngle, 0, 'f', 2)
-                .arg(requiredForwardCount));
+            // QMessageBox::information(this, "最大角度测量", 
+            //     QString("最大角度测量完成\n当前角度: %1°\n平均最大角度: %2°\n已完成%3个正行程数据采集\n已自动切换到反行程，现在可以进行反行程数据采集")
+            //     .arg(maxAngle, 0, 'f', 2)
+            //     .arg(m_errorTableDialog ? m_errorTableDialog->calculateAverageMaxAngle() : maxAngle, 0, 'f', 2)
+            //     .arg(requiredForwardCount));
         } else {
             // 根据表盘类型确定需要的数据数量
             int requiredForwardCount = 0;
@@ -2502,11 +2493,11 @@ void MainWindow::measureAndSaveMaxAngle()
                 requiredForwardCount = 6;  // 默认6个
             }
             
-            QMessageBox::information(this, "最大角度测量", 
-                QString("最大角度测量完成\n当前角度: %1°\n平均最大角度: %2°\n请继续完成正行程数据采集（需要%3个数据）")
-                .arg(maxAngle, 0, 'f', 2)
-                .arg(m_errorTableDialog ? m_errorTableDialog->calculateAverageMaxAngle() : maxAngle, 0, 'f', 2)
-                .arg(requiredForwardCount));
+            // QMessageBox::information(this, "最大角度测量", 
+            //     QString("最大角度测量完成\n当前角度: %1°\n平均最大角度: %2°\n请继续完成正行程数据采集（需要%3个数据）")
+            //     .arg(maxAngle, 0, 'f', 2)
+            //     .arg(m_errorTableDialog ? m_errorTableDialog->calculateAverageMaxAngle() : maxAngle, 0, 'f', 2)
+            //     .arg(requiredForwardCount));
         }
     }
 }
@@ -2863,10 +2854,10 @@ QString MainWindow::getCurrentStatusInfo() const
 void MainWindow::updateDetectionPointLabels()
 {
     // 根据表盘类型设置检测点数量
-    if (m_currentConfig->dialType == "YYQY") {
+    if (m_currentDialType == "YYQY-13") {
         // YYQY表盘：6个检测点，显示 0, 1, 2, 3, 4, 5 MPa
         m_requiredDataCount = 6;
-        m_detectionPoints = {0, 1, 2, 3, 4, 5}; // YYQY表盘的检测点压力值
+        m_detectionPoints = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0}; // YYQY表盘的检测点压力值
         
         // 更新正行程检测点标签
         ui->labelForwardData1->setText("0 MPa");
@@ -2884,10 +2875,10 @@ void MainWindow::updateDetectionPointLabels()
         ui->labelReverseData5->setText("4 MPa");
         ui->labelReverseData6->setText("5 MPa");
         
-    } else if (m_currentConfig->dialType == "BYQ") {
+    } else if (m_currentDialType == "BYQ-19") {
         // BYQ表盘：5个检测点，显示 0, 6, 10, 21, 25 MPa
         m_requiredDataCount = 5;
-        m_detectionPoints = {0, 6, 10, 21, 25}; // BYQ表盘的检测点压力值
+        m_detectionPoints = {0.0, 6.0, 10.0, 21.0, 25.0}; // BYQ表盘的检测点压力值
         
         // 更新正行程检测点标签
         ui->labelForwardData1->setText("0 MPa");
@@ -2906,7 +2897,7 @@ void MainWindow::updateDetectionPointLabels()
         ui->labelReverseData6->setText("--");  // BYQ表盘只有5个检测点
     }
     
-    qDebug() << "检测点标签已更新，表盘类型:" << m_currentConfig->dialType << "检测点数量:" << m_requiredDataCount;
+    qDebug() << "检测点标签已更新，表盘类型:" << m_currentDialType << "检测点数量:" << m_requiredDataCount;
 }
 
 void MainWindow::setDetectionPointValues()
