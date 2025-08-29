@@ -203,6 +203,7 @@ private:
     
     // 新增计算函数
     double calculateAverageAngleForDetectionPoint(int pointIndex) const;
+    double calculateFinalMeasuredAngleForDetectionPoint(int pointIndex) const;
     bool isAllRoundsCompleted() const;
     double getFixedHysteresisError(int pointIndex) const;
     double calculateHysteresisAngle(int pointIndex) const;
