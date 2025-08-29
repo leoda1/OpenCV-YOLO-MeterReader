@@ -135,7 +135,13 @@ double MainWindow::circularMeanDeg(const std::vector<double>& angles) {
 double MainWindow::updateUnwrappedFromAbs(double absDeg) {
     absDeg = norm0_360(absDeg);
     if (!m_hasUnwrapped) {
-        m_unwrappedAngle = absDeg;
+        // m_unwrappedAngle = absDeg;
+        if(m_hasZero) {
+            double k = std::round((m_zeroUnwrapped - absDeg) / 360.0);
+            m_unwrappedAngle = absDeg + 360.0 * k;
+        } else {
+            m_unwrappedAngle = absDeg;
+        }
         m_previousAbs = absDeg;
         m_hasUnwrapped = true;
         m_lastDelta = 0.0;
@@ -172,12 +178,12 @@ double MainWindow::processAbsAngle(double absDeg) {
 
 MainWindow::~MainWindow()
 {
-    // 清理按钮动画定时器
-    if (m_buttonAnimationTimer) {
-        m_buttonAnimationTimer->stop();
-        delete m_buttonAnimationTimer;
-        m_buttonAnimationTimer = nullptr;
-    }
+    // 删除未使用的按钮动画定时器清理代码
+    // if (m_buttonAnimationTimer) {
+    //     m_buttonAnimationTimer->stop();
+    //     delete m_buttonAnimationTimer;
+    //     m_buttonAnimationTimer = nullptr;
+    // }
     
     // 确保相机资源正确释放
     try {
@@ -1693,7 +1699,7 @@ void MainWindow::resetStrokeTracking() {
     m_previousAngle = 0.0;
     m_strokeDirection = 0;
     m_isForwardStroke = true;
-    m_hasUnwrapped = false; // NEW: 清空展开角序列，下次归位/测量会重建
+    // m_hasUnwrapped = false;
     qDebug() << "重置行程跟踪状态";
 }
 
@@ -1905,11 +1911,11 @@ void MainWindow::onConfirmData()
             updateDataTable();
             updateErrorTableWithAllRounds();
             
-            QMessageBox::information(this, "最大角度保存", 
-                QString("最大角度已保存：%1°\n当前角度：%2°\n角度差：%3°")
+            // 减少弹窗：只在状态栏显示成功信息
+            ui->statusBar->showMessage(
+                QString("最大角度已保存: %1° 当前角度: %2°")
                 .arg(m_tempMaxAngle, 0, 'f', 2)
-                .arg(m_tempCurrentAngle, 0, 'f', 2)
-                .arg(m_tempMaxAngle, 0, 'f', 2));
+                .arg(m_tempCurrentAngle, 0, 'f', 2), 3000); // 显示3秒
             
             // 检查是否应该自动切换到反行程
             const RoundData &currentRound = m_allRoundsData[m_currentRound];
@@ -1923,7 +1929,8 @@ void MainWindow::onConfirmData()
             
             if (forwardComplete) {
                 m_isForwardStroke = false;  // 自动切换到反行程
-                QMessageBox::information(this, "自动切换", "正行程数据采集完成，已自动切换到反行程！");
+                // 减少弹窗：只在状态栏显示切换信息
+                ui->statusBar->showMessage("正行程完成，已自动切换到反行程", 3000);
             }
         }
         return;
@@ -1964,15 +1971,17 @@ void MainWindow::onConfirmData()
         if (forwardComplete && m_maxAngleCaptured) {
             // 正行程已完成且最大角度已采集，切换到反行程
             shouldAddToForward = false;
-            if (m_isForwardStroke) {
-                m_isForwardStroke = false;
-                QMessageBox::information(this, "自动切换", "正行程数据采集完成，已自动切换到反行程！");
-            }
+                    if (m_isForwardStroke) {
+            m_isForwardStroke = false;
+            // 减少弹窗：只在状态栏显示切换信息
+            ui->statusBar->showMessage("正行程完成，已自动切换到反行程", 3000);
+        }
         } else if (!m_maxAngleCaptured && m_currentForwardIndex > 0 && !m_isForwardStroke) {
             // 只有在已经采集了正行程数据、最大角度未采集、且当前不在正行程时，才提示
             shouldAddToForward = true;
             m_isForwardStroke = true;
-            QMessageBox::information(this, "提示", "最大角度未采集，数据将填写到正行程！");
+            // 减少弹窗：只在状态栏显示提示信息
+            ui->statusBar->showMessage("最大角度未采集，数据将填写到正行程", 3000);
         }
         
         // 添加到当前轮次数据中
@@ -2006,12 +2015,13 @@ void MainWindow::onConfirmData()
         }
     }
     
-    QMessageBox::information(this, "确认", 
-        QString("已添加数据（%1°）到第%2轮 %3 采集数据%4")
+    // 减少弹窗：只在状态栏显示确认信息
+    ui->statusBar->showMessage(
+        QString("已添加数据 %1° 到第%2轮 %3 采集数据%4")
         .arg(abs(angleDelta), 0, 'f', 2)
         .arg(m_currentRound + 1)
         .arg(m_isForwardStroke ? "正行程" : "反行程")
-        .arg(currentDataPosition));
+        .arg(currentDataPosition), 3000);
 }
 
 // 保存按钮点击处理
@@ -2040,11 +2050,12 @@ void MainWindow::onSaveData()
             }
         }
         
-        QMessageBox::information(this, "保存", 
-            QString("第%1轮数据已保存！\n正行程数据：%2个\n反行程数据：%3个")
+        // 减少弹窗：只在状态栏显示保存信息
+        ui->statusBar->showMessage(
+            QString("第%1轮数据已保存！正行程:%2个 反行程:%3个")
             .arg(m_currentRound + 1)
             .arg(forwardCount)
-            .arg(backwardCount));
+            .arg(backwardCount), 3000);
         
         // 移动到下一轮
         if (m_currentRound < m_totalRounds - 1) {  // 最多m_totalRounds轮
@@ -2065,7 +2076,9 @@ void MainWindow::onSaveData()
                 m_allRoundsData[m_currentRound].isCompleted = false;
             }
         } else {
-            QMessageBox::information(this, "完成", QString("所有%1轮数据采集已完成！").arg(m_totalRounds));
+            // 减少弹窗：只在状态栏显示完成信息
+            ui->statusBar->showMessage(
+                QString("所有%1轮数据采集已完成！").arg(m_totalRounds), 5000);
         }
         
         // 更新检测点标签显示
@@ -2131,7 +2144,9 @@ void MainWindow::onClearData()
     // 更新显示
     updateDataTable();
     
-    QMessageBox::information(this, "清空完成", QString("已成功清空所有%1轮采集数据！").arg(m_totalRounds));
+    // 减少弹窗：只在状态栏显示清空完成信息
+    ui->statusBar->showMessage(
+        QString("已成功清空所有%1轮采集数据！").arg(m_totalRounds), 3000);
     qDebug() << "已清空所有采集数据";
 }
 
@@ -2158,9 +2173,9 @@ void MainWindow::onSwitchDialType()
     // 更新检测点标签显示
     updateDetectionPointLabels();
     
-    // 显示切换信息
-    QMessageBox::information(this, "表盘切换", 
-        QString("已切换到 %1 表盘\n数据数量：%2个").arg(m_currentDialType).arg(m_requiredDataCount));
+    // 减少弹窗：只在状态栏显示切换信息
+    ui->statusBar->showMessage(
+        QString("已切换到 %1 表盘，数据数量：%2个").arg(m_currentDialType).arg(m_requiredDataCount), 3000);
     
     qDebug() << "表盘已切换为:" << m_currentDialType << "需要数据数量:" << m_requiredDataCount;
 }
@@ -2180,12 +2195,15 @@ void MainWindow::onExitApplication()
         
         // 关闭相机连接
         if (m_camera.IsOpen()) {
+            m_camera.StopGrabbing();
             m_camera.Close();
             qDebug() << "相机已关闭";
         }
         
-        // 退出应用程序
-        QApplication::quit();
+        // 强制退出应用程序，避免事件循环问题
+        QTimer::singleShot(0, this, [this]() {
+            QApplication::quit();
+        });
     } else {
         qDebug() << "用户取消退出";
     }
@@ -2292,10 +2310,11 @@ void MainWindow::onMaxAngleCapture()
         m_tempCurrentAngle = currentAngle;
         m_maxAngleCaptureMode = true;  // 进入最大角度采集模式
         
-        QMessageBox::information(this, "最大角度采集", 
-            QString("当前角度(Abs): %1°\n相对: %2°\n请点击确定按钮保存最大角度")
+        // 减少弹窗：只在状态栏显示信息，不弹窗
+        ui->statusBar->showMessage(
+            QString("最大角度采集模式 - 当前角度: %1° 相对: %2° 请点击确定按钮保存")
             .arg(currentAngle, 0, 'f', 2)
-            .arg(rel, 0, 'f', 2));
+            .arg(rel, 0, 'f', 2), 5000); // 显示5秒
             
     } catch (const std::exception& e) {
         qDebug() << "最大角度采集时发生异常:" << e.what();
@@ -2595,14 +2614,6 @@ void MainWindow::setupButtonAnimations()
 {
     qDebug() << "设置按钮动画";
     
-    // 创建动画定时器
-    m_buttonAnimationTimer = new QTimer(this);
-    m_buttonAnimationTimer->setSingleShot(true);
-    m_buttonAnimationTimer->setInterval(150); // 150毫秒动画时长
-    
-    // 连接定时器信号
-    connect(m_buttonAnimationTimer, &QTimer::timeout, this, &MainWindow::resetButtonStyle);
-    
     // 为所有主要按钮添加点击动画
     QList<QPushButton*> buttons = {
         ui->pushResetZero,      // 归位
@@ -2634,12 +2645,10 @@ void MainWindow::setupButtonAnimations()
                 QPushButton:hover {
                     background-color: #357ABD;
                     border-color: #2E6DA4;
-                    transform: translateY(-1px);
                 }
                 QPushButton:pressed {
                     background-color: #2E6DA4;
                     border-color: #1B4F75;
-                    transform: translateY(1px);
                 }
                 QPushButton:disabled {
                     background-color: #B8B8B8;
@@ -2660,10 +2669,13 @@ void MainWindow::onButtonClicked()
     
     qDebug() << "按钮点击动画:" << button->text();
     
+    // 先重置所有按钮的样式（包括之前点击的按钮）
+    resetAllButtonsStyle();
+    
     // 记录最后点击的按钮
     m_lastClickedButton = button;
     
-    // 应用点击动画样式
+    // 应用常亮样式（红色常亮）
     button->setStyleSheet(R"(
         QPushButton {
             background-color: #FF6B6B;
@@ -2673,12 +2685,16 @@ void MainWindow::onButtonClicked()
             font-weight: bold;
             color: white;
             font-size: 12px;
-            transform: scale(0.95);
+        }
+        QPushButton:hover {
+            background-color: #FF5252;
+            border-color: #D32F2F;
+        }
+        QPushButton:pressed {
+            background-color: #FF5252;
+            border-color: #D32F2F;
         }
     )");
-    
-    // 启动定时器，延迟恢复原样式
-    m_buttonAnimationTimer->start();
 }
 
 void MainWindow::resetButtonStyle()
@@ -2712,6 +2728,51 @@ void MainWindow::resetButtonStyle()
     )");
     
     m_lastClickedButton = nullptr;
+}
+
+void MainWindow::resetAllButtonsStyle()
+{
+    // 重置所有按钮的样式为默认样式
+    QList<QPushButton*> buttons = {
+        ui->pushResetZero,      // 归位
+        ui->pushCaptureZero,    // 采集
+        ui->pushConfirm,        // 确定
+        ui->pushSave,           // 保存
+        ui->pushClear,          // 清空
+        ui->pushSwitchDial,     // 切换表盘
+        ui->pushMaxAngle,       // 最大角度采集
+        ui->pushExit            // 退出
+    };
+    
+    for (QPushButton* button : buttons) {
+        if (button) {
+            // 重置所有按钮为默认样式（包括之前点击的按钮）
+            button->setStyleSheet(R"(
+                QPushButton {
+                    background-color: #4A90E2;
+                    border: 2px solid #357ABD;
+                    border-radius: 8px;
+                    padding: 8px 16px;
+                    font-weight: bold;
+                    color: white;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: #357ABD;
+                    border-color: #2E6DA4;
+                }
+                QPushButton:pressed {
+                    background-color: #2E6DA4;
+                    border-color: #1B4F75;
+                }
+                QPushButton:disabled {
+                    background-color: #B8B8B8;
+                    border-color: #A0A0A0;
+                    color: #666666;
+                }
+            )");
+        }
+    }
 }
 
 void MainWindow::addAngleToCurrentRound(double angle, bool isForward)
@@ -2957,14 +3018,16 @@ void MainWindow::setTotalRounds(int rounds)
 void MainWindow::onSetRounds2()
 {
     setTotalRounds(2);
-    QMessageBox::information(this, "轮数设置", "已设置为2轮数据采集！");
+    // 减少弹窗：只在状态栏显示设置信息
+    ui->statusBar->showMessage("已设置为2轮数据采集！", 3000);
 }
 
 // 快速设置5轮
 void MainWindow::onSetRounds5()
 {
     setTotalRounds(5);
-    QMessageBox::information(this, "轮数设置", "已设置为5轮数据采集！");
+    // 减少弹窗：只在状态栏显示设置信息
+    ui->statusBar->showMessage("已设置为5轮数据采集！", 3000);
 }
 
 void MainWindow::setDetectionPointValues()
