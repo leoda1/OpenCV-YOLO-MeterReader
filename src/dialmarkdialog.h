@@ -52,10 +52,11 @@ struct TextAnnotation {
 // BYQ表盘配置
 struct BYQDialConfig {
     double maxPressure;      // 最大压力值 (MPa)
+    double totalAngle;       // 表盘总角度 (度)
     double majorStep;        // 主刻度步长 (MPa)
     double minorStep;        // 次刻度步长 (MPa)
     
-    BYQDialConfig() : maxPressure(50.0), majorStep(10.0), minorStep(1.0) {}
+    BYQDialConfig() : maxPressure(25.0), totalAngle(100.0), majorStep(5.0), minorStep(1.0) {}
 };
 
 // YYQY表盘配置
@@ -221,12 +222,12 @@ private:
     QPixmap generateYYQYDialImage();  // YYQY类型表盘
     
     // BYQ表盘绘制方法
-    void drawTicksAndNumbers(QPainter& p, const QPointF& C, double outerR,
-                            double startDeg, double spanDeg,
-                            double vmax, double majorStep, int minorPerMajor);
-    void drawColorBandsOverTicks(QPainter& p, const QPointF& C, double outerR,
-                                 double startDeg, double spanDeg, double vmax);
-    void drawUnitMPa(QPainter& p, const QPointF& C, double outerR);
+    void drawBYQTicksAndNumbers(QPainter& p, const QPointF& C, double outerR,
+                                double startDeg, double spanDeg,
+                                double vmax, double majorStep);
+    void drawBYQColorBands(QPainter& p, const QPointF& C, double outerR,
+                           double startDeg, double spanDeg, double vmax);
+    void drawBYQUnitMPa(QPainter& p, const QPointF& C, double outerR);
     
     // YYQY表盘绘制方法  
     void drawYYQYTicks(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);

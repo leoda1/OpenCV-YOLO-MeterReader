@@ -1,9 +1,57 @@
 #include "errortabledialog.h"
 #include <QSplitter>
 #include <QScrollArea>
+#include <QToolTip>
 #include <QInputDialog>
 #include <QTimer>
 #include <cmath>
+#include <algorithm>
+
+// ======== NEW: 预检阈值计算辅助函数（仅本文件可见） ========
+// 按型号获取满量程压力（MPa）：YYQY=6.3，BYQ=25；其他回退到配置值
+static inline double modelFullScalePressure(const PressureGaugeConfig& cfg) {
+    if (cfg.productModel == "YYQY-13") return 6.3;
+    if (cfg.productModel == "BYQ-19") return 25.0;
+    return cfg.maxPressure;
+}
+
+// 型号级"预检"迟滞限值（MPa）：YYQY-13=0.3，BYQ-19=2.0；其他回退到配置里的迟滞限值
+static inline double modelPrecheckHysteresisLimitMPa(const PressureGaugeConfig& cfg) {
+    if (cfg.productModel == "YYQY-13") return 0.3;
+    if (cfg.productModel == "BYQ-19") return 2.0;
+    return cfg.hysteresisErrorLimit;
+}
+
+// 根据"本轮最大角度"和"型号预检迟滞限值(MPa)"得到"预检迟滞阈值角度(°)"
+static inline double precheckHysteresisAngleDeg(const PressureGaugeConfig& cfg, double roundMaxAngleDeg) {
+    const double fsPressure = modelFullScalePressure(cfg);
+    if (fsPressure <= 0.0) return 0.0;
+
+    // 基准角度用于夹紧本轮最大角度，防止单位/采集异常
+    const double fsDeg = (cfg.maxAngle > 0.0 ? cfg.maxAngle : 270.0);
+    double safeRoundMax = roundMaxAngleDeg;
+    if (safeRoundMax <= 0.0 || safeRoundMax < 0.5 * fsDeg || safeRoundMax > 1.5 * fsDeg) {
+        // 落在合理区间外就回退到当前配置的“满量程角度/平均最大角度”
+        safeRoundMax = fsDeg;
+    }
+    // 迟滞阈值角度 = (迟滞限值MPa / 满量程压力MPa) × 本轮最大角度(°)
+    return (modelPrecheckHysteresisLimitMPa(cfg) / fsPressure) * safeRoundMax;
+}
+
+// 读取一轮中"首个有效正/反行程角度"，没有数据则返回 false
+static inline bool firstValidAnglesOfRound(const MeasurementData& rd, double& fwd, double& bwd) {
+    bool hasF = false, hasB = false;
+    for (double a : rd.forwardAngles) { if (a != 0.0) { fwd = a; hasF = true; break; } }
+    for (double a : rd.backwardAngles){ if (a != 0.0) { bwd = a; hasB = true; break; } }
+    return hasF && hasB;
+}
+
+// 通用角度->压力换算：压力 = 角度 * (满量程压力 / 满量程角度)
+static inline double angleToPressureByFS(double angleErrDeg, double fsAngleDeg, double fsPressureMPa) {
+    if (fsAngleDeg <= 0.0) return 0.0;
+    return (angleErrDeg / fsAngleDeg) * fsPressureMPa;
+}
+// ======== END NEW ========
 
 ErrorTableDialog::ErrorTableDialog(QWidget *parent)
     : QDialog(parent)
@@ -11,6 +59,7 @@ ErrorTableDialog::ErrorTableDialog(QWidget *parent)
     , m_isForwardDirection(true)
     , m_dialTypeSet(false)
     , m_currentRound(0)
+    , m_totalRounds(5)  // 默认5轮
     , m_maxMeasurementsPerRound(6)
 {
     qDebug() << "开始创建ErrorTableDialog";
@@ -33,7 +82,7 @@ ErrorTableDialog::ErrorTableDialog(QWidget *parent)
         m_config = PressureGaugeConfig();
         
         // 初始化轮次数据
-        m_maxAngles.resize(5);  // 5轮数据
+        m_maxAngles.resize(m_totalRounds);  // 动态轮数
         
         qDebug() << "配置数据初始化完成";
         
@@ -87,6 +136,12 @@ ErrorTableDialog::ErrorTableDialog(QWidget *parent)
                 updateCurrentRoundDisplay();
                         
                 qDebug() << "延迟初始化完成";
+
+                // ===== 新增：构造后自动加载上次保存的数据（若存在），并刷新分析区 =====
+                // 若之前通过 setDialType() 显式设置过型号，则 autoLoadPreviousData() 内部会跳过加载
+                // 加载函数内部会触发 updateUIFromConfig() / updateDataTable() / validateAndCheckErrors()
+                // 从而确保 formatAnalysisResult() 在打开对话框时就是最新的
+                autoLoadPreviousData();
             } catch (const std::exception& e) {
                 qDebug() << "延迟初始化异常:" << e.what();
             } catch (...) {
@@ -224,10 +279,12 @@ void ErrorTableDialog::setupConfigArea()
     
     layout->addWidget(new QLabel("迟滞误差限值(MPa):"), 3, 2);
     m_hysteresisErrorLimitSpin = new QDoubleSpinBox();
-    m_hysteresisErrorLimitSpin->setRange(0.01, 1.0);
+    // 放宽范围以支持不同表盘（BYQ=2.0）
+    m_hysteresisErrorLimitSpin->setRange(0.01, 5.0);
     m_hysteresisErrorLimitSpin->setDecimals(3);
     m_hysteresisErrorLimitSpin->setSingleStep(0.001);
     m_hysteresisErrorLimitSpin->setMaximumWidth(100);
+    m_hysteresisErrorLimitSpin->setToolTip("由表盘型号自动决定：YYQY=0.3，BYQ=2.0");
     layout->addWidget(m_hysteresisErrorLimitSpin, 3, 3);
 }
 
@@ -247,20 +304,7 @@ void ErrorTableDialog::setupDetectionPointsArea()
     m_detectionPointsTable->verticalHeader()->setDefaultSectionSize(22);  // 紧凑的行高
     layout->addWidget(m_detectionPointsTable);
     
-    // 按钮
-    QHBoxLayout *btnLayout = new QHBoxLayout();
-    btnLayout->setSpacing(6);  // 减少间距
-    m_addPointBtn = new QPushButton("添加");
-    m_removePointBtn = new QPushButton("删除");
-    m_addPointBtn->setMaximumWidth(60);
-    m_removePointBtn->setMaximumWidth(60);
-    btnLayout->addWidget(m_addPointBtn);
-    btnLayout->addWidget(m_removePointBtn);
-    btnLayout->addStretch();
-    layout->addLayout(btnLayout);
-    
-    connect(m_addPointBtn, &QPushButton::clicked, this, &ErrorTableDialog::addDetectionPoint);
-    connect(m_removePointBtn, &QPushButton::clicked, this, &ErrorTableDialog::removeDetectionPoint);
+    // 移除添加和删除按钮，只保留检测点表格
     // 延迟连接cellChanged信号，避免初始化时的问题
     // connect(m_detectionPointsTable, &QTableWidget::cellChanged, this, &ErrorTableDialog::onDetectionPointsChanged);
 }
@@ -285,13 +329,13 @@ void ErrorTableDialog::setupDataArea()
     // 数据表格
     m_dataTable = new QTableWidget(0, 10);
     QStringList headers;
-    headers << "检测点(MPa)" << "理论角度(°)" << "正行程角度(°)" << "正行程角度误差(°)" << "正行程误差(MPa)"
+    headers << "检测点(MPa)" << "最终角度(°)" << "正行程角度(°)" << "正行程角度误差(°)" << "正行程误差(MPa)"
             << "反行程角度(°)" << "反行程角度误差(°)" << "反行程误差(MPa)" << "迟滞误差角度(°)" << "迟滞误差(MPa)";
     m_dataTable->setHorizontalHeaderLabels(headers);
     
     // 设置列宽 - 第一列加宽，其他列适当调整
     m_dataTable->setColumnWidth(0, 120);  // 检测点列加宽
-    m_dataTable->setColumnWidth(1, 100);  // 理论角度
+    m_dataTable->setColumnWidth(1, 100);  // 最终角度
     m_dataTable->setColumnWidth(2, 120);  // 正行程角度
     m_dataTable->setColumnWidth(3, 120);  // 正行程角度误差
     m_dataTable->setColumnWidth(4, 120);  // 正行程误差(MPa)
@@ -345,7 +389,7 @@ void ErrorTableDialog::setupRoundSwitchArea()
     // 轮次选择下拉框
     layout->addWidget(new QLabel("当前轮次:"));
     m_roundCombo = new QComboBox();
-    for (int i = 1; i <= 5; ++i) {
+    for (int i = 1; i <= m_totalRounds; ++i) {
         m_roundCombo->addItem(QString("第%1轮").arg(i));
     }
     m_roundCombo->setCurrentIndex(0);  // 默认第1轮
@@ -395,6 +439,16 @@ void ErrorTableDialog::setupButtons()
     connect(m_exportExcelBtn, &QPushButton::clicked, this, &ErrorTableDialog::exportToExcel);
     connect(m_saveConfigBtn, &QPushButton::clicked, this, &ErrorTableDialog::saveConfig);
     connect(m_closeBtn, &QPushButton::clicked, this, &QDialog::accept);
+    
+    // 连接输入框的实时更新信号
+    connect(m_productModelEdit, &QLineEdit::textChanged, this, &ErrorTableDialog::onProductInfoChanged);
+    connect(m_productNameEdit, &QLineEdit::textChanged, this, &ErrorTableDialog::onProductInfoChanged);
+    connect(m_dialDrawingNoEdit, &QLineEdit::textChanged, this, &ErrorTableDialog::onProductInfoChanged);
+    connect(m_groupNoEdit, &QLineEdit::textChanged, this, &ErrorTableDialog::onProductInfoChanged);
+    connect(m_maxPressureSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onProductInfoChanged);
+    connect(m_maxAngleSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onProductInfoChanged);
+    connect(m_basicErrorLimitSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onProductInfoChanged);
+    connect(m_hysteresisErrorLimitSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onProductInfoChanged);
 }
 
 void ErrorTableDialog::updateConfigFromUI()
@@ -517,10 +571,14 @@ void ErrorTableDialog::updateDataTable()
         
         // 检测点压力
         m_dataTable->setItem(i, 0, new QTableWidgetItem(QString::number(point.pressure, 'f', 1)));
-        
-        // 检测点对应的刻度盘角度(理论角度)
-        double expectedAngle = pressureToAngle(point.pressure);
-        m_dataTable->setItem(i, 1, new QTableWidgetItem(QString::number(expectedAngle, 'f', 2)));
+
+        // 检测点对应的刻度盘角度（最终角度）= 已完成"正+反"成对数据的实测平均（跨轮）
+        double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(i);
+        if (finalAngle > 0.0) {
+            m_dataTable->setItem(i, 1, new QTableWidgetItem(QString::number(finalAngle, 'f', 2)));
+        } else {
+            m_dataTable->setItem(i, 1, new QTableWidgetItem("--"));
+        }
         
         // 获取当前轮次的数据
         double currentForwardAngle = 0.0;
@@ -557,18 +615,24 @@ void ErrorTableDialog::updateDataTable()
             m_dataTable->setItem(i, 2, new QTableWidgetItem("--"));
         }
         
-        // 正行程角度误差
-        if (hasForwardData) {
-            double angleError = calculateAngleError(currentForwardAngle, expectedAngle);
+        // 正行程角度误差 - 所有轮次完成后计算
+        if (hasForwardData && isAllRoundsCompleted()) {
+            // 最终阶段：与"最终角度"(实测对数平均)比较；若无最终角度则退化到理论角度
+            double expected = (finalAngle > 0.0) ? finalAngle : pressureToAngle(point.pressure);
+            double angleError = calculateAngleError(currentForwardAngle, expected);
             m_dataTable->setItem(i, 3, new QTableWidgetItem(QString::number(angleError, 'f', 2)));
         } else {
             m_dataTable->setItem(i, 3, new QTableWidgetItem("--"));
         }
         
-        // 正行程误差(压力)
-        if (hasForwardData) {
-            double angleError = calculateAngleError(currentForwardAngle, expectedAngle);
-            double pressureError = calculatePressureError(angleError);
+        // 正行程误差(压力) - 所有轮次完成后计算
+        if (hasForwardData && isAllRoundsCompleted()) {
+            double expected = (finalAngle > 0.0) ? finalAngle : pressureToAngle(point.pressure);
+            double angleError = calculateAngleError(currentForwardAngle, expected);
+            // 最终阶段：用平均最大角度换算压力误差
+            const double fsAngle = calculateAverageMaxAngle();
+            const double fsPressure = modelFullScalePressure(m_config);
+            double pressureError = angleToPressureByFS(angleError, fsAngle, fsPressure);
             m_dataTable->setItem(i, 4, new QTableWidgetItem(QString::number(pressureError, 'f', 3)));
         } else {
             m_dataTable->setItem(i, 4, new QTableWidgetItem("--"));
@@ -581,39 +645,39 @@ void ErrorTableDialog::updateDataTable()
             m_dataTable->setItem(i, 5, new QTableWidgetItem("--"));
         }
         
-        // 反行程角度误差
-        if (hasBackwardData) {
-            double angleError = calculateAngleError(currentBackwardAngle, expectedAngle);
+        // 反行程角度误差 - 所有轮次完成后计算
+        if (hasBackwardData && isAllRoundsCompleted()) {
+            double expected = (finalAngle > 0.0) ? finalAngle : pressureToAngle(point.pressure);
+            double angleError = calculateAngleError(currentBackwardAngle, expected);
             m_dataTable->setItem(i, 6, new QTableWidgetItem(QString::number(angleError, 'f', 2)));
         } else {
             m_dataTable->setItem(i, 6, new QTableWidgetItem("--"));
         }
         
-        // 反行程误差(压力)
-        if (hasBackwardData) {
-            double angleError = calculateAngleError(currentBackwardAngle, expectedAngle);
-            double pressureError = calculatePressureError(angleError);
+        // 反行程误差(压力) - 所有轮次完成后计算
+        if (hasBackwardData && isAllRoundsCompleted()) {
+            double expected = (finalAngle > 0.0) ? finalAngle : pressureToAngle(point.pressure);
+            double angleError = calculateAngleError(currentBackwardAngle, expected);
+            // 最终阶段：用平均最大角度换算压力误差
+            const double fsAngle = calculateAverageMaxAngle();
+            const double fsPressure = modelFullScalePressure(m_config);
+            double pressureError = angleToPressureByFS(angleError, fsAngle, fsPressure);
             m_dataTable->setItem(i, 7, new QTableWidgetItem(QString::number(pressureError, 'f', 3)));
         } else {
             m_dataTable->setItem(i, 7, new QTableWidgetItem("--"));
         }
         
-        // 迟滞误差角度
-        if (hasForwardData && hasBackwardData) {
-            double angleDiff = std::abs(currentForwardAngle - currentBackwardAngle);
-            m_dataTable->setItem(i, 8, new QTableWidgetItem(QString::number(angleDiff, 'f', 2)));
+        // 迟滞误差角度 - 所有轮次完成后计算
+        if (isAllRoundsCompleted()) {
+            double hysteresisAngle = calculateHysteresisAngle(i);
+            m_dataTable->setItem(i, 8, new QTableWidgetItem(QString::number(hysteresisAngle, 'f', 2)));
         } else {
             m_dataTable->setItem(i, 8, new QTableWidgetItem("--"));
         }
         
-        // 迟滞误差(压力)
-        if (hasForwardData && hasBackwardData) {
-            double angleDiff = std::abs(currentForwardAngle - currentBackwardAngle);
-            double hysteresisPressureError = angleToPressure(angleDiff);
-            m_dataTable->setItem(i, 9, new QTableWidgetItem(QString::number(hysteresisPressureError, 'f', 3)));
-        } else {
-            m_dataTable->setItem(i, 9, new QTableWidgetItem("--"));
-        }
+        // 迟滞误差(压力) - 固定值
+        double fixedHysteresisError = getFixedHysteresisError(i);
+        m_dataTable->setItem(i, 9, new QTableWidgetItem(QString::number(fixedHysteresisError, 'f', 3)));
     }
     
         qDebug() << "设置表格编辑权限";
@@ -672,7 +736,18 @@ double ErrorTableDialog::calculateAngleError(double actualAngle, double expected
 
 double ErrorTableDialog::calculatePressureError(double angleError) const
 {
-    return angleToPressure(angleError);
+    // 修正：角度->压力换算使用"动态满量程角度"
+    // 预检阶段：使用当前轮 m_maxAngles[m_currentRound]
+    // 最终阶段：使用所有轮的最大角度平均值 calculateAverageMaxAngle()
+    const double fsPressure = modelFullScalePressure(m_config);
+    double fsAngle = 0.0;
+    if (isAllRoundsCompleted()) {
+        fsAngle = calculateAverageMaxAngle();
+    } else {
+        if (m_currentRound >= 0 && m_currentRound < m_maxAngles.size())
+            fsAngle = m_maxAngles[m_currentRound];
+    }
+    return angleToPressureByFS(angleError, fsAngle, fsPressure);
 }
 
 void ErrorTableDialog::addAngleData(double angle, bool isForward)
@@ -743,23 +818,23 @@ void ErrorTableDialog::setDialType(const QString &dialType)
         m_config.productModel = "YYQY-13";
         m_config.productName = "";
         m_config.detectionPoints.clear();
-        // YYQY-13默认6个检测点 (0, 0.6, 1.2, 1.8, 2.4, 3.0 MPa)
-        m_config.detectionPoints << 0.0 << 0.6 << 1.2 << 1.8 << 2.4 << 3.0;
-        m_config.maxPressure = 3.0;
+        // YYQY-13默认6个检测点 (0, 1, 2, 3, 4, 5 MPa)
+        m_config.detectionPoints << 0.0 << 1.0 << 2.0 << 3.0 << 4.0 << 5.0;
+        m_config.maxPressure = 6.3;
         m_config.maxAngle = 270.0;
         m_config.basicErrorLimit = 0.1;
-        m_config.hysteresisErrorLimit = 0.15;
+        m_config.hysteresisErrorLimit = 0.3;   // 按型号：YYQY=0.3
         m_maxMeasurementsPerRound = 6;  // YYQY每轮6次测量
     } else if (dialType == "BYQ-19") {
         m_config.productModel = "BYQ-19";
         m_config.productName = "标准压力表";
         m_config.detectionPoints.clear();
-        // BYQ-19默认5个检测点 (0, 0.75, 1.5, 2.25, 3.0 MPa)
-        m_config.detectionPoints << 0.0 << 0.75 << 1.5 << 2.25 << 3.0;
-        m_config.maxPressure = 3.0;
+        // BYQ-19默认5个检测点 (0, 6, 10, 21, 30 MPa)
+        m_config.detectionPoints << 0.0 << 6.0 << 10.0 << 21.0 << 25.0;
+        m_config.maxPressure = 25.0;
         m_config.maxAngle = 270.0;
         m_config.basicErrorLimit = 0.075;  // 更严格的误差限值
-        m_config.hysteresisErrorLimit = 0.1;
+        m_config.hysteresisErrorLimit = 2.0;   // 按型号：BYQ=2.0
         m_maxMeasurementsPerRound = 5;  // BYQ每轮5次测量
     }
     
@@ -855,7 +930,7 @@ void ErrorTableDialog::onConfigChanged()
     // 更新配置
     updateConfigFromUI();
     
-    // 重新计算理论角度并更新数据表格
+    // 重新计算最终角度并更新数据表格
     updateDataTable();
     
     // 重新计算误差分析
@@ -914,30 +989,6 @@ void ErrorTableDialog::onDetectionPointsChanged()
              << "检测数据数量:" << m_detectionData.size();
 }
 
-void ErrorTableDialog::addDetectionPoint()
-{
-    bool ok;
-    double pressure = QInputDialog::getDouble(this, "添加检测点", "压力值(MPa):", 1.0, 0.0, 100.0, 1, &ok);
-    if (ok) {
-        m_config.detectionPoints.append(pressure);
-        // 排序检测点
-        std::sort(m_config.detectionPoints.begin(), m_config.detectionPoints.end());
-        
-        // 手动触发检测点变化处理
-        onDetectionPointsChanged();
-        
-        qDebug() << "添加检测点:" << pressure << "当前检测点数量:" << m_config.detectionPoints.size();
-    }
-}
-
-void ErrorTableDialog::removeDetectionPoint()
-{
-    int currentRow = m_detectionPointsTable->currentRow();
-    if (currentRow >= 0 && currentRow < m_config.detectionPoints.size()) {
-        m_config.detectionPoints.removeAt(currentRow);
-        updateDetectionPointsTable();
-    }
-}
 
 void ErrorTableDialog::clearAllData()
 {
@@ -960,7 +1011,7 @@ void ErrorTableDialog::clearAllData()
     
     // 清空最大角度数据
     m_maxAngles.clear();
-    m_maxAngles.resize(5);  // 重新分配5轮数据
+    m_maxAngles.resize(m_totalRounds);  // 重新分配动态轮数
     
     // 重置当前轮次
     m_currentRound = 0;
@@ -1000,8 +1051,9 @@ QString ErrorTableDialog::formatAnalysisResult()
               .arg(m_config.basicErrorLimit, 0, 'f', 3)
               .arg(m_config.hysteresisErrorLimit, 0, 'f', 3);
               
-    result += QString("<p><b>当前轮次:</b> 第%1轮/共5轮 &nbsp;&nbsp; <b>每轮测量:</b> %2次正反行程")
+    result += QString("<p><b>当前轮次:</b> 第%1轮/共%2轮 &nbsp;&nbsp; <b>每轮测量:</b> %3次正反行程")
               .arg(m_currentRound + 1)
+              .arg(m_totalRounds)
               .arg(m_maxMeasurementsPerRound);
               
     // 最大角度信息
@@ -1011,65 +1063,197 @@ QString ErrorTableDialog::formatAnalysisResult()
     }
     result += "</p>";
     
-    bool allPointsValid = true;
+    bool allPointsValid = true;       // 仅在最终阶段用于综合结论
+    bool precheckAllOk = true;        // 预检阶段综合结论
     int validPointsCount = 0;
     
-    // 统计检测结果
-    for (int i = 0; i < m_detectionData.size(); ++i) {
-        const DetectionPoint &point = m_detectionData[i];
+    // 显示每轮每个检测点的详细误差信息
+    result += "<hr><h4>详细误差分析</h4>";
+    
+    // 遍历所有轮次
+    for (int round = 0; round < m_totalRounds; ++round) {
+        bool roundHasData = false;
         
-        if (!point.hasForward && !point.hasBackward) {
-            continue; // 跳过无数据的点
+        // 检查当前轮次是否有数据
+        for (const DetectionPoint &point : m_detectionData) {
+            if (round < point.roundData.size()) {
+                const MeasurementData &roundData = point.roundData[round];
+                for (double angle : roundData.forwardAngles) {
+                    if (angle != 0.0) { roundHasData = true; break; }
+                }
+                if (!roundHasData) {
+                    for (double angle : roundData.backwardAngles) {
+                        if (angle != 0.0) { roundHasData = true; break; }
+                    }
+                }
+            }
+            if (roundHasData) break;
         }
         
-        validPointsCount++;
-        double expectedAngle = pressureToAngle(point.pressure);
+        if (!roundHasData) continue; // 跳过没有数据的轮次
         
-        // 检查基本误差
-        if (point.hasForward) {
-            double angleError = calculateAngleError(point.forwardAngle, expectedAngle);
-            double pressureError = std::abs(calculatePressureError(angleError));
+        result += QString("<h5>第%1轮误差分析</h5>").arg(round + 1);
+        
+        // 遍历所有检测点
+        const bool completedAll = isAllRoundsCompleted();
+        // 若未完成全部轮次，且该轮已采过最大角度，则计算本轮"预检迟滞阈值角度"
+        double precheckThreshDeg = 0.0;
+        if (!completedAll && round < m_maxAngles.size() && m_maxAngles[round] > 0.0) {
+            precheckThreshDeg = precheckHysteresisAngleDeg(m_config, m_maxAngles[round]);
+            result += QString("<p style='color:#888;'>（预检）本轮迟滞阈值角度 ≈ %1°</p>")
+                      .arg(precheckThreshDeg, 0, 'f', 2);
+        }
+
+        for (int i = 0; i < m_detectionData.size(); ++i) {
+            const DetectionPoint &point = m_detectionData[i];
+            // "最终角度"：该点跨轮已完成"正+反"的对数平均（若不存在则回退到理论角度）
+            double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(i);
+            double expectedAngle = (finalAngle > 0.0) ? finalAngle : pressureToAngle(point.pressure);
             
-            if (pressureError > m_config.basicErrorLimit) {
-                allPointsValid = false;
-                result += QString("<p style='color: red;'><b>%1 MPa 正行程:</b> 误差 %2 MPa <span style='font-weight: bold;'>超标</span></p>")
-                          .arg(point.pressure, 0, 'f', 1)
-                          .arg(pressureError, 0, 'f', 3);
+            if (round < point.roundData.size()) {
+                const MeasurementData &roundData = point.roundData[round];
+                // 预检：如正反首个有效角度差超过阈值，则立即提示
+                if (!completedAll && precheckThreshDeg > 0.0) {
+                    double fwd=0.0, bwd=0.0;
+                    if (firstValidAnglesOfRound(roundData, fwd, bwd)) {
+                        double diffDeg = std::abs(fwd - bwd);
+                        if (diffDeg > precheckThreshDeg) {
+                            result += QString("<p><span style='color:red;font-weight:bold;'>（预检）第%1轮 %2 MPa 正/反差 %3° &gt; 阈值 %4° [超标]</span></p>")
+                                      .arg(round + 1).arg(point.pressure, 0, 'f', 1).arg(diffDeg, 0, 'f', 2).arg(precheckThreshDeg, 0, 'f', 2);
+                            precheckAllOk = false;
+                        }
+                    }
+                }
+                
+                // 检查正行程数据
+                for (int measurement = 0; measurement < roundData.forwardAngles.size(); ++measurement) {
+                    double angle = roundData.forwardAngles[measurement];
+                    if (angle != 0.0) {
+                        if (completedAll) {
+                            // 最终阶段：计算MPa，并按基本误差限值判断
+                            double angleError = calculateAngleError(angle, expectedAngle);
+                            double fsAngle = calculateAverageMaxAngle();
+                            const double fsPressure = modelFullScalePressure(m_config);
+                            double pressureError = std::abs(angleToPressureByFS(angleError, fsAngle, fsPressure));
+                            const bool over = (pressureError > m_config.basicErrorLimit);
+                            result += QString("<p><b>%1 MPa 第%2轮第%3次正行程:</b> 角度 %4° → 误差 %5 MPa")
+                                      .arg(point.pressure, 0, 'f', 1).arg(round + 1).arg(measurement + 1)
+                                      .arg(angle, 0, 'f', 2).arg(pressureError, 0, 'f', 3);
+                            result += over ? QString(" <span style='color: red; font-weight: bold;'>[超标]</span>")
+                                           : QString(" <span style='color: green;'>[合格]</span>");
+                            result += "</p>";
+                            if (over) allPointsValid = false;
+                        } else {
+                            // 预检阶段：仅按角度偏差与"预检阈值角度"比较，避免虚高的MPa
+                            if (precheckThreshDeg > 0.0) {
+                                double diffDeg = std::abs(angle - expectedAngle);
+                                bool over = (diffDeg > precheckThreshDeg);
+                                result += QString("<p><b>%1 MPa 第%2轮第%3次正行程（预检）:</b> 角度 %4° → 偏差 %5° / 阈值 %6°")
+                                          .arg(point.pressure, 0, 'f', 1).arg(round + 1).arg(measurement + 1)
+                                          .arg(angle, 0, 'f', 2).arg(diffDeg, 0, 'f', 2).arg(precheckThreshDeg, 0, 'f', 2);
+                                result += over ? QString(" <span style='color: red; font-weight: bold;'>[超标]</span>")
+                                               : QString(" <span style='color: green;'>[合格]</span>");
+                                result += "</p>";
+                                if (over) precheckAllOk = false;
+                            }
+                        }
+                        validPointsCount++;
+                    }
+                }
+                
+                // 检查反行程数据
+                for (int measurement = 0; measurement < roundData.backwardAngles.size(); ++measurement) {
+                    double angle = roundData.backwardAngles[measurement];
+                    if (angle != 0.0) {
+                        if (completedAll) {
+                            double angleError = calculateAngleError(angle, expectedAngle);
+                            double fsAngle = calculateAverageMaxAngle();
+                            const double fsPressure = modelFullScalePressure(m_config);
+                            double pressureError = std::abs(angleToPressureByFS(angleError, fsAngle, fsPressure));
+                            const bool over = (pressureError > m_config.basicErrorLimit);
+                            result += QString("<p><b>%1 MPa 第%2轮第%3次反行程:</b> 角度 %4° → 误差 %5 MPa")
+                                      .arg(point.pressure, 0, 'f', 1).arg(round + 1).arg(measurement + 1)
+                                      .arg(angle, 0, 'f', 2).arg(pressureError, 0, 'f', 3);
+                            result += over ? QString(" <span style='color: red; font-weight: bold;'>[超标]</span>")
+                                           : QString(" <span style='color: green;'>[合格]</span>");
+                            result += "</p>";
+                            if (over) allPointsValid = false;
+                        } else {
+                            if (precheckThreshDeg > 0.0) {
+                                double diffDeg = std::abs(angle - expectedAngle);
+                                bool over = (diffDeg > precheckThreshDeg);
+                                result += QString("<p><b>%1 MPa 第%2轮第%3次反行程（预检）:</b> 角度 %4° → 偏差 %5° / 阈值 %6°")
+                                          .arg(point.pressure, 0, 'f', 1).arg(round + 1).arg(measurement + 1)
+                                          .arg(angle, 0, 'f', 2).arg(diffDeg, 0, 'f', 2).arg(precheckThreshDeg, 0, 'f', 2);
+                                result += over ? QString(" <span style='color: red; font-weight: bold;'>[超标]</span>")
+                                               : QString(" <span style='color: green;'>[合格]</span>");
+                                result += "</p>";
+                                if (over) precheckAllOk = false;
+                            }
+                        }
+                        validPointsCount++;
+                    }
+                }
             }
         }
         
-        if (point.hasBackward) {
-            double angleError = calculateAngleError(point.backwardAngle, expectedAngle);
-            double pressureError = std::abs(calculatePressureError(angleError));
+        // 检查迟滞误差（每轮）
+        if (round < m_maxAngles.size() && m_maxAngles[round] > 0) {
+            result += QString("<p><b>第%1轮迟滞误差:</b>").arg(round + 1);
             
-            if (pressureError > m_config.basicErrorLimit) {
-                allPointsValid = false;
-                result += QString("<p style='color: red;'><b>%1 MPa 反行程:</b> 误差 %2 MPa <span style='font-weight: bold;'>超标</span></p>")
-                          .arg(point.pressure, 0, 'f', 1)
-                          .arg(pressureError, 0, 'f', 3);
+            for (int i = 0; i < m_detectionData.size(); ++i) {
+                const DetectionPoint &point = m_detectionData[i];
+                if (round < point.roundData.size()) {
+                    const MeasurementData &roundData = point.roundData[round];
+                    
+                    // 找到正行程和反行程的有效数据
+                    double forwardAngle = 0.0, backwardAngle = 0.0;
+                    bool hasForward = false, hasBackward = false;
+                    
+                    for (double angle : roundData.forwardAngles) {
+                        if (angle != 0.0) { forwardAngle = angle; hasForward = true; break; }
+                    }
+                    for (double angle : roundData.backwardAngles) {
+                        if (angle != 0.0) { backwardAngle = angle; hasBackward = true; break; }
+                    }
+                    
+                    if (hasForward && hasBackward) {
+                        double fixedHysteresisError = getFixedHysteresisError(i);
+                        result += QString(" %1MPa=%2MPa").arg(point.pressure, 0, 'f', 1).arg(fixedHysteresisError, 0, 'f', 3);
+                        
+                        if (fixedHysteresisError > m_config.hysteresisErrorLimit) {
+                            result += QString(" <span style='color: red; font-weight: bold;'>[超标]</span>");
+                            allPointsValid = false;
+                        } else {
+                            // 如果是"预检阶段"，此处只给出固定值提示，不改变预检逻辑
+                            if (!completedAll) { /* 保持现有输出格式 */ }
+                        }
+                    }
+                }
             }
+            result += "</p>";
         }
         
-        // 检查迟滞误差
-        if (point.hasForward && point.hasBackward) {
-            double angleDiff = std::abs(point.forwardAngle - point.backwardAngle);
-            double hysteresisErrorMPa = angleToPressure(angleDiff);
-            
-            if (hysteresisErrorMPa > m_config.hysteresisErrorLimit) {
-                allPointsValid = false;
-                result += QString("<p style='color: red;'><b>%1 MPa 迟滞:</b> 误差 %2 MPa <span style='font-weight: bold;'>超标</span></p>")
-                          .arg(point.pressure, 0, 'f', 1)
-                          .arg(hysteresisErrorMPa, 0, 'f', 3);
-            }
-        }
+        result += "<hr>";
     }
     
-    // 总结（简化显示）
-    if (validPointsCount == 0) {
+    // 总结
+    if (!isAllRoundsCompleted()) {
+        // 预检阶段总结
+        if (validPointsCount == 0) {
+            result += "<p style='color: orange; font-size: 16px; font-weight: bold;'>⚠ 暂无测量数据</p>";
+        } else if (precheckAllOk) {
+            result += "<p style='color: #2E86C1; font-size: 16px; font-weight: bold;'>✓ 预检通过</p>";
+            result += QString("<p>已预检 %1 个数据点，未发现超过预检阈值</p>").arg(validPointsCount);
+        } else {
+            result += "<p style='color: red; font-size: 16px; font-weight: bold;'>✗ 预检发现超差</p>";
+            result += "<p style='color: red;'>请关注标红项目，可继续完善余下轮次以复核</p>";
+        }
+    } else if (validPointsCount == 0) {
         result += "<p style='color: orange; font-size: 16px; font-weight: bold;'>⚠ 暂无测量数据</p>";
     } else if (allPointsValid) {
         result += "<p style='color: green; font-size: 16px; font-weight: bold;'>✓ 检测合格</p>";
-        result += QString("<p>已检测 %1 个点，均符合误差要求</p>").arg(validPointsCount);
+        result += QString("<p>已检测 %1 个数据点，均符合误差要求</p>").arg(validPointsCount);
     } else {
         result += "<p style='color: red; font-size: 16px; font-weight: bold;'>✗ 检测不合格</p>";
         result += "<p style='color: red;'>请调整超标检测点的刻度盘角度</p>";
@@ -1080,6 +1264,9 @@ QString ErrorTableDialog::formatAnalysisResult()
 
 void ErrorTableDialog::exportToExcel()
 {
+    // 在导出之前，先更新配置信息，确保最新的输入值被保存
+    updateConfigFromUI();
+    
     QString fileName = QFileDialog::getSaveFileName(this, "导出CSV文件", "", "CSV文件 (*.csv)");
     if (fileName.isEmpty()) return;
     
@@ -1103,27 +1290,32 @@ void ErrorTableDialog::exportToExcel()
     QStringList detectionPoints, theoreticalAngles;
     for (int i = 0; i < m_detectionData.size(); ++i) {
         const DetectionPoint &point = m_detectionData[i];
-        double expectedAngle = pressureToAngle(point.pressure);
-        
         // 检测点
         detectionPoints << QString::number(point.pressure, 'f', 1);
-        // 理论角度
-        theoreticalAngles << QString::number(expectedAngle, 'f', 2);
+        // "检测点对应的刻度盘角度" = 实测最终角度（若无则以理论角度代替）
+        double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(i);
+        if (finalAngle > 0.0) {
+            theoreticalAngles << QString::number(finalAngle, 'f', 2);
+        } else {
+            theoreticalAngles << QString::number(pressureToAngle(point.pressure), 'f', 2);
+        }
     }
     
-    // 写入检测点和理论角度（只显示一次）
+    // 写入检测点和最终角度（只显示一次）
     out << QString("检测点,%1,,,\n").arg(detectionPoints.join(","));
     out << QString("检测点对应的刻度盘角度,%1,,,\n").arg(theoreticalAngles.join(","));
     
     // 为每轮数据写入（不显示轮次标题）
-    for (int round = 0; round < 5; ++round) {
+    for (int round = 0; round < m_totalRounds; ++round) {
         // 收集当前轮次的所有检测点数据
         QStringList forwardAngles, forwardAngleErrors, forwardPressureErrors;
         QStringList backwardAngles, backwardAngleErrors, backwardPressureErrors;
         
         for (int i = 0; i < m_detectionData.size(); ++i) {
             const DetectionPoint &point = m_detectionData[i];
-            double expectedAngle = pressureToAngle(point.pressure);
+            // "最终角度"：该点跨轮已完成"正+反"的对数平均（若不存在则回退到理论角度）
+            double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(i);
+            double expectedAngle = (finalAngle > 0.0) ? finalAngle : pressureToAngle(point.pressure);
             
             // 获取当前轮次的数据
             double currentForwardAngle = 0.0;
@@ -1158,7 +1350,12 @@ void ErrorTableDialog::exportToExcel()
                 forwardAngles << QString::number(currentForwardAngle, 'f', 2);
                 double angleError = calculateAngleError(currentForwardAngle, expectedAngle);
                 forwardAngleErrors << QString::number(angleError, 'f', 2);
-                double pressureError = calculatePressureError(angleError);
+                // 按轮换算：预检用该轮最大角度，最终用平均最大角度
+                double fsAngle = isAllRoundsCompleted()
+                                   ? calculateAverageMaxAngle()
+                                   : ((round < m_maxAngles.size()) ? m_maxAngles[round] : 0.0);
+                const double fsPressure = modelFullScalePressure(m_config);
+                double pressureError = angleToPressureByFS(angleError, fsAngle, fsPressure);
                 forwardPressureErrors << QString::number(pressureError, 'f', 3);
             } else {
                 forwardAngles << "--";
@@ -1171,7 +1368,12 @@ void ErrorTableDialog::exportToExcel()
                 backwardAngles << QString::number(currentBackwardAngle, 'f', 2);
                 double angleError = calculateAngleError(currentBackwardAngle, expectedAngle);
                 backwardAngleErrors << QString::number(angleError, 'f', 2);
-                double pressureError = calculatePressureError(angleError);
+                // 按轮换算：预检用该轮最大角度，最终用平均最大角度
+                double fsAngle = isAllRoundsCompleted()
+                                   ? calculateAverageMaxAngle()
+                                   : ((round < m_maxAngles.size()) ? m_maxAngles[round] : 0.0);
+                const double fsPressure = modelFullScalePressure(m_config);
+                double pressureError = angleToPressureByFS(angleError, fsAngle, fsPressure);
                 backwardPressureErrors << QString::number(pressureError, 'f', 3);
             } else {
                 backwardAngles << "--";
@@ -1184,24 +1386,26 @@ void ErrorTableDialog::exportToExcel()
         out << QString("正行程角度,%1,,,\n").arg(forwardAngles.join(","));
         out << QString("正行程角度误差,%1,,,\n").arg(forwardAngleErrors.join(","));
         out << QString("正行程误差（MPa）,%1,,,\n").arg(forwardPressureErrors.join(","));
-        out << QString(",%1,,,\n").arg(forwardPressureErrors.join(",")); // 第二行（重复）
+        out << "\n";
         out << QString("反行程角度,%1,,,\n").arg(backwardAngles.join(","));
         out << QString("反行程角度误差,%1,,,\n").arg(backwardAngleErrors.join(","));
         out << QString("反行程误差（MPa）,%1,,,\n").arg(backwardPressureErrors.join(","));
-        out << QString(",%1,,,\n").arg(backwardPressureErrors.join(",")); // 第二行（重复）
+        out << "\n";
     }
     
     // 计算并显示迟滞误差（只显示一次，在最后两行）
     QStringList hysteresisAngles, hysteresisPressureErrors;
     for (int i = 0; i < m_detectionData.size(); ++i) {
         const DetectionPoint &point = m_detectionData[i];
-        double expectedAngle = pressureToAngle(point.pressure);
+        // "最终角度"：该点跨轮已完成"正+反"的对数平均（若不存在则回退到理论角度）
+        double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(i);
+        double expectedAngle = (finalAngle > 0.0) ? finalAngle : pressureToAngle(point.pressure);
         
         // 计算所有轮次的平均迟滞误差
         double totalAngleDiff = 0.0;
         int validRoundCount = 0;
         
-        for (int round = 0; round < point.roundData.size() && round < 5; ++round) {
+        for (int round = 0; round < point.roundData.size() && round < m_totalRounds; ++round) {
             const MeasurementData &currentRoundData = point.roundData[round];
             
             double currentForwardAngle = 0.0;
@@ -1238,23 +1442,38 @@ void ErrorTableDialog::exportToExcel()
         if (validRoundCount > 0) {
             double avgAngleDiff = totalAngleDiff / validRoundCount;
             hysteresisAngles << QString::number(avgAngleDiff, 'f', 2);
-            double hysteresisPressureError = angleToPressure(avgAngleDiff);
-            hysteresisPressureErrors << QString::number(hysteresisPressureError, 'f', 3);
+            // 使用固定迟滞误差值
+            double fixedHysteresisError = getFixedHysteresisError(i);
+            hysteresisPressureErrors << QString::number(fixedHysteresisError, 'f', 3);
         } else {
             hysteresisAngles << "--";
             hysteresisPressureErrors << "--";
         }
     }
     
-    // 写入迟滞误差（最后两行）
-    out << QString("迟滞误差角度,%1,,,\n").arg(hysteresisAngles.join(","));
+    // === 修正：导出迟滞误差角度 = 该点迟滞误差(MPa) / 满量程压力 * 实测平均总角度 ===
+    QStringList hysteresisAnglesFixed;
+    double avgMaxAngle = calculateAverageMaxAngle(); // 实测平均总角度
+    const double fsPressure = modelFullScalePressure(m_config);
+    for (int i = 0; i < m_detectionData.size(); ++i) {
+        if (avgMaxAngle > 0.0 && fsPressure > 0.0) {
+            double angleDeg = (getFixedHysteresisError(i) / fsPressure) * avgMaxAngle;
+            hysteresisAnglesFixed << QString::number(angleDeg, 'f', 2);
+        } else {
+            hysteresisAnglesFixed << "--";
+        }
+    }
+    out << QString("迟滞误差角度,%1,,,\n").arg(hysteresisAnglesFixed.join(","));
     out << QString("迟滞误差（MPa）,%1,,,\n").arg(hysteresisPressureErrors.join(","));
     
-    QMessageBox::information(this, "成功", "5轮测量数据已导出到CSV文件，按照指定格式排列，可用Excel打开");
+    QMessageBox::information(this, "成功", QString("%1轮测量数据已导出到CSV文件，按照指定格式排列，可用Excel打开").arg(m_totalRounds));
 }
 
 QString ErrorTableDialog::generateExportData()
 {
+    // 在生成导出数据之前，先更新配置信息，确保最新的输入值被保存
+    updateConfigFromUI();
+    
     QString data;
     
     data += "压力表误差检测报告\n";
@@ -1271,7 +1490,9 @@ QString ErrorTableDialog::generateExportData()
     
     for (int i = 0; i < m_detectionData.size(); ++i) {
         const DetectionPoint &point = m_detectionData[i];
-        double expectedAngle = pressureToAngle(point.pressure);
+        // "最终角度"：该点跨轮已完成"正+反"的对数平均（若不存在则回退到理论角度）
+        double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(i);
+        double expectedAngle = (finalAngle > 0.0) ? finalAngle : pressureToAngle(point.pressure);
         
         data += QString("%1").arg(point.pressure, 0, 'f', 1);
         
@@ -1296,7 +1517,12 @@ QString ErrorTableDialog::generateExportData()
         
         if (point.hasForward) {
             double angleError = calculateAngleError(point.forwardAngle, expectedAngle);
-            double pressureError = calculatePressureError(angleError);
+            // 单行导出沿用动态满量程角度（预检用当前轮，最终用平均）
+            double fsAngle = isAllRoundsCompleted()
+                               ? calculateAverageMaxAngle()
+                               : ((m_currentRound >=0 && m_currentRound < m_maxAngles.size()) ? m_maxAngles[m_currentRound] : 0.0);
+            const double fsPressure = modelFullScalePressure(m_config);
+            double pressureError = angleToPressureByFS(angleError, fsAngle, fsPressure);
             data += QString("\t%1\t\t%2").arg(angleError, 0, 'f', 2).arg(pressureError, 0, 'f', 3);
         } else {
             data += "\t--\t\t--";
@@ -1304,7 +1530,12 @@ QString ErrorTableDialog::generateExportData()
         
         if (point.hasBackward) {
             double angleError = calculateAngleError(point.backwardAngle, expectedAngle);
-            double pressureError = calculatePressureError(angleError);
+            // 同上
+            double fsAngle = isAllRoundsCompleted()
+                               ? calculateAverageMaxAngle()
+                               : ((m_currentRound >=0 && m_currentRound < m_maxAngles.size()) ? m_maxAngles[m_currentRound] : 0.0);
+            const double fsPressure = modelFullScalePressure(m_config);
+            double pressureError = angleToPressureByFS(angleError, fsAngle, fsPressure);
             data += QString("\t%1\t%2").arg(angleError, 0, 'f', 2).arg(pressureError, 0, 'f', 3);
         } else {
             data += "\t--\t--";
@@ -1446,9 +1677,9 @@ void ErrorTableDialog::loadConfigFromFile(const QString &fileName)
             if (pointObj.contains("roundData")) {
                 QJsonArray roundDataArray = pointObj["roundData"].toArray();
                 point.roundData.clear();
-                point.roundData.resize(5);  // 确保有5轮数据
+                point.roundData.resize(m_totalRounds);  // 确保有足够的轮次数据
                 
-                for (int i = 0; i < roundDataArray.size() && i < 5; ++i) {
+                for (int i = 0; i < roundDataArray.size() && i < m_totalRounds; ++i) {
                     QJsonObject roundObj = roundDataArray[i].toObject();
                     
                     // 加载正行程数据
@@ -1507,8 +1738,8 @@ void ErrorTableDialog::loadConfigFromFile(const QString &fileName)
     
     // 确保所有检测点都有完整的轮次数据
     for (DetectionPoint &point : m_detectionData) {
-        if (point.roundData.size() != 5) {
-            point.roundData.resize(5);
+        if (point.roundData.size() != m_totalRounds) {
+            point.roundData.resize(m_totalRounds);
         }
         for (MeasurementData &roundData : point.roundData) {
             if (roundData.forwardAngles.size() != m_maxMeasurementsPerRound) {
@@ -1606,19 +1837,30 @@ void ErrorTableDialog::onDataTableCellChanged(int row, int column)
         point.hasForward = true;
         
         // 只更新相关的计算列，不重新生成整个表格
-        double expectedAngle = pressureToAngle(point.pressure);
-        double angleError = calculateAngleError(point.forwardAngle, expectedAngle);
-        double pressureError = calculatePressureError(angleError);
+        double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(row);
+        double expected = (finalAngle > 0.0) ? finalAngle : pressureToAngle(point.pressure);
+        double angleError = calculateAngleError(point.forwardAngle, expected);
+        // 预检 / 最终阶段动态换算
+        double fsAngle = isAllRoundsCompleted()
+                           ? calculateAverageMaxAngle()
+                           : ((m_currentRound >=0 && m_currentRound < m_maxAngles.size()) ? m_maxAngles[m_currentRound] : 0.0);
+        const double fsPressure = modelFullScalePressure(m_config);
+        double pressureError = angleToPressureByFS(angleError, fsAngle, fsPressure);
         
         m_dataTable->item(row, 3)->setText(QString::number(angleError, 'f', 2));
         m_dataTable->item(row, 4)->setText(QString::number(pressureError, 'f', 3));
         
         // 更新迟滞误差（如果有反行程数据）
         if (point.hasBackward) {
-            double angleDiff = std::abs(point.forwardAngle - point.backwardAngle);
-            double hysteresisPressureError = angleToPressure(angleDiff);
-            m_dataTable->item(row, 8)->setText(QString::number(angleDiff, 'f', 2));
-            m_dataTable->item(row, 9)->setText(QString::number(hysteresisPressureError, 'f', 3));
+            // 迟滞误差角度 - 所有轮次完成后计算
+            if (isAllRoundsCompleted()) {
+                double hysteresisAngle = calculateHysteresisAngle(row);
+                m_dataTable->item(row, 8)->setText(QString::number(hysteresisAngle, 'f', 2));
+            }
+            
+            // 迟滞误差(压力) - 固定值
+            double fixedHysteresisError = getFixedHysteresisError(row);
+            m_dataTable->setItem(row, 9, new QTableWidgetItem(QString::number(fixedHysteresisError, 'f', 3)));
         }
         
     } else if (column == 5) { // 反行程角度
@@ -1626,19 +1868,30 @@ void ErrorTableDialog::onDataTableCellChanged(int row, int column)
         point.hasBackward = true;
         
         // 只更新相关的计算列
-        double expectedAngle = pressureToAngle(point.pressure);
-        double angleError = calculateAngleError(point.backwardAngle, expectedAngle);
-        double pressureError = calculatePressureError(angleError);
+        double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(row);
+        double expected = (finalAngle > 0.0) ? finalAngle : pressureToAngle(point.pressure);
+        double angleError = calculateAngleError(point.backwardAngle, expected);
+        // 预检 / 最终阶段动态换算
+        double fsAngle = isAllRoundsCompleted()
+                           ? calculateAverageMaxAngle()
+                           : ((m_currentRound >=0 && m_currentRound < m_maxAngles.size()) ? m_maxAngles[m_currentRound] : 0.0);
+        const double fsPressure = modelFullScalePressure(m_config);
+        double pressureError = angleToPressureByFS(angleError, fsAngle, fsPressure);
         
         m_dataTable->item(row, 6)->setText(QString::number(angleError, 'f', 2));
         m_dataTable->item(row, 7)->setText(QString::number(pressureError, 'f', 3));
         
         // 更新迟滞误差（如果有正行程数据）
         if (point.hasForward) {
-            double angleDiff = std::abs(point.forwardAngle - point.backwardAngle);
-            double hysteresisPressureError = angleToPressure(angleDiff);
-            m_dataTable->item(row, 8)->setText(QString::number(angleDiff, 'f', 2));
-            m_dataTable->item(row, 9)->setText(QString::number(hysteresisPressureError, 'f', 3));
+            // 迟滞误差角度 - 所有轮次完成后计算
+            if (isAllRoundsCompleted()) {
+                double hysteresisAngle = calculateHysteresisAngle(row);
+                m_dataTable->item(row, 8)->setText(QString::number(hysteresisAngle, 'f', 2));
+            }
+            
+            // 迟滞误差(压力) - 固定值
+            double fixedHysteresisError = getFixedHysteresisError(row);
+            m_dataTable->setItem(row, 9, new QTableWidgetItem(QString::number(fixedHysteresisError, 'f', 3)));
         }
     }
     
@@ -1659,10 +1912,10 @@ void ErrorTableDialog::initializeRoundData()
     // 为所有检测点初始化轮次数据
     for (DetectionPoint &point : m_detectionData) {
         point.roundData.clear();
-        point.roundData.resize(5);  // 5轮数据
+        point.roundData.resize(m_totalRounds);  // 动态轮数
         
         // 为每轮初始化数据
-        for (int round = 0; round < 5; ++round) {
+        for (int round = 0; round < m_totalRounds; ++round) {
             point.roundData[round].forwardAngles.resize(m_maxMeasurementsPerRound);
             point.roundData[round].backwardAngles.resize(m_maxMeasurementsPerRound);
             point.roundData[round].maxAngle = 0.0;
@@ -1671,6 +1924,65 @@ void ErrorTableDialog::initializeRoundData()
     
     qDebug() << "轮次数据已初始化，最大测量次数:" << m_maxMeasurementsPerRound;
     // 注意：不在这里调用updateCurrentRoundDisplay()，因为UI可能还没有初始化
+}
+
+void ErrorTableDialog::setTotalRounds(int rounds)
+{
+    if (rounds < 1 || rounds > 10) {
+        qDebug() << "轮数设置无效:" << rounds << "，使用默认值5";
+        rounds = 5;
+    }
+    
+    if (rounds != m_totalRounds) {
+        qDebug() << "设置总轮数从" << m_totalRounds << "改为" << rounds;
+        m_totalRounds = rounds;
+        
+        // 重新调整最大角度数组大小
+        m_maxAngles.resize(m_totalRounds);
+        
+        // 重新调整所有检测点的轮次数据
+        for (DetectionPoint &point : m_detectionData) {
+            point.roundData.resize(m_totalRounds);
+            
+            // 为新增的轮次初始化数据
+            for (int round = 0; round < m_totalRounds; ++round) {
+                if (point.roundData[round].forwardAngles.size() != m_maxMeasurementsPerRound) {
+                    point.roundData[round].forwardAngles.resize(m_maxMeasurementsPerRound);
+                }
+                if (point.roundData[round].backwardAngles.size() != m_maxMeasurementsPerRound) {
+                    point.roundData[round].backwardAngles.resize(m_maxMeasurementsPerRound);
+                }
+            }
+        }
+        
+        // 如果当前轮次超出新的总轮数，重置为0
+        if (m_currentRound >= m_totalRounds) {
+            m_currentRound = 0;
+        }
+        
+        // 更新轮次选择下拉框
+        if (m_roundCombo) {
+            m_roundCombo->blockSignals(true);
+            m_roundCombo->clear();
+            for (int i = 1; i <= m_totalRounds; ++i) {
+                m_roundCombo->addItem(QString("第%1轮").arg(i));
+            }
+            m_roundCombo->setCurrentIndex(m_currentRound);
+            m_roundCombo->blockSignals(false);
+        }
+        
+        // 更新界面显示
+        updateDataTable();
+        updateCurrentRoundDisplay();
+        updateRoundInfoDisplay();
+        
+        qDebug() << "总轮数设置完成:" << m_totalRounds << "轮";
+    }
+}
+
+int ErrorTableDialog::getTotalRounds() const
+{
+    return m_totalRounds;
 }
 
 void ErrorTableDialog::resetCurrentRound()
@@ -1732,7 +2044,7 @@ void ErrorTableDialog::saveCurrentRound()
     }
     
     // 移动到下一轮
-    if (m_currentRound < 4) {
+    if (m_currentRound < m_totalRounds - 1) {
         m_currentRound++;
         updateCurrentRoundDisplay();
         QMessageBox::information(this, "保存", 
@@ -1740,7 +2052,9 @@ void ErrorTableDialog::saveCurrentRound()
             .arg(m_currentRound)
             .arg(m_currentRound + 1));
     } else {
-        QMessageBox::information(this, "保存", "第5轮数据已保存！\n所有5轮测量完成");
+        QMessageBox::information(this, "保存", 
+            QString("第%1轮数据已保存！\n所有%1轮测量完成")
+            .arg(m_totalRounds));
     }
     
     // 自动保存到文件
@@ -1759,6 +2073,9 @@ void ErrorTableDialog::addMaxAngleData(double maxAngle)
                 point.roundData[m_currentRound].maxAngle = maxAngle;
             }
         }
+        
+        // 计算5轮最大角度的平均值并更新配置
+        updateMaxAngleFromRounds();
         
         updateCurrentRoundDisplay();
     }
@@ -1779,6 +2096,32 @@ double ErrorTableDialog::calculateAverageMaxAngle() const
     return count > 0 ? sum / count : 0.0;
 }
 
+// 计算所有轮次最大角度的平均值并更新配置
+void ErrorTableDialog::updateMaxAngleFromRounds()
+{
+    double sum = 0.0;
+    int count = 0;
+    
+    // 统计所有轮次的最大角度
+    for (int i = 0; i < m_maxAngles.size(); ++i) {
+        if (m_maxAngles[i] != 0.0) {
+            sum += m_maxAngles[i];
+            count++;
+        }
+    }
+    
+    if (count > 0) {
+        double avgMaxAngle = sum / count;
+        m_config.maxAngle = avgMaxAngle;
+        qDebug() << "更新满量程角度为" << m_totalRounds << "轮平均值:" << avgMaxAngle << "度";
+        
+        // 更新UI显示
+        if (m_maxAngleSpin) {
+            m_maxAngleSpin->setValue(avgMaxAngle);
+        }
+    }
+}
+
 int ErrorTableDialog::getExpectedMeasurements() const
 {
     return m_maxMeasurementsPerRound;
@@ -1797,7 +2140,7 @@ void ErrorTableDialog::updateCurrentRoundDisplay()
         QString currentInfo = m_currentPointLabel->text();
         if (currentInfo.contains("当前检测点:")) {
             // 保持检测点信息，添加轮次信息
-            QString roundInfo = QString(" | 第%1轮/共5轮").arg(m_currentRound + 1);
+            QString roundInfo = QString(" | 第%1轮/共%2轮").arg(m_currentRound + 1).arg(m_totalRounds);
             if (!currentInfo.contains("|")) {
                 m_currentPointLabel->setText(currentInfo + roundInfo);
             } else {
@@ -1808,7 +2151,7 @@ void ErrorTableDialog::updateCurrentRoundDisplay()
                 }
             }
         } else {
-            m_currentPointLabel->setText(QString("第%1轮测量/共5轮").arg(m_currentRound + 1));
+            m_currentPointLabel->setText(QString("第%1轮测量/共%2轮").arg(m_currentRound + 1).arg(m_totalRounds));
         }
         
         // 更新分析文本中的轮次信息（如果分析文本组件已初始化）
@@ -1816,7 +2159,7 @@ void ErrorTableDialog::updateCurrentRoundDisplay()
             updateAnalysisText();
         }
         
-        qDebug() << "当前轮次:" << (m_currentRound + 1) << "/5";
+        qDebug() << "当前轮次:" << (m_currentRound + 1) << "/" << m_totalRounds;
         qDebug() << "平均最大角度:" << calculateAverageMaxAngle();
     } catch (const std::exception& e) {
         qDebug() << "更新轮次显示异常:" << e.what();
@@ -1835,7 +2178,7 @@ QString ErrorTableDialog::generateMultiRoundExportData()
     headers << "检测点";
     
     // 为每轮添加标题列
-    for (int round = 1; round <= 5; ++round) {
+    for (int round = 1; round <= m_totalRounds; ++round) {
         for (int measurement = 1; measurement <= m_maxMeasurementsPerRound; ++measurement) {
             headers << QString("第%1轮第%2次正行程").arg(round).arg(measurement);
         }
@@ -1854,8 +2197,8 @@ QString ErrorTableDialog::generateMultiRoundExportData()
         // 检测点压力值
         rowData << QString::number(point.pressure, 'f', 1);
         
-        // 遍历5轮数据
-        for (int round = 0; round < 5; ++round) {
+        // 遍历所有轮次数据
+        for (int round = 0; round < m_totalRounds; ++round) {
             if (round < point.roundData.size()) {
                 const MeasurementData &roundData = point.roundData[round];
                 
@@ -1894,7 +2237,7 @@ QString ErrorTableDialog::generateMultiRoundExportData()
 
 void ErrorTableDialog::onRoundChanged(int roundIndex)
 {
-    if (roundIndex >= 0 && roundIndex < 5) {
+    if (roundIndex >= 0 && roundIndex < m_totalRounds) {
         m_currentRound = roundIndex;
         
         // 更新数据表格显示当前轮次的数据
@@ -1906,7 +2249,7 @@ void ErrorTableDialog::onRoundChanged(int roundIndex)
         // 更新当前轮次显示
         updateCurrentRoundDisplay();
         
-        qDebug() << "切换到第" << (roundIndex + 1) << "轮";
+                qDebug() << "切换到第" << (roundIndex + 1) << "轮";
     }
 }
 
@@ -1943,7 +2286,7 @@ void ErrorTableDialog::updateRoundInfoDisplay()
 
 void ErrorTableDialog::setCurrentRound(int round)
 {
-    if (round >= 0 && round < 5) {
+    if (round >= 0 && round < m_totalRounds) {
         m_currentRound = round;
         
         // 同步更新UI
@@ -1989,12 +2332,12 @@ void ErrorTableDialog::setMainWindowData(const QVector<QVector<double>>& allRoun
         DetectionPoint &point = m_detectionData[pointIndex];
         
         // 确保轮次数据结构存在
-        if (point.roundData.size() != 5) {
-            point.roundData.resize(5);
+        if (point.roundData.size() != m_totalRounds) {
+            point.roundData.resize(m_totalRounds);
         }
         
-        // 设置所有5轮的数据
-        for (int round = 0; round < 5; ++round) {
+        // 设置所有轮次的数据
+        for (int round = 0; round < m_totalRounds; ++round) {
             if (round < allRoundsForward.size() && round < allRoundsBackward.size()) {
                 // 初始化轮次数据
                 if (point.roundData[round].forwardAngles.size() != m_maxMeasurementsPerRound) {
@@ -2053,7 +2396,167 @@ void ErrorTableDialog::setMainWindowData(const QVector<QVector<double>>& allRoun
     updateCurrentRoundDisplay();
     updateRoundInfoDisplay();
     
+    // 更新误差分析结果
+    validateAndCheckErrors();
     qDebug() << "批量数据设置完成";
 }
 
- 
+// ================== 新增的计算函数 ==================
+
+// 计算指定检测点所有轮次正反行程角度的平均值
+double ErrorTableDialog::calculateAverageAngleForDetectionPoint(int pointIndex) const
+{
+    if (pointIndex < 0 || pointIndex >= m_detectionData.size()) {
+        return 0.0;
+    }
+    
+    const DetectionPoint &point = m_detectionData[pointIndex];
+    double totalAngle = 0.0;
+    int validCount = 0;
+    
+    // 遍历所有轮次数据
+    for (int round = 0; round < point.roundData.size(); ++round) {
+        const MeasurementData &roundData = point.roundData[round];
+        
+        // 正行程数据
+        for (double angle : roundData.forwardAngles) {
+            if (angle != 0.0) {
+                totalAngle += angle;
+                validCount++;
+            }
+        }
+        
+        // 反行程数据
+        for (double angle : roundData.backwardAngles) {
+            if (angle != 0.0) {
+                totalAngle += angle;
+                validCount++;
+            }
+        }
+    }
+    
+    return validCount > 0 ? totalAngle / validCount : 0.0;
+}
+
+// 新增：计算"最终角度"（该检测点跨轮已完成"正+反"成对数据后的平均）
+double ErrorTableDialog::calculateFinalMeasuredAngleForDetectionPoint(int pointIndex) const
+{
+    if (pointIndex < 0 || pointIndex >= m_detectionData.size()) return 0.0;
+    const DetectionPoint &point = m_detectionData[pointIndex];
+    double totalPairMean = 0.0;
+    int pairCount = 0;
+
+    for (int round = 0; round < point.roundData.size(); ++round) {
+        const MeasurementData &rd = point.roundData[round];
+        double fwd = 0.0, bwd = 0.0;
+        bool hasF = false, hasB = false;
+        for (double a : rd.forwardAngles) { if (a != 0.0) { fwd = a; hasF = true; break; } }
+        for (double a : rd.backwardAngles){ if (a != 0.0) { bwd = a; hasB = true; break; } }
+        if (hasF && hasB) {
+            totalPairMean += 0.5 * (fwd + bwd);
+            pairCount++;
+        }
+    }
+    return (pairCount > 0) ? (totalPairMean / pairCount) : 0.0;
+}
+
+// 检查是否所有轮次都已完成
+bool ErrorTableDialog::isAllRoundsCompleted() const
+{
+    // 检查是否有至少一轮的最大角度数据
+    bool hasMaxAngleData = false;
+    for (double maxAngle : m_maxAngles) {
+        if (maxAngle != 0.0) {
+            hasMaxAngleData = true;
+            break;
+        }
+    }
+    
+    if (!hasMaxAngleData) {
+        return false;
+    }
+    
+    // 检查所有检测点是否都有数据
+    for (const DetectionPoint &point : m_detectionData) {
+        for (int round = 0; round < point.roundData.size(); ++round) {
+            const MeasurementData &roundData = point.roundData[round];
+            
+            // 检查是否有正行程或反行程数据
+            bool hasData = false;
+            for (double angle : roundData.forwardAngles) {
+                if (angle != 0.0) {
+                    hasData = true;
+                    break;
+                }
+            }
+            if (!hasData) {
+                for (double angle : roundData.backwardAngles) {
+                    if (angle != 0.0) {
+                        hasData = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (!hasData) {
+                return false;
+            }
+        }
+    }
+    
+    return true;
+}
+
+// 获取固定迟滞误差值
+double ErrorTableDialog::getFixedHysteresisError(int pointIndex) const
+{
+    if (m_config.productModel == "YYQY-13") {
+        // YYQY表盘：第一个检测点0.1，其他都是0.3
+        if (pointIndex == 0) {
+            return 0.1;
+        } else {
+            return 0.3;
+        }
+    } else if (m_config.productModel == "BYQ-19") {
+        // BYQ表盘：根据检测点返回固定值
+        switch (pointIndex) {
+            case 0: return 0.5;  // 检测点0
+            case 1: return 1.0;  // 检测点6
+            case 2: return 2.0;  // 检测点10
+            case 3: return 1.0;  // 检测点21
+            case 4: return 2.0;  // 检测点25
+            default: return 0.0;
+        }
+    }
+    return 0.0;
+}
+
+// 计算迟滞误差角度
+double ErrorTableDialog::calculateHysteresisAngle(int pointIndex) const
+{
+    double fixedHysteresisError = getFixedHysteresisError(pointIndex);
+    const double fsPressure = modelFullScalePressure(m_config);
+    const double avgMaxDeg  = calculateAverageMaxAngle(); // 实测平均总角度
+    if (fixedHysteresisError <= 0.0 || fsPressure <= 0.0 || avgMaxDeg <= 0.0) return 0.0;
+    // 统一公式：迟滞误差角度 = 迟滞误差(MPa) / 满量程压力 * 实测平均总角度
+    return (fixedHysteresisError / fsPressure) * avgMaxDeg;
+}
+
+// 实时更新产品信息配置
+void ErrorTableDialog::onProductInfoChanged()
+{
+    // 当用户修改产品信息时，实时更新配置
+    updateConfigFromUI();
+    if (m_config.productModel == "YYQY-13") {
+        if (m_config.hysteresisErrorLimit != 0.3) {
+            m_config.hysteresisErrorLimit = 0.3;
+            if (m_hysteresisErrorLimitSpin) m_hysteresisErrorLimitSpin->setValue(0.3);
+        }
+    } else if (m_config.productModel == "BYQ-19") {
+        if (m_config.hysteresisErrorLimit != 2.0) {
+            m_config.hysteresisErrorLimit = 2.0;
+            if (m_hysteresisErrorLimitSpin) m_hysteresisErrorLimitSpin->setValue(2.0);
+        }
+    }
+    validateAndCheckErrors();  // 确保分析区即时刷新
+}

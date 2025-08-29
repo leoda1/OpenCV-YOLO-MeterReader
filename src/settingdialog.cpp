@@ -32,6 +32,12 @@ void SettingDialog::setSettings(const Settings* settings) {
     ui->filePrefix->setText(settings->FilePrefix);
     ui->filePath->setText(settings->FilePath);
     ui->image2save->setText(QString::number(settings->image2save));
+    
+    // 设置轮数选择框的当前值
+    int roundsIndex = settings->totalRounds - 2;  // 2轮对应索引0，3轮对应索引1，以此类推
+    if (roundsIndex >= 0 && roundsIndex < ui->roundsCombo->count()) {
+        ui->roundsCombo->setCurrentIndex(roundsIndex);
+    }
 }
 
 const Settings* SettingDialog::getSaveSettings() const {
@@ -125,5 +131,10 @@ void SettingDialog::on_buttonBox_accepted() {
         saveSettings->myvalue = ui->customValue->text();
         saveSettings->type = ui->customType->currentIndex();
     }
+    
+    // 保存轮数设置
+    int selectedRounds = ui->roundsCombo->currentIndex() + 2;  // 索引0对应2轮，索引1对应3轮，以此类推
+    saveSettings->totalRounds = selectedRounds;
+    qDebug() << "保存轮数设置:" << selectedRounds << "轮";
 }
 
