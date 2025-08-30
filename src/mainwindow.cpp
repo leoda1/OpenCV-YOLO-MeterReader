@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include <pylon/PylonIncludes.h>
+#include <numeric>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -1561,6 +1562,121 @@ cv::Vec4i highPreciseDetector::detectWhitePointerByBrightness(const cv::Mat& gra
     return bestPointer;
 }
 
+// ===== NEW: 基于"辐射扫描"的顶点寻找（适配白底、细指针） + 边缘细化为"最外侧顶点" =====
+namespace {
+// 在 masked ROI 内，从 axisCenter 向外做辐射扫描，寻找"从内到外的最长连续暗像素段"的末端，
+// 该末端视为指针的粗顶点；同时输出对应的最佳角度（度）。返回 (-1,-1) 表示失败。
+static cv::Point2f radialTipScan(const cv::Mat& gray,
+                                 const cv::Mat& roiMask,
+                                 const cv::Point2f& axisCenter,
+                                 float innerR,
+                                 float outerR,
+                                 double darkThresh,
+                                 double angleStepDeg,
+                                 int    minRunLenPx,
+                                 double* bestAngleOut = nullptr)
+{
+    auto inBounds = [&](int x, int y){
+        return (unsigned)x < (unsigned)gray.cols && (unsigned)y < (unsigned)gray.rows;
+    };
+
+    int bestRun = 0;
+    cv::Point2f bestTip(-1.f, -1.f);
+    double bestAngle = 0.0;
+
+    const double toRad = CV_PI/180.0;
+    // 粗扫：角度步进 angleStepDeg
+    for (double deg = 0.0; deg < 360.0; deg += angleStepDeg) {
+        double cs = std::cos(deg*toRad), sn = std::sin(deg*toRad);
+        int runLen = 0;
+        cv::Point2f tip(-1.f, -1.f);
+
+        for (float r = innerR; r <= outerR; r += 1.0f) {
+            int x = (int)std::lround(axisCenter.x + r*cs);
+            int y = (int)std::lround(axisCenter.y + r*sn);
+            if (!inBounds(x,y)) break;
+            if (roiMask.data && roiMask.type()==CV_8U && roiMask.at<uchar>(y,x)==0) {
+                // 出了感兴趣环区
+                if (runLen > bestRun) { bestRun = runLen; bestTip = tip; bestAngle = deg; }
+                runLen = 0; tip = cv::Point2f(-1,-1);
+                continue;
+            }
+            uchar val = gray.at<uchar>(y,x);
+            if (val < darkThresh) {
+                // 暗像素 -> 认为属于指针
+                runLen++;
+                tip = cv::Point2f((float)x,(float)y); // 记录末端
+            } else {
+                // 明 -> 断开
+                if (runLen > bestRun) { bestRun = runLen; bestTip = tip; bestAngle = deg; }
+                runLen = 0; tip = cv::Point2f(-1,-1);
+            }
+        }
+        if (runLen > bestRun) { bestRun = runLen; bestTip = tip; bestAngle = deg; }
+    }
+
+    if (bestRun < minRunLenPx || bestTip.x < 0) return cv::Point2f(-1.f,-1.f);
+
+    // 细化：在最佳角附近 ±2° 再做更细的角步进与半径半步
+    int refineBest = bestRun;
+    cv::Point2f refineTip = bestTip;
+    for (double deg = bestAngle-2.0; deg <= bestAngle+2.0; deg += std::max(0.2, angleStepDeg*0.3)) {
+        double cs = std::cos(deg*toRad), sn = std::sin(deg*toRad);
+        int runLen = 0;
+        cv::Point2f tip(-1.f, -1.f);
+        for (float r = innerR; r <= outerR; r += 0.5f) {
+            int x = (int)std::lround(axisCenter.x + r*cs);
+            int y = (int)std::lround(axisCenter.y + r*sn);
+            if (!inBounds(x,y)) break;
+            if (roiMask.data && roiMask.type()==CV_8U && roiMask.at<uchar>(y,x)==0) {
+                if (runLen > refineBest) { refineBest = runLen; refineTip = tip; }
+                runLen = 0; tip = cv::Point2f(-1,-1);
+                continue;
+            }
+            uchar val = gray.at<uchar>(y,x);
+            if (val < darkThresh) { runLen++; tip = cv::Point2f((float)x,(float)y); }
+            else {
+                if (runLen > refineBest) { refineBest = runLen; refineTip = tip; }
+                runLen = 0; tip = cv::Point2f(-1,-1);
+            }
+        }
+        if (runLen > refineBest) { refineBest = runLen; refineTip = tip; }
+    }
+
+    if (refineBest >= minRunLenPx && refineTip.x >= 0) {
+        if (bestAngleOut) *bestAngleOut = bestAngle; // 仍返回粗扫的角度以保持稳定
+        return refineTip;
+    }
+    if (bestAngleOut) *bestAngleOut = bestAngle;
+    return bestTip;
+}
+
+// 在给定角度上，沿射线"由外向内"搜索边缘图的第一个边缘像素，
+// 该点可理解为"最外侧的顶点"（更贴近真实几何边界）。
+static cv::Point2f rayEdgeFarthest(const cv::Mat& edge,
+                                   const cv::Mat& roiMask,
+                                   const cv::Point2f& axisCenter,
+                                   double angleDeg,
+                                   float innerR,
+                                   float outerR)
+{
+    auto inBounds = [&](int x, int y){
+        return (unsigned)x < (unsigned)edge.cols && (unsigned)y < (unsigned)edge.rows;
+    };
+    const double toRad = CV_PI/180.0;
+    double cs = std::cos(angleDeg*toRad), sn = std::sin(angleDeg*toRad);
+    for (float r = outerR; r >= innerR; r -= 0.5f) { // 从外往里找 -> 第一处就是"最边缘"
+        int x = (int)std::lround(axisCenter.x + r*cs);
+        int y = (int)std::lround(axisCenter.y + r*sn);
+        if (!inBounds(x,y)) continue;
+        if (roiMask.data && roiMask.type()==CV_8U && roiMask.at<uchar>(y,x)==0) continue;
+        if (edge.at<uchar>(y,x) > 0) {
+            return cv::Point2f((float)x,(float)y);
+        }
+    }
+    return cv::Point2f(-1.f,-1.f);
+}
+}
 void highPreciseDetector::calculateAngle() {
     if (m_lines.empty()) {
         m_angle = -999;
@@ -1619,10 +1735,35 @@ void highPreciseDetector::showScale1Result() {
     
     // 绘制检测到的直线（指针）
     for (const auto& line : m_lines) {
-        cv::line(m_visual, 
-                cv::Point(line[0], line[1]), 
-                cv::Point(line[2], line[3]), 
-                cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+        // 在BYQ模式下，如果检测到转轴中心，绘制从转轴中心到指针顶点的连线
+        if (m_config && m_config->dialType == "BYQ" && m_axisCenter.x != -1 && m_axisCenter.y != -1) {
+            // 新的辐射扫描算法返回的数据格式：
+            // line[0], line[1] = 转轴中心坐标
+            // line[2], line[3] = 指针顶点坐标
+            cv::Point2f axisPoint(line[0], line[1]);
+            cv::Point2f tipPoint(line[2], line[3]);
+            
+            // 绘制从转轴中心到指针顶点的连线（红色粗线）
+            cv::line(m_visual, 
+                    cv::Point(cvRound(axisPoint.x), cvRound(axisPoint.y)), 
+                    cv::Point(cvRound(tipPoint.x), cvRound(tipPoint.y)), 
+                    cv::Scalar(0, 0, 255), 4, cv::LINE_AA);
+            
+            // 在指针顶点处绘制一个小圆圈（黄色）
+            cv::circle(m_visual, cv::Point(cvRound(tipPoint.x), cvRound(tipPoint.y)), 5, cv::Scalar(0, 255, 255), -1, 8, 0);
+            
+            // 在转轴中心绘制一个小圆圈（红色）
+            cv::circle(m_visual, cv::Point(cvRound(axisPoint.x), cvRound(axisPoint.y)), 3, cv::Scalar(0, 0, 255), -1, 8, 0);
+            
+            qDebug() << "BYQ模式：绘制从转轴中心(" << axisPoint.x << "," << axisPoint.y 
+                     << ")到指针顶点(" << tipPoint.x << "," << tipPoint.y << ")的连线";
+        } else {
+            // 其他模式或未检测到转轴时，使用原来的绘制方式
+            cv::line(m_visual, 
+                    cv::Point(line[0], line[1]), 
+                    cv::Point(line[2], line[3]), 
+                    cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+        }
     }
     
     // 添加角度文本 - 显示绝对角度（用于调试）
@@ -2367,7 +2508,8 @@ cv::Point2f highPreciseDetector::detectBYQAxis(const cv::Mat& gray, const cv::Po
     return hardcodedAxisCenter;
 }
 
-cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const cv::Point2f& axisCenter, const cv::Point2f& dialCenter, float dialRadius) {
+cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray,
+                                                      const cv::Point2f& axisCenter, const cv::Point2f& dialCenter, float dialRadius) {
     qDebug() << "检测银色指针末端 - 简化版";
     
     // 1. 创建环形掩码，排除转轴附近区域
@@ -2379,6 +2521,55 @@ cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const
     // 2. 应用掩码获取感兴趣区域
     cv::Mat roiGray;
     gray.copyTo(roiGray, mask);
+
+    // ==== NEW: 先用"辐射扫描"找粗顶点与主方向 ====
+    // 计算自适应暗阈值（白底下，指针更暗）
+    cv::Scalar meanVal, stdVal;
+    cv::meanStdDev(roiGray, meanVal, stdVal, mask);
+    double mu = meanVal[0], sigma = stdVal[0];
+    // 阈值略低于均值，避免把浅阴影误作指针；同时给出下限
+    double darkThresh = std::max(80.0, mu - 0.6*sigma);
+
+    float innerR = (float)(m_axisRadius * m_config->axisExcludeMultiplier + 6.0); // 稍微多排除一些轴附近
+    float outerR = (float)(dialRadius * m_config->pointerMaskRadius);
+    int   minRun = std::max(6, (int)std::round((outerR - innerR) * 0.04));        // 至少覆盖 4% 的径向长度
+
+    double coarseAngleDeg = 0.0;
+    cv::Point2f tip = radialTipScan(gray, mask, axisCenter, innerR, outerR, darkThresh,
+                                    /*angleStepDeg=*/0.6, minRun, &coarseAngleDeg);
+
+    // ==== NEW: 使用边缘图在该方向"由外向内"细化为真正的最外侧边缘顶点 ====
+    cv::Mat edgesForTip;
+    // 用轻度平滑 + Canny 得到锐利边界（白底下，指针轮廓通常是暗边）
+    {
+        cv::Mat blurG;
+        cv::GaussianBlur(roiGray, blurG, cv::Size(3,3), 0.8);
+        cv::Canny(blurG, edgesForTip, std::max(10, m_config->cannyLowThreshold/2), m_config->cannyHighThreshold);
+    }
+    if (tip.x >= 0) {
+        // 先按方向细化
+        cv::Point2f edgeTip = rayEdgeFarthest(edgesForTip, mask, axisCenter, coarseAngleDeg, innerR, outerR);
+        if (edgeTip.x >= 0) {
+            double dr = cv::norm(edgeTip - axisCenter);
+            if (dr > innerR + 3 && dr < outerR + 6) {
+                qDebug() << "边缘细化到最外顶点 (" << edgeTip.x << "," << edgeTip.y << "), r=" << dr;
+                return cv::Vec4i((int)std::lround(axisCenter.x),
+                                 (int)std::lround(axisCenter.y),
+                                 (int)std::lround(edgeTip.x),
+                                 (int)std::lround(edgeTip.y));
+            }
+        }
+        // 若边缘细化失败，退回粗顶点
+        double dr = cv::norm(tip - axisCenter);
+        if (dr > innerR + 4 && dr < outerR + 4) {
+            qDebug() << "边缘细化失败，使用辐射扫描粗顶点 (" << tip.x << "," << tip.y << ")";
+            return cv::Vec4i((int)std::lround(axisCenter.x),
+                             (int)std::lround(axisCenter.y),
+                             (int)std::lround(tip.x),
+                             (int)std::lround(tip.y));
+        }
+    }
+    // ==== END NEW ====
     
     // 3. 针对细指针的预处理 - 增强与白色背景的反差
     cv::Mat enhanced;
@@ -2409,7 +2600,7 @@ cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const
     qDebug() << "HoughLinesP检测找到" << lines.size() << "条直线段";
     
     if (lines.empty()) {
-        qDebug() << "未检测到指针直线段";
+        qDebug() << "未检测到指针直线段（Hough），已放弃";
         return cv::Vec4i(-1, -1, -1, -1);
     }
     
