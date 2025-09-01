@@ -62,7 +62,14 @@ target_link_libraries(grab_images PRIVATE
 当前对grab_images.cpp中的功能进行针对项目的具体化修改。
 生成grab_images.exe的指令是：
 ```sh
+# windows
 cmake -B build -G "Visual Studio 16 2019"
+cmake --build build
+```
+```sh
+# mac
+mkdir build
+cmake -S . -B build
 cmake --build build
 ```
 * 问题1：测试的时候发现中文无法显示，所以需要打印的文字都使用英文
