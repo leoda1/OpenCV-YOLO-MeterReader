@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include <pylon/PylonIncludes.h>
+#include <numeric>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -135,7 +136,13 @@ double MainWindow::circularMeanDeg(const std::vector<double>& angles) {
 double MainWindow::updateUnwrappedFromAbs(double absDeg) {
     absDeg = norm0_360(absDeg);
     if (!m_hasUnwrapped) {
-        m_unwrappedAngle = absDeg;
+        // m_unwrappedAngle = absDeg;
+        if(m_hasZero) {
+            double k = std::round((m_zeroUnwrapped - absDeg) / 360.0);
+            m_unwrappedAngle = absDeg + 360.0 * k;
+        } else {
+            m_unwrappedAngle = absDeg;
+        }
         m_previousAbs = absDeg;
         m_hasUnwrapped = true;
         m_lastDelta = 0.0;
@@ -172,12 +179,12 @@ double MainWindow::processAbsAngle(double absDeg) {
 
 MainWindow::~MainWindow()
 {
-    // 清理按钮动画定时器
-    if (m_buttonAnimationTimer) {
-        m_buttonAnimationTimer->stop();
-        delete m_buttonAnimationTimer;
-        m_buttonAnimationTimer = nullptr;
-    }
+    // 删除未使用的按钮动画定时器清理代码
+    // if (m_buttonAnimationTimer) {
+    //     m_buttonAnimationTimer->stop();
+    //     delete m_buttonAnimationTimer;
+    //     m_buttonAnimationTimer = nullptr;
+    // }
     
     // 确保相机资源正确释放
     try {
@@ -1555,6 +1562,121 @@ cv::Vec4i highPreciseDetector::detectWhitePointerByBrightness(const cv::Mat& gra
     return bestPointer;
 }
 
+// ===== NEW: 基于"辐射扫描"的顶点寻找（适配白底、细指针） + 边缘细化为"最外侧顶点" =====
+namespace {
+// 在 masked ROI 内，从 axisCenter 向外做辐射扫描，寻找"从内到外的最长连续暗像素段"的末端，
+// 该末端视为指针的粗顶点；同时输出对应的最佳角度（度）。返回 (-1,-1) 表示失败。
+static cv::Point2f radialTipScan(const cv::Mat& gray,
+                                 const cv::Mat& roiMask,
+                                 const cv::Point2f& axisCenter,
+                                 float innerR,
+                                 float outerR,
+                                 double darkThresh,
+                                 double angleStepDeg,
+                                 int    minRunLenPx,
+                                 double* bestAngleOut = nullptr)
+{
+    auto inBounds = [&](int x, int y){
+        return (unsigned)x < (unsigned)gray.cols && (unsigned)y < (unsigned)gray.rows;
+    };
+
+    int bestRun = 0;
+    cv::Point2f bestTip(-1.f, -1.f);
+    double bestAngle = 0.0;
+
+    const double toRad = CV_PI/180.0;
+    // 粗扫：角度步进 angleStepDeg
+    for (double deg = 0.0; deg < 360.0; deg += angleStepDeg) {
+        double cs = std::cos(deg*toRad), sn = std::sin(deg*toRad);
+        int runLen = 0;
+        cv::Point2f tip(-1.f, -1.f);
+
+        for (float r = innerR; r <= outerR; r += 1.0f) {
+            int x = (int)std::lround(axisCenter.x + r*cs);
+            int y = (int)std::lround(axisCenter.y + r*sn);
+            if (!inBounds(x,y)) break;
+            if (roiMask.data && roiMask.type()==CV_8U && roiMask.at<uchar>(y,x)==0) {
+                // 出了感兴趣环区
+                if (runLen > bestRun) { bestRun = runLen; bestTip = tip; bestAngle = deg; }
+                runLen = 0; tip = cv::Point2f(-1,-1);
+                continue;
+            }
+            uchar val = gray.at<uchar>(y,x);
+            if (val < darkThresh) {
+                // 暗像素 -> 认为属于指针
+                runLen++;
+                tip = cv::Point2f((float)x,(float)y); // 记录末端
+            } else {
+                // 明 -> 断开
+                if (runLen > bestRun) { bestRun = runLen; bestTip = tip; bestAngle = deg; }
+                runLen = 0; tip = cv::Point2f(-1,-1);
+            }
+        }
+        if (runLen > bestRun) { bestRun = runLen; bestTip = tip; bestAngle = deg; }
+    }
+
+    if (bestRun < minRunLenPx || bestTip.x < 0) return cv::Point2f(-1.f,-1.f);
+
+    // 细化：在最佳角附近 ±2° 再做更细的角步进与半径半步
+    int refineBest = bestRun;
+    cv::Point2f refineTip = bestTip;
+    for (double deg = bestAngle-2.0; deg <= bestAngle+2.0; deg += std::max(0.2, angleStepDeg*0.3)) {
+        double cs = std::cos(deg*toRad), sn = std::sin(deg*toRad);
+        int runLen = 0;
+        cv::Point2f tip(-1.f, -1.f);
+        for (float r = innerR; r <= outerR; r += 0.5f) {
+            int x = (int)std::lround(axisCenter.x + r*cs);
+            int y = (int)std::lround(axisCenter.y + r*sn);
+            if (!inBounds(x,y)) break;
+            if (roiMask.data && roiMask.type()==CV_8U && roiMask.at<uchar>(y,x)==0) {
+                if (runLen > refineBest) { refineBest = runLen; refineTip = tip; }
+                runLen = 0; tip = cv::Point2f(-1,-1);
+                continue;
+            }
+            uchar val = gray.at<uchar>(y,x);
+            if (val < darkThresh) { runLen++; tip = cv::Point2f((float)x,(float)y); }
+            else {
+                if (runLen > refineBest) { refineBest = runLen; refineTip = tip; }
+                runLen = 0; tip = cv::Point2f(-1,-1);
+            }
+        }
+        if (runLen > refineBest) { refineBest = runLen; refineTip = tip; }
+    }
+
+    if (refineBest >= minRunLenPx && refineTip.x >= 0) {
+        if (bestAngleOut) *bestAngleOut = bestAngle; // 仍返回粗扫的角度以保持稳定
+        return refineTip;
+    }
+    if (bestAngleOut) *bestAngleOut = bestAngle;
+    return bestTip;
+}
+
+// 在给定角度上，沿射线"由外向内"搜索边缘图的第一个边缘像素，
+// 该点可理解为"最外侧的顶点"（更贴近真实几何边界）。
+static cv::Point2f rayEdgeFarthest(const cv::Mat& edge,
+                                   const cv::Mat& roiMask,
+                                   const cv::Point2f& axisCenter,
+                                   double angleDeg,
+                                   float innerR,
+                                   float outerR)
+{
+    auto inBounds = [&](int x, int y){
+        return (unsigned)x < (unsigned)edge.cols && (unsigned)y < (unsigned)edge.rows;
+    };
+    const double toRad = CV_PI/180.0;
+    double cs = std::cos(angleDeg*toRad), sn = std::sin(angleDeg*toRad);
+    for (float r = outerR; r >= innerR; r -= 0.5f) { // 从外往里找 -> 第一处就是"最边缘"
+        int x = (int)std::lround(axisCenter.x + r*cs);
+        int y = (int)std::lround(axisCenter.y + r*sn);
+        if (!inBounds(x,y)) continue;
+        if (roiMask.data && roiMask.type()==CV_8U && roiMask.at<uchar>(y,x)==0) continue;
+        if (edge.at<uchar>(y,x) > 0) {
+            return cv::Point2f((float)x,(float)y);
+        }
+    }
+    return cv::Point2f(-1.f,-1.f);
+}
+}
 void highPreciseDetector::calculateAngle() {
     if (m_lines.empty()) {
         m_angle = -999;
@@ -1613,10 +1735,35 @@ void highPreciseDetector::showScale1Result() {
     
     // 绘制检测到的直线（指针）
     for (const auto& line : m_lines) {
-        cv::line(m_visual, 
-                cv::Point(line[0], line[1]), 
-                cv::Point(line[2], line[3]), 
-                cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+        // 在BYQ模式下，如果检测到转轴中心，绘制从转轴中心到指针顶点的连线
+        if (m_config && m_config->dialType == "BYQ" && m_axisCenter.x != -1 && m_axisCenter.y != -1) {
+            // 新的辐射扫描算法返回的数据格式：
+            // line[0], line[1] = 转轴中心坐标
+            // line[2], line[3] = 指针顶点坐标
+            cv::Point2f axisPoint(line[0], line[1]);
+            cv::Point2f tipPoint(line[2], line[3]);
+            
+            // 绘制从转轴中心到指针顶点的连线（红色粗线）
+            cv::line(m_visual, 
+                    cv::Point(cvRound(axisPoint.x), cvRound(axisPoint.y)), 
+                    cv::Point(cvRound(tipPoint.x), cvRound(tipPoint.y)), 
+                    cv::Scalar(0, 0, 255), 4, cv::LINE_AA);
+            
+            // 在指针顶点处绘制一个小圆圈（黄色）
+            cv::circle(m_visual, cv::Point(cvRound(tipPoint.x), cvRound(tipPoint.y)), 5, cv::Scalar(0, 255, 255), -1, 8, 0);
+            
+            // 在转轴中心绘制一个小圆圈（红色）
+            cv::circle(m_visual, cv::Point(cvRound(axisPoint.x), cvRound(axisPoint.y)), 3, cv::Scalar(0, 0, 255), -1, 8, 0);
+            
+            qDebug() << "BYQ模式：绘制从转轴中心(" << axisPoint.x << "," << axisPoint.y 
+                     << ")到指针顶点(" << tipPoint.x << "," << tipPoint.y << ")的连线";
+        } else {
+            // 其他模式或未检测到转轴时，使用原来的绘制方式
+            cv::line(m_visual, 
+                    cv::Point(line[0], line[1]), 
+                    cv::Point(line[2], line[3]), 
+                    cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+        }
     }
     
     // 添加角度文本 - 显示绝对角度（用于调试）
@@ -1693,7 +1840,7 @@ void MainWindow::resetStrokeTracking() {
     m_previousAngle = 0.0;
     m_strokeDirection = 0;
     m_isForwardStroke = true;
-    m_hasUnwrapped = false; // NEW: 清空展开角序列，下次归位/测量会重建
+    // m_hasUnwrapped = false;
     qDebug() << "重置行程跟踪状态";
 }
 
@@ -1905,11 +2052,11 @@ void MainWindow::onConfirmData()
             updateDataTable();
             updateErrorTableWithAllRounds();
             
-            QMessageBox::information(this, "最大角度保存", 
-                QString("最大角度已保存：%1°\n当前角度：%2°\n角度差：%3°")
+            // 减少弹窗：只在状态栏显示成功信息
+            ui->statusBar->showMessage(
+                QString("最大角度已保存: %1° 当前角度: %2°")
                 .arg(m_tempMaxAngle, 0, 'f', 2)
-                .arg(m_tempCurrentAngle, 0, 'f', 2)
-                .arg(m_tempMaxAngle, 0, 'f', 2));
+                .arg(m_tempCurrentAngle, 0, 'f', 2), 3000); // 显示3秒
             
             // 检查是否应该自动切换到反行程
             const RoundData &currentRound = m_allRoundsData[m_currentRound];
@@ -1923,7 +2070,8 @@ void MainWindow::onConfirmData()
             
             if (forwardComplete) {
                 m_isForwardStroke = false;  // 自动切换到反行程
-                QMessageBox::information(this, "自动切换", "正行程数据采集完成，已自动切换到反行程！");
+                // 减少弹窗：只在状态栏显示切换信息
+                ui->statusBar->showMessage("正行程完成，已自动切换到反行程", 3000);
             }
         }
         return;
@@ -1964,15 +2112,17 @@ void MainWindow::onConfirmData()
         if (forwardComplete && m_maxAngleCaptured) {
             // 正行程已完成且最大角度已采集，切换到反行程
             shouldAddToForward = false;
-            if (m_isForwardStroke) {
-                m_isForwardStroke = false;
-                QMessageBox::information(this, "自动切换", "正行程数据采集完成，已自动切换到反行程！");
-            }
+                    if (m_isForwardStroke) {
+            m_isForwardStroke = false;
+            // 减少弹窗：只在状态栏显示切换信息
+            ui->statusBar->showMessage("正行程完成，已自动切换到反行程", 3000);
+        }
         } else if (!m_maxAngleCaptured && m_currentForwardIndex > 0 && !m_isForwardStroke) {
             // 只有在已经采集了正行程数据、最大角度未采集、且当前不在正行程时，才提示
             shouldAddToForward = true;
             m_isForwardStroke = true;
-            QMessageBox::information(this, "提示", "最大角度未采集，数据将填写到正行程！");
+            // 减少弹窗：只在状态栏显示提示信息
+            ui->statusBar->showMessage("最大角度未采集，数据将填写到正行程", 3000);
         }
         
         // 添加到当前轮次数据中
@@ -2006,12 +2156,13 @@ void MainWindow::onConfirmData()
         }
     }
     
-    QMessageBox::information(this, "确认", 
-        QString("已添加数据（%1°）到第%2轮 %3 采集数据%4")
+    // 减少弹窗：只在状态栏显示确认信息
+    ui->statusBar->showMessage(
+        QString("已添加数据 %1° 到第%2轮 %3 采集数据%4")
         .arg(abs(angleDelta), 0, 'f', 2)
         .arg(m_currentRound + 1)
         .arg(m_isForwardStroke ? "正行程" : "反行程")
-        .arg(currentDataPosition));
+        .arg(currentDataPosition), 3000);
 }
 
 // 保存按钮点击处理
@@ -2040,11 +2191,12 @@ void MainWindow::onSaveData()
             }
         }
         
-        QMessageBox::information(this, "保存", 
-            QString("第%1轮数据已保存！\n正行程数据：%2个\n反行程数据：%3个")
+        // 减少弹窗：只在状态栏显示保存信息
+        ui->statusBar->showMessage(
+            QString("第%1轮数据已保存！正行程:%2个 反行程:%3个")
             .arg(m_currentRound + 1)
             .arg(forwardCount)
-            .arg(backwardCount));
+            .arg(backwardCount), 3000);
         
         // 移动到下一轮
         if (m_currentRound < m_totalRounds - 1) {  // 最多m_totalRounds轮
@@ -2065,7 +2217,9 @@ void MainWindow::onSaveData()
                 m_allRoundsData[m_currentRound].isCompleted = false;
             }
         } else {
-            QMessageBox::information(this, "完成", QString("所有%1轮数据采集已完成！").arg(m_totalRounds));
+            // 减少弹窗：只在状态栏显示完成信息
+            ui->statusBar->showMessage(
+                QString("所有%1轮数据采集已完成！").arg(m_totalRounds), 5000);
         }
         
         // 更新检测点标签显示
@@ -2131,7 +2285,9 @@ void MainWindow::onClearData()
     // 更新显示
     updateDataTable();
     
-    QMessageBox::information(this, "清空完成", QString("已成功清空所有%1轮采集数据！").arg(m_totalRounds));
+    // 减少弹窗：只在状态栏显示清空完成信息
+    ui->statusBar->showMessage(
+        QString("已成功清空所有%1轮采集数据！").arg(m_totalRounds), 3000);
     qDebug() << "已清空所有采集数据";
 }
 
@@ -2158,9 +2314,9 @@ void MainWindow::onSwitchDialType()
     // 更新检测点标签显示
     updateDetectionPointLabels();
     
-    // 显示切换信息
-    QMessageBox::information(this, "表盘切换", 
-        QString("已切换到 %1 表盘\n数据数量：%2个").arg(m_currentDialType).arg(m_requiredDataCount));
+    // 减少弹窗：只在状态栏显示切换信息
+    ui->statusBar->showMessage(
+        QString("已切换到 %1 表盘，数据数量：%2个").arg(m_currentDialType).arg(m_requiredDataCount), 3000);
     
     qDebug() << "表盘已切换为:" << m_currentDialType << "需要数据数量:" << m_requiredDataCount;
 }
@@ -2180,12 +2336,15 @@ void MainWindow::onExitApplication()
         
         // 关闭相机连接
         if (m_camera.IsOpen()) {
+            m_camera.StopGrabbing();
             m_camera.Close();
             qDebug() << "相机已关闭";
         }
         
-        // 退出应用程序
-        QApplication::quit();
+        // 强制退出应用程序，避免事件循环问题
+        QTimer::singleShot(0, this, [this]() {
+            QApplication::quit();
+        });
     } else {
         qDebug() << "用户取消退出";
     }
@@ -2292,10 +2451,11 @@ void MainWindow::onMaxAngleCapture()
         m_tempCurrentAngle = currentAngle;
         m_maxAngleCaptureMode = true;  // 进入最大角度采集模式
         
-        QMessageBox::information(this, "最大角度采集", 
-            QString("当前角度(Abs): %1°\n相对: %2°\n请点击确定按钮保存最大角度")
+        // 减少弹窗：只在状态栏显示信息，不弹窗
+        ui->statusBar->showMessage(
+            QString("最大角度采集模式 - 当前角度: %1° 相对: %2° 请点击确定按钮保存")
             .arg(currentAngle, 0, 'f', 2)
-            .arg(rel, 0, 'f', 2));
+            .arg(rel, 0, 'f', 2), 5000); // 显示5秒
             
     } catch (const std::exception& e) {
         qDebug() << "最大角度采集时发生异常:" << e.what();
@@ -2348,7 +2508,8 @@ cv::Point2f highPreciseDetector::detectBYQAxis(const cv::Mat& gray, const cv::Po
     return hardcodedAxisCenter;
 }
 
-cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const cv::Point2f& axisCenter, const cv::Point2f& dialCenter, float dialRadius) {
+cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray,
+                                                      const cv::Point2f& axisCenter, const cv::Point2f& dialCenter, float dialRadius) {
     qDebug() << "检测银色指针末端 - 简化版";
     
     // 1. 创建环形掩码，排除转轴附近区域
@@ -2360,6 +2521,55 @@ cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const
     // 2. 应用掩码获取感兴趣区域
     cv::Mat roiGray;
     gray.copyTo(roiGray, mask);
+
+    // ==== NEW: 先用"辐射扫描"找粗顶点与主方向 ====
+    // 计算自适应暗阈值（白底下，指针更暗）
+    cv::Scalar meanVal, stdVal;
+    cv::meanStdDev(roiGray, meanVal, stdVal, mask);
+    double mu = meanVal[0], sigma = stdVal[0];
+    // 阈值略低于均值，避免把浅阴影误作指针；同时给出下限
+    double darkThresh = std::max(80.0, mu - 0.6*sigma);
+
+    float innerR = (float)(m_axisRadius * m_config->axisExcludeMultiplier + 6.0); // 稍微多排除一些轴附近
+    float outerR = (float)(dialRadius * m_config->pointerMaskRadius);
+    int   minRun = std::max(6, (int)std::round((outerR - innerR) * 0.04));        // 至少覆盖 4% 的径向长度
+
+    double coarseAngleDeg = 0.0;
+    cv::Point2f tip = radialTipScan(gray, mask, axisCenter, innerR, outerR, darkThresh,
+                                    /*angleStepDeg=*/0.6, minRun, &coarseAngleDeg);
+
+    // ==== NEW: 使用边缘图在该方向"由外向内"细化为真正的最外侧边缘顶点 ====
+    cv::Mat edgesForTip;
+    // 用轻度平滑 + Canny 得到锐利边界（白底下，指针轮廓通常是暗边）
+    {
+        cv::Mat blurG;
+        cv::GaussianBlur(roiGray, blurG, cv::Size(3,3), 0.8);
+        cv::Canny(blurG, edgesForTip, std::max(10, m_config->cannyLowThreshold/2), m_config->cannyHighThreshold);
+    }
+    if (tip.x >= 0) {
+        // 先按方向细化
+        cv::Point2f edgeTip = rayEdgeFarthest(edgesForTip, mask, axisCenter, coarseAngleDeg, innerR, outerR);
+        if (edgeTip.x >= 0) {
+            double dr = cv::norm(edgeTip - axisCenter);
+            if (dr > innerR + 3 && dr < outerR + 6) {
+                qDebug() << "边缘细化到最外顶点 (" << edgeTip.x << "," << edgeTip.y << "), r=" << dr;
+                return cv::Vec4i((int)std::lround(axisCenter.x),
+                                 (int)std::lround(axisCenter.y),
+                                 (int)std::lround(edgeTip.x),
+                                 (int)std::lround(edgeTip.y));
+            }
+        }
+        // 若边缘细化失败，退回粗顶点
+        double dr = cv::norm(tip - axisCenter);
+        if (dr > innerR + 4 && dr < outerR + 4) {
+            qDebug() << "边缘细化失败，使用辐射扫描粗顶点 (" << tip.x << "," << tip.y << ")";
+            return cv::Vec4i((int)std::lround(axisCenter.x),
+                             (int)std::lround(axisCenter.y),
+                             (int)std::lround(tip.x),
+                             (int)std::lround(tip.y));
+        }
+    }
+    // ==== END NEW ====
     
     // 3. 针对细指针的预处理 - 增强与白色背景的反差
     cv::Mat enhanced;
@@ -2390,7 +2600,7 @@ cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray, const
     qDebug() << "HoughLinesP检测找到" << lines.size() << "条直线段";
     
     if (lines.empty()) {
-        qDebug() << "未检测到指针直线段";
+        qDebug() << "未检测到指针直线段（Hough），已放弃";
         return cv::Vec4i(-1, -1, -1, -1);
     }
     
@@ -2595,14 +2805,6 @@ void MainWindow::setupButtonAnimations()
 {
     qDebug() << "设置按钮动画";
     
-    // 创建动画定时器
-    m_buttonAnimationTimer = new QTimer(this);
-    m_buttonAnimationTimer->setSingleShot(true);
-    m_buttonAnimationTimer->setInterval(150); // 150毫秒动画时长
-    
-    // 连接定时器信号
-    connect(m_buttonAnimationTimer, &QTimer::timeout, this, &MainWindow::resetButtonStyle);
-    
     // 为所有主要按钮添加点击动画
     QList<QPushButton*> buttons = {
         ui->pushResetZero,      // 归位
@@ -2634,12 +2836,10 @@ void MainWindow::setupButtonAnimations()
                 QPushButton:hover {
                     background-color: #357ABD;
                     border-color: #2E6DA4;
-                    transform: translateY(-1px);
                 }
                 QPushButton:pressed {
                     background-color: #2E6DA4;
                     border-color: #1B4F75;
-                    transform: translateY(1px);
                 }
                 QPushButton:disabled {
                     background-color: #B8B8B8;
@@ -2660,10 +2860,13 @@ void MainWindow::onButtonClicked()
     
     qDebug() << "按钮点击动画:" << button->text();
     
+    // 先重置所有按钮的样式（包括之前点击的按钮）
+    resetAllButtonsStyle();
+    
     // 记录最后点击的按钮
     m_lastClickedButton = button;
     
-    // 应用点击动画样式
+    // 应用常亮样式（红色常亮）
     button->setStyleSheet(R"(
         QPushButton {
             background-color: #FF6B6B;
@@ -2673,12 +2876,16 @@ void MainWindow::onButtonClicked()
             font-weight: bold;
             color: white;
             font-size: 12px;
-            transform: scale(0.95);
+        }
+        QPushButton:hover {
+            background-color: #FF5252;
+            border-color: #D32F2F;
+        }
+        QPushButton:pressed {
+            background-color: #FF5252;
+            border-color: #D32F2F;
         }
     )");
-    
-    // 启动定时器，延迟恢复原样式
-    m_buttonAnimationTimer->start();
 }
 
 void MainWindow::resetButtonStyle()
@@ -2712,6 +2919,51 @@ void MainWindow::resetButtonStyle()
     )");
     
     m_lastClickedButton = nullptr;
+}
+
+void MainWindow::resetAllButtonsStyle()
+{
+    // 重置所有按钮的样式为默认样式
+    QList<QPushButton*> buttons = {
+        ui->pushResetZero,      // 归位
+        ui->pushCaptureZero,    // 采集
+        ui->pushConfirm,        // 确定
+        ui->pushSave,           // 保存
+        ui->pushClear,          // 清空
+        ui->pushSwitchDial,     // 切换表盘
+        ui->pushMaxAngle,       // 最大角度采集
+        ui->pushExit            // 退出
+    };
+    
+    for (QPushButton* button : buttons) {
+        if (button) {
+            // 重置所有按钮为默认样式（包括之前点击的按钮）
+            button->setStyleSheet(R"(
+                QPushButton {
+                    background-color: #4A90E2;
+                    border: 2px solid #357ABD;
+                    border-radius: 8px;
+                    padding: 8px 16px;
+                    font-weight: bold;
+                    color: white;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: #357ABD;
+                    border-color: #2E6DA4;
+                }
+                QPushButton:pressed {
+                    background-color: #2E6DA4;
+                    border-color: #1B4F75;
+                }
+                QPushButton:disabled {
+                    background-color: #B8B8B8;
+                    border-color: #A0A0A0;
+                    color: #666666;
+                }
+            )");
+        }
+    }
 }
 
 void MainWindow::addAngleToCurrentRound(double angle, bool isForward)
@@ -2957,14 +3209,16 @@ void MainWindow::setTotalRounds(int rounds)
 void MainWindow::onSetRounds2()
 {
     setTotalRounds(2);
-    QMessageBox::information(this, "轮数设置", "已设置为2轮数据采集！");
+    // 减少弹窗：只在状态栏显示设置信息
+    ui->statusBar->showMessage("已设置为2轮数据采集！", 3000);
 }
 
 // 快速设置5轮
 void MainWindow::onSetRounds5()
 {
     setTotalRounds(5);
-    QMessageBox::information(this, "轮数设置", "已设置为5轮数据采集！");
+    // 减少弹窗：只在状态栏显示设置信息
+    ui->statusBar->showMessage("已设置为5轮数据采集！", 3000);
 }
 
 void MainWindow::setDetectionPointValues()

@@ -1,11 +1,11 @@
 build/
 .qt/
 .vscode/
-.gitignore
 ref/
 ref2/
 .cursorignore
 .cache/
-src/mainwindow.cpp
-src/byq.csv
-src/yyqy.csv
+# .gitignore
+# src/byq.csv
+# src/yyqy.csv
+# src/mainwindow.cpp
