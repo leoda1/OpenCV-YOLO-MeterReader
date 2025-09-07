@@ -25,6 +25,7 @@ if(WIN32)
     # 包含目录设置
     include_directories(
         "${PYLON_ROOT}/Development/include"
+        "${PYLON_ROOT}/Development/lib/Win32"
         "E:/opencv/build/include"
     )
     
@@ -36,8 +37,8 @@ if(WIN32)
     
     # Pylon库列表（根据您的Pylon 8版本调整）
     set(PYLON_LIBS
-        PylonBase_v8_0
-        PylonUtility_v8_0
+        PylonBase_v9
+        PylonUtility_v9
         GenApi_MD_VC141_v3_1_Basler_pylon
         GCBase_MD_VC141_v3_1_Basler_pylon
     )
@@ -136,6 +137,7 @@ target_link_libraries(${PROJECT_NAME}
     Qt6::Core Qt6::Gui Qt6::Widgets
     ${OpenCV_LIBS}
     ${PYLON_LIBS}
+    PylonBase_v9
 )
 
 # 平台特定的POST_BUILD操作
@@ -174,7 +176,8 @@ if(WIN32)
                     --verbose 2 
                     --no-translations 
                     --no-system-d3d-compiler 
-                    --no-opengl-sw 
+                    --no-opengl-sw
+                    --force
                     $<TARGET_FILE:${PROJECT_NAME}>
             COMMENT "部署Qt依赖库"
         )

@@ -84,6 +84,16 @@ cmake --build build
 #### 2.2.1 OpenCV来实现指针识别
 &emsp;&emsp;使用OpenCV表盘1和2的指针角度实时识别。Opencv_hp.h是封装后的实现，具体实现代码是Opencv_hp.cpp。
 
+
+### 3 打包exe
+```shell
+cmake -G "Visual Studio 16 2019" -A x64 ..
+cmake --build . --config Release
+cpack -G NSIS
+cpack -G ZIP
+```
+
+
 ### 3 表盘参数
 #### BYQ:
 几何参数

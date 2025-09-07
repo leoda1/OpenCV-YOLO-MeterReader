@@ -33,10 +33,10 @@ public:
     Settings();
     ~Settings();
     int image2save = 200 ;
-    GenICam_3_1_Basler_pylon_v3::gcstring acquisitionFrameRate = "60";
-    GenICam_3_1_Basler_pylon_v3::gcstring exposureTime = "12000";
-    GenICam_3_1_Basler_pylon_v3::gcstring width = "700";
-    GenICam_3_1_Basler_pylon_v3::gcstring height = "540";
+    GenICam_3_1_Basler_pylon::gcstring acquisitionFrameRate = "60";
+    GenICam_3_1_Basler_pylon::gcstring exposureTime = "12000";
+    GenICam_3_1_Basler_pylon::gcstring width = "700";
+    GenICam_3_1_Basler_pylon::gcstring height = "540";
     QString FilePath = "";
     QString FilePrefix= "";
     Pylon::EImageFileFormat format;

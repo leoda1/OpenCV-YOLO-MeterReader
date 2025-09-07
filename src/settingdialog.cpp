@@ -83,8 +83,8 @@ void SettingDialog::on_buttonBox_accepted() {
     qDebug() << "分辨率索引:" << ui->resolution->currentIndex();
 
     // 设置分辨率
-    GenICam_3_1_Basler_pylon_v3::gcstring width;
-    GenICam_3_1_Basler_pylon_v3::gcstring height;
+    GenICam_3_1_Basler_pylon::gcstring width;
+    GenICam_3_1_Basler_pylon::gcstring height;
     
     switch (ui->resolution->currentIndex()) {
         case 0:
