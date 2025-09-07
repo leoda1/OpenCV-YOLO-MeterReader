@@ -181,7 +181,8 @@ private:
     double m_lastCalculatedDelta = 0.0; // “采集”按钮最后计算/展示的相对角（连续）
 
     // 按钮动画相关
-    QTimer* m_buttonAnimationTimer = nullptr;  // 按钮动画定时器
+    // 删除未使用的按钮动画定时器
+    // QTimer* m_buttonAnimationTimer = nullptr;  // 按钮动画定时器
     QPushButton* m_lastClickedButton = nullptr; // 最后点击的按钮
     
     // 指针运动方向检测（与展开角联动）
@@ -253,6 +254,7 @@ private:
     void setupButtonAnimations();          // 设置按钮动画
     void onButtonClicked();                // 按钮点击动画处理
     void resetButtonStyle();               // 重置按钮样式
+    void resetAllButtonsStyle();           // 重置所有按钮样式
     
     // 检测点显示相关方法
     void updateDetectionPointLabels();     // 更新检测点标签显示

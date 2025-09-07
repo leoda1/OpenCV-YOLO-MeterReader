@@ -127,8 +127,7 @@ ErrorTableDialog::ErrorTableDialog(QWidget *parent)
                 connect(m_detectionPointsTable, &QTableWidget::cellChanged, this, &ErrorTableDialog::onDetectionPointsChanged);
                 
                 // 连接配置参数的信号槽，使其能实时更新表格
-                connect(m_maxPressureSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onConfigChanged);
-                connect(m_maxAngleSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onConfigChanged);
+                // 删除未使用的满量程压力和满量程角度信号连接
                 connect(m_basicErrorLimitSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onConfigChanged);
                 connect(m_hysteresisErrorLimitSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onConfigChanged);
                 
@@ -252,22 +251,7 @@ void ErrorTableDialog::setupConfigArea()
     m_groupNoEdit->setMaximumWidth(150);
     layout->addWidget(m_groupNoEdit, 1, 3);
     
-    // 技术参数
-    layout->addWidget(new QLabel("满量程压力(MPa):"), 2, 0);
-    m_maxPressureSpin = new QDoubleSpinBox();
-    m_maxPressureSpin->setRange(0.1, 100.0);
-    m_maxPressureSpin->setDecimals(1);
-    m_maxPressureSpin->setSingleStep(0.1);
-    m_maxPressureSpin->setMaximumWidth(100);
-    layout->addWidget(m_maxPressureSpin, 2, 1);
-    
-    layout->addWidget(new QLabel("满量程角度(°):"), 2, 2);
-    m_maxAngleSpin = new QDoubleSpinBox();
-    m_maxAngleSpin->setRange(180.0, 360.0);
-    m_maxAngleSpin->setDecimals(0);
-    m_maxAngleSpin->setSingleStep(1.0);
-    m_maxAngleSpin->setMaximumWidth(100);
-    layout->addWidget(m_maxAngleSpin, 2, 3);
+    // 技术参数 - 删除未使用的满量程压力和满量程角度输入框
     
     layout->addWidget(new QLabel("基本误差限值(MPa):"), 3, 0);
     m_basicErrorLimitSpin = new QDoubleSpinBox();
@@ -413,20 +397,23 @@ void ErrorTableDialog::setupButtons()
     m_buttonLayout->setSpacing(8);  // 减少间距
     
     m_clearBtn = new QPushButton("清空");
-    m_calculateBtn = new QPushButton("计算");
+    // 删除未使用的计算按钮
+    // m_calculateBtn = new QPushButton("计算");
     m_exportExcelBtn = new QPushButton("导出Excel");
     m_saveConfigBtn = new QPushButton("自动保存");
     m_closeBtn = new QPushButton("关闭");
     
     // 设置按钮的最大宽度让界面更紧凑
     m_clearBtn->setMaximumWidth(60);
-    m_calculateBtn->setMaximumWidth(60);
+    // 删除未使用的计算按钮宽度设置
+    // m_calculateBtn->setMaximumWidth(60);
     m_exportExcelBtn->setMaximumWidth(80);
     m_saveConfigBtn->setMaximumWidth(80);
     m_closeBtn->setMaximumWidth(60);
     
     m_buttonLayout->addWidget(m_clearBtn);
-    m_buttonLayout->addWidget(m_calculateBtn);
+    // 删除未使用的计算按钮添加到布局
+    // m_buttonLayout->addWidget(m_calculateBtn);
     m_buttonLayout->addStretch();
     m_buttonLayout->addWidget(m_exportExcelBtn);
     m_buttonLayout->addStretch();
@@ -435,7 +422,8 @@ void ErrorTableDialog::setupButtons()
     m_buttonLayout->addWidget(m_closeBtn);
     
     connect(m_clearBtn, &QPushButton::clicked, this, &ErrorTableDialog::clearAllData);
-    connect(m_calculateBtn, &QPushButton::clicked, this, &ErrorTableDialog::calculateErrors);
+    // 删除未使用的计算按钮信号连接
+    // connect(m_calculateBtn, &QPushButton::clicked, this, &ErrorTableDialog::calculateErrors);
     connect(m_exportExcelBtn, &QPushButton::clicked, this, &ErrorTableDialog::exportToExcel);
     connect(m_saveConfigBtn, &QPushButton::clicked, this, &ErrorTableDialog::saveConfig);
     connect(m_closeBtn, &QPushButton::clicked, this, &QDialog::accept);
@@ -445,8 +433,9 @@ void ErrorTableDialog::setupButtons()
     connect(m_productNameEdit, &QLineEdit::textChanged, this, &ErrorTableDialog::onProductInfoChanged);
     connect(m_dialDrawingNoEdit, &QLineEdit::textChanged, this, &ErrorTableDialog::onProductInfoChanged);
     connect(m_groupNoEdit, &QLineEdit::textChanged, this, &ErrorTableDialog::onProductInfoChanged);
-    connect(m_maxPressureSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onProductInfoChanged);
-    connect(m_maxAngleSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onProductInfoChanged);
+    // 删除未使用的满量程压力和满量程角度信号连接
+    // connect(m_maxPressureSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onProductInfoChanged);
+    // connect(m_maxAngleSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onProductInfoChanged);
     connect(m_basicErrorLimitSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onProductInfoChanged);
     connect(m_hysteresisErrorLimitSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ErrorTableDialog::onProductInfoChanged);
 }
@@ -457,8 +446,9 @@ void ErrorTableDialog::updateConfigFromUI()
     m_config.productName = m_productNameEdit->text();
     m_config.dialDrawingNo = m_dialDrawingNoEdit->text();
     m_config.groupNo = m_groupNoEdit->text();
-    m_config.maxPressure = m_maxPressureSpin->value();
-    m_config.maxAngle = m_maxAngleSpin->value();
+    // 删除未使用的满量程压力和满量程角度配置
+    // m_config.maxPressure = m_maxPressureSpin->value();
+    // m_config.maxAngle = m_maxAngleSpin->value();
     m_config.basicErrorLimit = m_basicErrorLimitSpin->value();
     m_config.hysteresisErrorLimit = m_hysteresisErrorLimitSpin->value();
 }
@@ -469,7 +459,7 @@ void ErrorTableDialog::updateUIFromConfig()
     
     // 检查所有UI组件是否已初始化
     if (!m_productModelEdit || !m_productNameEdit || !m_dialDrawingNoEdit || !m_groupNoEdit ||
-        !m_maxPressureSpin || !m_maxAngleSpin || !m_basicErrorLimitSpin || !m_hysteresisErrorLimitSpin) {
+        !m_basicErrorLimitSpin || !m_hysteresisErrorLimitSpin) {
         qDebug() << "某些UI组件还没有初始化，跳过updateUIFromConfig";
         return;
     }
@@ -481,8 +471,9 @@ void ErrorTableDialog::updateUIFromConfig()
         m_productNameEdit->setText(m_config.productName);
         m_dialDrawingNoEdit->setText(m_config.dialDrawingNo);
         m_groupNoEdit->setText(m_config.groupNo);
-        m_maxPressureSpin->setValue(m_config.maxPressure);
-        m_maxAngleSpin->setValue(m_config.maxAngle);
+        // 删除未使用的满量程压力和满量程角度设置
+        // m_maxPressureSpin->setValue(m_config.maxPressure);
+        // m_maxAngleSpin->setValue(m_config.maxAngle);
         m_basicErrorLimitSpin->setValue(m_config.basicErrorLimit);
         m_hysteresisErrorLimitSpin->setValue(m_config.hysteresisErrorLimit);
         
@@ -574,11 +565,7 @@ void ErrorTableDialog::updateDataTable()
 
         // 检测点对应的刻度盘角度（最终角度）= 已完成"正+反"成对数据的实测平均（跨轮）
         double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(i);
-        if (finalAngle > 0.0) {
-            m_dataTable->setItem(i, 1, new QTableWidgetItem(QString::number(finalAngle, 'f', 2)));
-        } else {
-            m_dataTable->setItem(i, 1, new QTableWidgetItem("--"));
-        }
+        m_dataTable->setItem(i, 1, new QTableWidgetItem(QString::number(finalAngle, 'f', 2)));
         
         // 获取当前轮次的数据
         double currentForwardAngle = 0.0;
@@ -1024,11 +1011,12 @@ void ErrorTableDialog::clearAllData()
     qDebug() << "误差表格数据已清空";
 }
 
-void ErrorTableDialog::calculateErrors()
-{
-    updateDataTable();
-    updateAnalysisText();
-}
+// 删除未使用的计算错误函数
+// void ErrorTableDialog::calculateErrors()
+// {
+//     updateDataTable();
+//     updateAnalysisText();
+// }
 
 void ErrorTableDialog::validateAndCheckErrors()
 {
@@ -1197,9 +1185,7 @@ QString ErrorTableDialog::formatAnalysisResult()
             }
         }
         
-        // 检查迟滞误差（每轮）
         if (round < m_maxAngles.size() && m_maxAngles[round] > 0) {
-            result += QString("<p><b>第%1轮迟滞误差:</b>").arg(round + 1);
             
             for (int i = 0; i < m_detectionData.size(); ++i) {
                 const DetectionPoint &point = m_detectionData[i];
@@ -1219,7 +1205,6 @@ QString ErrorTableDialog::formatAnalysisResult()
                     
                     if (hasForward && hasBackward) {
                         double fixedHysteresisError = getFixedHysteresisError(i);
-                        result += QString(" %1MPa=%2MPa").arg(point.pressure, 0, 'f', 1).arg(fixedHysteresisError, 0, 'f', 3);
                         
                         if (fixedHysteresisError > m_config.hysteresisErrorLimit) {
                             result += QString(" <span style='color: red; font-weight: bold;'>[超标]</span>");
@@ -2115,10 +2100,10 @@ void ErrorTableDialog::updateMaxAngleFromRounds()
         m_config.maxAngle = avgMaxAngle;
         qDebug() << "更新满量程角度为" << m_totalRounds << "轮平均值:" << avgMaxAngle << "度";
         
-        // 更新UI显示
-        if (m_maxAngleSpin) {
-            m_maxAngleSpin->setValue(avgMaxAngle);
-        }
+        // 删除未使用的满量程角度UI更新
+        // if (m_maxAngleSpin) {
+        //     m_maxAngleSpin->setValue(avgMaxAngle);
+        // }
     }
 }
 

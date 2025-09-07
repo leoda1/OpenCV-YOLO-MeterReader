@@ -110,7 +110,8 @@ public:
 private slots:
     void onConfigChanged();
     void onDetectionPointsChanged();
-    void calculateErrors();
+    // 删除未使用的计算错误函数
+    // void calculateErrors();
     void exportToExcel();
     void saveConfig();
     void onTableCellClicked(int row, int column);
@@ -131,8 +132,9 @@ private:
     QLineEdit *m_dialDrawingNoEdit;
     QLineEdit *m_groupNoEdit;
     
-    QDoubleSpinBox *m_maxPressureSpin;
-    QDoubleSpinBox *m_maxAngleSpin;
+    // 删除未使用的满量程压力和满量程角度输入框
+    // QDoubleSpinBox *m_maxPressureSpin;
+    // QDoubleSpinBox *m_maxAngleSpin;
     QDoubleSpinBox *m_basicErrorLimitSpin;
     QDoubleSpinBox *m_hysteresisErrorLimitSpin;
     
@@ -157,7 +159,8 @@ private:
     // 操作按钮
     QHBoxLayout *m_buttonLayout;
     QPushButton *m_clearBtn;
-    QPushButton *m_calculateBtn;
+    // 删除未使用的计算按钮
+    // QPushButton *m_calculateBtn;
     QPushButton *m_exportExcelBtn;
     // QPushButton *m_exportTextBtn;  // 用户要求移除
     QPushButton *m_saveConfigBtn;
