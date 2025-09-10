@@ -1029,6 +1029,13 @@ void ErrorTableDialog::updateAnalysisText()
     m_analysisText->setHtml(analysis);
 }
 
+
+
+
+
+
+
+//important
 QString ErrorTableDialog::formatAnalysisResult()
 {
     QString result = "<h3>误差检测结果</h3>";

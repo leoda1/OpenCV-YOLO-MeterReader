@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.30.5)
 project(InstrumentDashboard)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -7,25 +7,26 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
+set(CMAKE_BINARY_DIR "D:/86151/liushixiong/InstrumentDashboard")
 
 # Windows 特定配置
 if(WIN32)
     message(STATUS "配置Windows构建环境")
     
     # Qt6路径设置
-    set(CMAKE_PREFIX_PATH "E:/QT/6.6.3/msvc2019_64/lib/cmake/Qt6" ${CMAKE_PREFIX_PATH})
+    set(CMAKE_PREFIX_PATH "D:/app/qt/6.5.3/msvc2019_64/lib/cmake/Qt6"  ${CMAKE_PREFIX_PATH})
     
     # OpenCV路径设置
-    set(OpenCV_DIR "E:/opencv/build/x64/vc16/lib")
+    set(OpenCV_DIR "D:/app/opencv/opencv/build/x64/vc16/lib")
     
     # Pylon SDK路径设置
-    set(PYLON_ROOT "C:/Program Files/Basler/pylon 8")
+    set(PYLON_ROOT "D:/app/pylon")
     list(APPEND CMAKE_PREFIX_PATH "${PYLON_ROOT}")
     
     # 包含目录设置
     include_directories(
         "${PYLON_ROOT}/Development/include"
-        "E:/opencv/build/include"
+        "D:/app/opencv/opencv/build/include"
     )
     
     # 链接目录设置
@@ -36,10 +37,10 @@ if(WIN32)
     
     # Pylon库列表（根据您的Pylon 8版本调整）
     set(PYLON_LIBS
-        PylonBase_v8_0
-        PylonUtility_v8_0
-        GenApi_MD_VC141_v3_1_Basler_pylon
-        GCBase_MD_VC141_v3_1_Basler_pylon
+        PylonBase_v10
+        PylonUtility_v10
+        GenApi_MD_VC141_v3_1_Basler_pylon_v3
+        GCBase_MD_VC141_v3_1_Basler_pylon_v3
     )
     
 endif()
@@ -68,6 +69,8 @@ if(APPLE)
         list(APPEND CMAKE_PREFIX_PATH "${PYLON_FRAMEWORK}")
     endif()
 endif()
+
+set(OpenCV_DIR "D:/app/opencv/opencv/build/x64/vc16/lib")
 
 # 查找依赖包
 find_package(OpenCV REQUIRED)
@@ -161,13 +164,13 @@ if(WIN32)
     # 复制OpenCV运行时库
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "E:/opencv/build/x64/vc16/bin"
+                "D:/app/opencv/opencv/build/x64/vc16/bin"
                 $<TARGET_FILE_DIR:${PROJECT_NAME}>
         COMMENT "复制OpenCV运行时库"
     )
     
     # 自动部署Qt依赖库
-    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "E:/QT/6.6.3/msvc2019_64/bin")
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "D:/app/qt/6.5.3/msvc2019_64/bin")
     if(WINDEPLOYQT_EXECUTABLE)
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             COMMAND ${WINDEPLOYQT_EXECUTABLE} 
@@ -222,7 +225,7 @@ if(WIN32)
         FILES_MATCHING PATTERN "*.dll"
     )
     
-    install(DIRECTORY "E:/opencv/build/x64/vc16/bin/"
+    install(DIRECTORY "D:/app/opencv/opencv/build/x64/vc16/bin/"
         DESTINATION bin
         FILES_MATCHING PATTERN "*.dll"
     )
