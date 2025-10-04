@@ -64,13 +64,32 @@ struct PressureGaugeConfig {
     double hysteresisErrorLimit; // 迟滞误差限值(MPa)
     
     QList<double> detectionPoints; // 检测点压力值列表
-    
+
+
     PressureGaugeConfig() : maxPressure(3.0), maxAngle(270.0), 
                            basicErrorLimit(0.1), hysteresisErrorLimit(0.15) {
         // 默认检测点 (0, 1, 2, 3 MPa)
-        detectionPoints << 0.0 << 1.0 << 2.0 << 3.0;
+        detectionPoints << 0.0 << 1.0 << 2.0 << 3.0 << 4.0 << 5.0;
     }
 };
+
+
+struct BYQ_final_data{
+    double maxPressure;      // 最大压力值 (MPa)
+    double totalAngle;       // 表盘总角度 (度)
+    QList<double> points;  // 中间节点的角度值
+    QList<double> pointsAngle;  // 中间节点的角度值    
+};
+
+
+struct YYQY_final_data{
+    double maxPressure;      // 最大压力值 (MPa)
+    double totalAngle;       // 表盘总角度 (度)
+    QList<double> points;  // 中间节点的角度值
+    QList<double> pointsAngle;  // 中间节点的角度值    
+};
+
+
 
 class ErrorTableDialog : public QDialog
 {
@@ -107,6 +126,13 @@ public:
                           const QVector<double>& allRoundsMaxAngles);
     void clearAllData();
 
+    void setFinalData();  // 新增：构造并保存最终数据（BYQ/YYQY）
+
+    //传入最终数据
+    BYQ_final_data buildBYQFinalData() const;
+    YYQY_final_data buildYYQYFinalData() const;
+    //void addConfigToDialMarkDialog(); 
+
 private slots:
     void onConfigChanged();
     void onDetectionPointsChanged();
@@ -122,6 +148,8 @@ private slots:
     void onRoundChanged(int roundIndex);    // 轮次切换槽函数
 
 private:
+    //DialMarkDialog *m_dialMarkDialog = nullptr;
+
     // UI组件
     QVBoxLayout *m_mainLayout;
     
@@ -168,11 +196,15 @@ private:
     QPushButton *m_closeBtn;
     
     // 数据
-    PressureGaugeConfig m_config;
-    QList<DetectionPoint> m_detectionData;
+    PressureGaugeConfig m_config;     //压力表使用的配置
+    QList<DetectionPoint> m_detectionData;    //多个点的完整数据
+    BYQ_final_data m_byqFinalData; // BYQ表盘最终数据
+    YYQY_final_data m_yyqyFinalData; // YYQY表盘最终数据
     int m_currentPressureIndex;
     bool m_isForwardDirection;
     bool m_dialTypeSet;
+    
+
     
     // 轮次管理
     int m_currentRound;              // 当前轮次（0到m_totalRounds-1）

@@ -1280,6 +1280,7 @@ void highPreciseDetector::detectLines() {
                     m_config->threshold, 
                     m_config->minLineLength, 
                     m_config->maxLineGap);
+    //lineas 得到直线
     
     if (!lines.empty()) {
         // 如果检测到表盘，选择距离表盘中心最近的直线作为指针
@@ -2365,7 +2366,7 @@ void MainWindow::onMaxAngleCapture()
         return;
     }
     
-    const RoundData &currentRound = m_allRoundsData[m_currentRound];
+    const RoundData &currentRound = m_allRoundsData[m_currentRound];   //按轮次采集
     
     // 检查正行程数据是否已完成
     bool forwardComplete = true;
@@ -2448,7 +2449,7 @@ void MainWindow::onMaxAngleCapture()
         
         // 保存当前角度和角度差，供确定按钮使用
         m_tempMaxAngle = std::abs(rel);
-        m_tempCurrentAngle = currentAngle;
+        m_tempCurrentAngle = currentAngle;        //临时存储最大角度
         m_maxAngleCaptureMode = true;  // 进入最大角度采集模式
         
         // 减少弹窗：只在状态栏显示信息，不弹窗
@@ -3108,7 +3109,8 @@ void MainWindow::updateErrorTableWithAllRounds()
     
     // 使用批量设置方法
     m_errorTableDialog->setMainWindowData(allRoundsForward, allRoundsBackward, allRoundsMaxAngles);
-    
+    //m_errorTableDialog->setFinalData(); // 更新最终数据
+    //m_errorTableDialog->addConfigToDialMarkDialog(); // 添加最终数据到dialmarkdialog
     qDebug() << "所有轮次数据同步完成";
 }
 

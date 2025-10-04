@@ -236,7 +236,7 @@
     border-radius: 4px;
     padding: 4px 8px;
     color: #333;
-}</string>
+        }</string>
         </property>
         <property name="text">
          <string>等待检测</string>

@@ -10,7 +10,7 @@
 // ======== NEW: 预检阈值计算辅助函数（仅本文件可见） ========
 // 按型号获取满量程压力（MPa）：YYQY=6.3，BYQ=25；其他回退到配置值
 static inline double modelFullScalePressure(const PressureGaugeConfig& cfg) {
-    if (cfg.productModel == "YYQY-13") return 6.3;
+    if (cfg.productModel == "YYQY-13")return 6.3;
     if (cfg.productModel == "BYQ-19") return 25.0;
     return cfg.maxPressure;
 }
@@ -157,10 +157,16 @@ ErrorTableDialog::ErrorTableDialog(QWidget *parent)
         qDebug() << "ErrorTableDialog 构造函数未知异常";
         QMessageBox::critical(nullptr, "错误", "创建对话框失败: 未知异常");
     }
+
+
+
+
+    
 }
 
 ErrorTableDialog::~ErrorTableDialog()
 {
+    
 }
 
 void ErrorTableDialog::setupUI()
@@ -557,8 +563,8 @@ void ErrorTableDialog::updateDataTable()
         qDebug() << "设置数据表格行数:" << m_detectionData.size();
         m_dataTable->setRowCount(m_detectionData.size());
     
-    for (int i = 0; i < m_detectionData.size(); ++i) {
-        const DetectionPoint &point = m_detectionData[i];
+        for (int i = 0; i < m_detectionData.size(); ++i) {
+          const DetectionPoint &point = m_detectionData[i];
         
         // 检测点压力
         m_dataTable->setItem(i, 0, new QTableWidgetItem(QString::number(point.pressure, 'f', 1)));
@@ -2105,6 +2111,10 @@ void ErrorTableDialog::updateMaxAngleFromRounds()
     if (count > 0) {
         double avgMaxAngle = sum / count;
         m_config.maxAngle = avgMaxAngle;
+
+
+
+        
         qDebug() << "更新满量程角度为" << m_totalRounds << "轮平均值:" << avgMaxAngle << "度";
         
         // 删除未使用的满量程角度UI更新
@@ -2391,11 +2401,14 @@ void ErrorTableDialog::setMainWindowData(const QVector<QVector<double>>& allRoun
     // 更新误差分析结果
     validateAndCheckErrors();
     qDebug() << "批量数据设置完成";
+
+    setFinalData();
+    //addConfigToDialMarkDialog();
 }
 
 // ================== 新增的计算函数 ==================
 
-// 计算指定检测点所有轮次正反行程角度的平均值
+// 计算指定检测点所有轮次正反行程角度的平均值 --需要使用
 double ErrorTableDialog::calculateAverageAngleForDetectionPoint(int pointIndex) const
 {
     if (pointIndex < 0 || pointIndex >= m_detectionData.size()) {
@@ -2552,3 +2565,82 @@ void ErrorTableDialog::onProductInfoChanged()
     }
     validateAndCheckErrors();  // 确保分析区即时刷新
 }
+
+//设置最终数据
+void ErrorTableDialog::setFinalData() {
+    if (m_config.productModel == "YYQY-13") m_yyqyFinalData = buildYYQYFinalData();
+    if (m_config.productModel == "BYQ-19") m_byqFinalData = buildBYQFinalData();
+
+}
+
+// 构造 BYQ_final_data：收集当前检测点（按 m_detectionData 顺序）并使用实测平均最大角度
+BYQ_final_data ErrorTableDialog::buildBYQFinalData() const
+{
+    BYQ_final_data out;
+    out.maxPressure = modelFullScalePressure(m_config);        // 使用型号映射的满量程压力
+    out.totalAngle  = calculateAverageMaxAngle();              // 使用所有可用轮次的平均最大角度
+
+    out.points.clear();
+    out.pointsAngle.clear();
+
+    for (int i = 0; i < m_detectionData.size(); ++i) {
+        const DetectionPoint &pt = m_detectionData[i];
+        out.points.append(pt.pressure);
+        // 最终角度按现有逻辑计算（跨轮正反成对平均）
+        double finalAng = calculateFinalMeasuredAngleForDetectionPoint(i);
+        if (finalAng <= 0.0) {
+            // 回退：使用理论角度（以配置的满量程角为基准）
+            finalAng = pressureToAngle(pt.pressure);
+        }
+        out.pointsAngle.append(finalAng);
+    }
+
+    return out;
+}
+
+// 构造 YYQY_final_data：与 BYQ 类似，按 YYQY 需要的检测点顺序/数量返回
+YYQY_final_data ErrorTableDialog::buildYYQYFinalData() const
+{
+    YYQY_final_data out;
+    out.maxPressure = modelFullScalePressure(m_config);
+    out.totalAngle  = calculateAverageMaxAngle();
+
+    out.points.clear();
+    out.pointsAngle.clear();
+
+    // 如果是 YYQY 型号，则直接按 m_detectionData 顺序输出
+    // 否则也按现有检测点列表输出，调用者可根据型号选择使用哪个函数
+    for (int i = 0; i < m_detectionData.size(); ++i) {
+        const DetectionPoint &pt = m_detectionData[i];
+        out.points.append(pt.pressure);
+        double finalAng = calculateFinalMeasuredAngleForDetectionPoint(i);
+        if (finalAng <= 0.0) finalAng = pressureToAngle(pt.pressure);
+        out.pointsAngle.append(finalAng);
+    }
+
+    return out;
+}
+
+
+/*
+void ErrorTableDialog::addConfigToDialMarkDialog()
+{
+     
+    if (!m_dialMarkDialog) {
+        m_dialMarkDialog = new DialMarkDialog(this, m_config.productModel);
+    }
+
+    if (m_config.productModel == "YYQY-13") {
+        m_dialMarkDialog->addYYQYconfig(m_yyqyFinalData.maxPressure, m_yyqyFinalData.totalAngle, m_yyqyFinalData.points, m_yyqyFinalData.pointsAngle);
+    } else if (m_config.productModel == "BYQ-19") {
+        m_dialMarkDialog->addBYQconfig(m_byqFinalData.maxPressure, m_byqFinalData.totalAngle, m_byqFinalData.points, m_byqFinalData.pointsAngle);
+    }
+
+    // 如果想立即展示编辑界面，调用 show()
+    if (!m_dialMarkDialog->isVisible()) {
+        m_dialMarkDialog->show();
+        m_dialMarkDialog->raise();
+        m_dialMarkDialog->activateWindow();
+    }
+}
+*/

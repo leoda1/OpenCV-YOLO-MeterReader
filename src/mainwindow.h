@@ -294,7 +294,7 @@ private:
     std::vector<cv::Vec4i> m_lines;
     double m_angle;
     const PointerDetectionConfig* m_config;  // 配置参数指针
-    cv::Point2f m_axisCenter;  // BYQ转轴中心
+    cv::Point2f m_axisCenter;  // BYQ转轴中心---角度原点
     float m_axisRadius;        // BYQ转轴半径
     static double s_lastValidAngle;  // 上次有效角度，用于稳定性检查
     
