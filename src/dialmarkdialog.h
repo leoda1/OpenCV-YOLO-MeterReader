@@ -55,8 +55,10 @@ struct BYQDialConfig {
     double totalAngle;       // 表盘总角度 (度)
     double majorStep;        // 主刻度步长 (MPa)
     double minorStep;        // 次刻度步长 (MPa)
-    
-    BYQDialConfig() : maxPressure(25.0), totalAngle(100.0), majorStep(5.0), minorStep(1.0) {}
+    QVector<double> points;  // 中间节点的压力值
+    QVector<double> pointsAngle;  // 中间节点的角度值
+
+    BYQDialConfig() : maxPressure(25.0), totalAngle(138.0), majorStep(5.0), minorStep(1.0), points({0.0, 5.0, 10.0, 15.0, 20.0}), pointsAngle({0.0, 20.0, 50.0, 80.0, 125.0}) {}
 };
 
 // YYQY表盘配置
@@ -64,8 +66,9 @@ struct YYQYDialConfig {
     double maxPressure;      // 最大压力值 (MPa)
     double totalAngle;       // 表盘总角度 (度)
     double warningPressure;  // 警告压力值 (MPa) - 黑色到红色的分界点
-    
-    YYQYDialConfig() : maxPressure(6.3), totalAngle(280.0), warningPressure(4.0) {}
+    QVector<double> points;  // 中间节点的压力值
+    QVector<double> pointsAngle;  // 中间节点的角度值    
+    YYQYDialConfig() : maxPressure(6.3), totalAngle(280.0), warningPressure(4.0) ,points({0.0, 1.0, 2.0, 3.0, 4.0, 5.0}), pointsAngle({0.0, 45.0, 90.0, 135.0, 185.0, 222.5}) {}
 };
 
 // 自定义图片显示标签类，支持鼠标交互
@@ -223,18 +226,22 @@ private:
     
     // BYQ表盘绘制方法
     void drawBYQTicksAndNumbers(QPainter& p, const QPointF& C, double outerR,
-                                double startDeg, double spanDeg,
-                                double vmax, double majorStep);
+                                double startDeg,double totalAngle, double spanDeg, double vmax, double majorStep,
+                                QVector<double> points,QVector<double> pointsAngle);
     void drawBYQColorBands(QPainter& p, const QPointF& C, double outerR,
-                           double startDeg, double spanDeg, double vmax);
+                           double startDeg, double totalAngle, double spanDeg, double vmax,
+                           QVector<double> points,QVector<double> pointsAngle);
     void drawBYQUnitMPa(QPainter& p, const QPointF& C, double outerR);
     
     // YYQY表盘绘制方法  
-    void drawYYQYTicks(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
-    void drawYYQYNumbers(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
-    void drawYYQYColorBands(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
+    void drawYYQYTicks(QPainter& p, const QPointF& C, double outerR, double totalAngle,double maxPressure,
+                       QVector<double> points,QVector<double> pointsAngle);
+    void drawYYQYNumbers(QPainter& p, const QPointF& C, double outerR, double totalAngle, double maxPressure,
+                         QVector<double> points, QVector<double> pointsAngle);
+    void drawYYQYColorBands(QPainter& p, const QPointF& C, double outerR, double totalAngle,double maxPressure,
+                                        QVector<double> points,QVector<double> pointsAngle);
     void drawYYQYCenterTexts(QPainter& p, const QPointF& C, double outerR);
-    void drawYYQYPositionDot(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
+    void drawYYQYPositionDot(QPainter& p, const QPointF& C, double outerR, double totalAngle);
     void drawYYQYLogo(QPainter& p, const QPointF& C, double outerR);  // 绘制商标
     
     void saveGeneratedDial();
