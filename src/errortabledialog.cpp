@@ -10,7 +10,7 @@
 // ======== NEW: 预检阈值计算辅助函数（仅本文件可见） ========
 // 按型号获取满量程压力（MPa）：YYQY=6.3，BYQ=25；其他回退到配置值
 static inline double modelFullScalePressure(const PressureGaugeConfig& cfg) {
-    if (cfg.productModel == "YYQY-13") return 6.3;
+    if (cfg.productModel == "YYQY-13")return 6.3;
     if (cfg.productModel == "BYQ-19") return 25.0;
     return cfg.maxPressure;
 }
@@ -157,6 +157,11 @@ ErrorTableDialog::ErrorTableDialog(QWidget *parent)
         qDebug() << "ErrorTableDialog 构造函数未知异常";
         QMessageBox::critical(nullptr, "错误", "创建对话框失败: 未知异常");
     }
+
+
+    
+
+    
 }
 
 ErrorTableDialog::~ErrorTableDialog()
@@ -557,8 +562,8 @@ void ErrorTableDialog::updateDataTable()
         qDebug() << "设置数据表格行数:" << m_detectionData.size();
         m_dataTable->setRowCount(m_detectionData.size());
     
-    for (int i = 0; i < m_detectionData.size(); ++i) {
-        const DetectionPoint &point = m_detectionData[i];
+        for (int i = 0; i < m_detectionData.size(); ++i) {
+          const DetectionPoint &point = m_detectionData[i];
         
         // 检测点压力
         m_dataTable->setItem(i, 0, new QTableWidgetItem(QString::number(point.pressure, 'f', 1)));
@@ -702,6 +707,10 @@ void ErrorTableDialog::updateDataTable()
     } catch (...) {
         qDebug() << "updateDataTable 未知异常";
     }
+    if (isAllRoundsCompleted()) {
+        setFinalData();
+    }
+    
 }
 
 double ErrorTableDialog::pressureToAngle(double pressure) const
@@ -1029,6 +1038,8 @@ void ErrorTableDialog::updateAnalysisText()
     m_analysisText->setHtml(analysis);
 }
 
+
+//important
 QString ErrorTableDialog::formatAnalysisResult()
 {
     QString result = "<h3>误差检测结果</h3>";
@@ -1740,7 +1751,9 @@ void ErrorTableDialog::loadConfigFromFile(const QString &fileName)
     updateDetectionPointsTable();
     updateDataTable();
     validateAndCheckErrors();
+   
     
+
     qDebug() << "配置和数据已从" << fileName << "加载完成";
 }
 
@@ -1961,6 +1974,8 @@ void ErrorTableDialog::setTotalRounds(int rounds)
         updateCurrentRoundDisplay();
         updateRoundInfoDisplay();
         
+
+
         qDebug() << "总轮数设置完成:" << m_totalRounds << "轮";
     }
 }
@@ -2042,6 +2057,8 @@ void ErrorTableDialog::saveCurrentRound()
             .arg(m_totalRounds));
     }
     
+
+
     // 自动保存到文件
     saveConfig();
 }
@@ -2077,7 +2094,6 @@ double ErrorTableDialog::calculateAverageMaxAngle() const
             count++;
         }
     }
-    
     return count > 0 ? sum / count : 0.0;
 }
 
@@ -2384,11 +2400,14 @@ void ErrorTableDialog::setMainWindowData(const QVector<QVector<double>>& allRoun
     // 更新误差分析结果
     validateAndCheckErrors();
     qDebug() << "批量数据设置完成";
+
+    setFinalData();
+
 }
 
 // ================== 新增的计算函数 ==================
 
-// 计算指定检测点所有轮次正反行程角度的平均值
+// 计算指定检测点所有轮次正反行程角度的平均值 --需要使用
 double ErrorTableDialog::calculateAverageAngleForDetectionPoint(int pointIndex) const
 {
     if (pointIndex < 0 || pointIndex >= m_detectionData.size()) {
@@ -2545,3 +2564,62 @@ void ErrorTableDialog::onProductInfoChanged()
     }
     validateAndCheckErrors();  // 确保分析区即时刷新
 }
+
+//设置最终数据
+void ErrorTableDialog::setFinalData() {
+    if (isAllRoundsCompleted()) {
+       if (m_config.productModel == "YYQY-13") m_yyqyFinalData = buildYYQYFinalData();
+        if (m_config.productModel == "BYQ-19") m_byqFinalData = buildBYQFinalData();
+    }
+}
+
+// 构造 BYQ_final_data：收集当前检测点（按 m_detectionData 顺序）并使用实测平均最大角度
+BYQ_final_data ErrorTableDialog::buildBYQFinalData() const
+{
+    BYQ_final_data out;
+    out.maxPressure = modelFullScalePressure(m_config);        // 使用型号映射的满量程压力
+    out.totalAngle  = calculateAverageMaxAngle();              // 使用所有可用轮次的平均最大角度
+
+    out.points.clear();
+    out.pointsAngle.clear();
+
+    for (int i = 0; i < m_detectionData.size(); ++i) {
+        const DetectionPoint &pt = m_detectionData[i];
+        out.points.append(pt.pressure);
+        // 最终角度按现有逻辑计算（跨轮正反成对平均）
+        double finalAng = calculateFinalMeasuredAngleForDetectionPoint(i);
+        if (finalAng <= 0.0) {
+            // 回退：使用理论角度（以配置的满量程角为基准）
+            finalAng = pressureToAngle(pt.pressure);
+        }
+        out.pointsAngle.append(finalAng);
+    }
+
+    return out;
+}
+
+// 构造 YYQY_final_data：与 BYQ 类似，按 YYQY 需要的检测点顺序/数量返回
+YYQY_final_data ErrorTableDialog::buildYYQYFinalData() const
+{
+    YYQY_final_data out;
+    out.maxPressure = modelFullScalePressure(m_config);
+    out.totalAngle  = calculateAverageMaxAngle();
+
+    out.points.clear();
+    out.pointsAngle.clear();
+
+    // 如果是 YYQY 型号，则直接按 m_detectionData 顺序输出
+    // 否则也按现有检测点列表输出，调用者可根据型号选择使用哪个函数
+    for (int i = 0; i < m_detectionData.size(); ++i) {
+        const DetectionPoint &pt = m_detectionData[i];
+        out.points.append(pt.pressure);
+        double finalAng = calculateFinalMeasuredAngleForDetectionPoint(i);
+        if (finalAng <= 0.0) {
+            finalAng = pressureToAngle(pt.pressure);
+        }
+        out.pointsAngle.append(finalAng);
+    }
+    
+    return out;
+}
+
