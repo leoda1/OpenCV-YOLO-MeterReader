@@ -760,6 +760,35 @@ void DialMarkDialog::setupUI()
     saveDialButton->setMinimumHeight(32);
     dialLayout->addWidget(saveDialButton);
     
+    // 添加"从误差表格导入数据"按钮
+    QPushButton *importFromErrorTableButton = new QPushButton("从误差表格导入", dialGroup);
+    importFromErrorTableButton->setFont(panelFont);
+    importFromErrorTableButton->setMinimumHeight(32);
+    importFromErrorTableButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; } QPushButton:hover { background-color: #45a049; }");
+    dialLayout->addWidget(importFromErrorTableButton);
+    
+    // 连接导入按钮信号
+    connect(importFromErrorTableButton, &QPushButton::clicked, this, [this]() {
+        if (!m_errorTableDialog) {
+            QMessageBox::information(this, "提示", "请先打开误差检测表格");
+            return;
+        }
+        
+        // 调用数据导入方法
+        applyFinalDataFromErrorTable();
+        
+        // 更新界面显示的参数值
+        if (m_dialType == "YYQY-13") {
+            m_maxPressureSpin->setValue(m_yyqyConfig.maxPressure);
+            m_dialAngleSpin->setValue(m_yyqyConfig.totalAngle);
+        } else {
+            m_maxPressureSpin->setValue(m_byqConfig.maxPressure);
+            m_dialAngleSpin->setValue(m_byqConfig.totalAngle);
+        }
+        
+        QMessageBox::information(this, "成功", "已从误差表格导入数据并重新生成表盘");
+    });
+    
     // 连接信号
     connect(m_generateButton, &QPushButton::clicked, this, [this]() {
         // 更新配置
@@ -1679,14 +1708,11 @@ static inline double yyqyV2Ang(double v, double vmax, double startDeg, double to
         const double lastStep = 0.1; // 最后一段单独处理，步长为0.1
         double angleStep = (aNext - aCurr) / ((pNext - pCurr) / lastStep);
         return startDeg - (aCurr + (v - pCurr) / lastStep * angleStep); // 注意这里是减去，因为顺时针方向角度减小
-    }else{
+    } else{
         const double subDiv = 10.0;
         double angleStep = (aNext - aCurr) / subDiv;
         return startDeg - (aCurr + (v - pCurr) * 10 * angleStep);
-        }
-
-
-
+    }
 }
 
 
@@ -2072,28 +2098,43 @@ void DialMarkDialog::addYYQYconfig(double maxPressure,double totalAngle,QVector<
 void DialMarkDialog::applyFinalDataFromErrorTable()
 {
     if (!m_errorTableDialog) {
+        qDebug() << "applyFinalDataFromErrorTable: 误差表格对话框未打开";
         return;  // 如果表格窗口没有打开，就不更新
     }
-  
+    
     // 区分类型并传入对应数据
-  if(m_errorTableDialog){
     if (m_dialType == "BYQ-19") {
+        // 检查数据有效性
+        if (m_errorTableDialog->m_byqFinalData.points.isEmpty() || 
+            m_errorTableDialog->m_byqFinalData.pointsAngle.isEmpty()) {
+            qDebug() << "applyFinalDataFromErrorTable: BYQ数据为空，跳过应用";
+            QMessageBox::warning(this, "数据无效", "误差表格中没有有效的BYQ表盘数据，请先在误差表格中完成数据采集");
+            return;
+        }
+        
         // 直接使用 DialMarkDialog 的接口（addBYQconfig 已实现为写入并刷新）
-          addBYQconfig(
+        addBYQconfig(
             m_errorTableDialog->m_byqFinalData.maxPressure,
             m_errorTableDialog->m_byqFinalData.totalAngle,
             m_errorTableDialog->m_byqFinalData.points,
             m_errorTableDialog->m_byqFinalData.pointsAngle
         );
-       } 
-    if (m_dialType == "YYQY-13") {
-          addYYQYconfig(
+    } else if (m_dialType == "YYQY-13") {
+        // 检查数据有效性
+        if (m_errorTableDialog->m_yyqyFinalData.points.isEmpty() || 
+            m_errorTableDialog->m_yyqyFinalData.pointsAngle.isEmpty()) {
+            qDebug() << "applyFinalDataFromErrorTable: YYQY数据为空，跳过应用";
+            QMessageBox::warning(this, "数据无效", "误差表格中没有有效的YYQY表盘数据，请先在误差表格中完成数据采集");
+            return;
+        }
+        
+        addYYQYconfig(
             m_errorTableDialog->m_yyqyFinalData.maxPressure,
             m_errorTableDialog->m_yyqyFinalData.totalAngle,
             m_errorTableDialog->m_yyqyFinalData.points,
             m_errorTableDialog->m_yyqyFinalData.pointsAngle
-         );
-       } 
+        );
+    }
 
     // 关键：立即重新生成并替换显示的图片
     if (m_imageLabel) {
@@ -2105,7 +2146,4 @@ void DialMarkDialog::applyFinalDataFromErrorTable()
             qDebug() << "applyFinalDataFromErrorTable: 生成图像失败";
         }
     }
-   
-  }
-
 }

@@ -1019,10 +1019,12 @@ void MainWindow::showDialMarkDialog()
     qDebug() << "打开表盘标注对话框，表盘类型:" << m_currentDialType;
     
     auto dialog = std::make_unique<DialMarkDialog>(this, m_currentDialType);
-    // 如果主窗口维护了 ErrorTableDialog 指针，则注入并让对话框从 error 表获取最终数据
+    // 如果主窗口维护了 ErrorTableDialog 指针，则注入（但不自动应用数据）
+    // 用户需要在 DialMarkDialog 内部手动选择是否使用误差表格的数据
     if (m_errorTableDialog) {
         dialog->setErrorTableDialog(m_errorTableDialog);
-        dialog->applyFinalDataFromErrorTable(); // 将 ErrorTableDialog 的最终数据应用到 DialMarkDialog
+        // 移除自动应用数据的调用，避免在打开对话框时就覆盖默认配置
+        // dialog->applyFinalDataFromErrorTable();
     }
     dialog->exec();
 }
