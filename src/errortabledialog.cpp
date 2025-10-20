@@ -708,7 +708,7 @@ void ErrorTableDialog::updateDataTable()
         qDebug() << "updateDataTable 未知异常";
     }
     if (isAllRoundsCompleted()) {
-        setFinalData();
+        //setFinalData();
     }
     
 }
@@ -2057,7 +2057,10 @@ void ErrorTableDialog::saveCurrentRound()
             .arg(m_totalRounds));
     }
     
-
+    // 如果是最后一轮且有效，尝试设置最终数据
+    if (m_currentRound == m_totalRounds - 1) {
+        setFinalData();
+    }
 
     // 自动保存到文件
     saveConfig();
@@ -2401,7 +2404,7 @@ void ErrorTableDialog::setMainWindowData(const QVector<QVector<double>>& allRoun
     validateAndCheckErrors();
     qDebug() << "批量数据设置完成";
 
-    setFinalData();
+    //setFinalData();
 
 }
 
@@ -2566,10 +2569,52 @@ void ErrorTableDialog::onProductInfoChanged()
 }
 
 //设置最终数据
+// void ErrorTableDialog::setFinalData() {
+    
+//         if (m_config.productModel == "YYQY-13") m_yyqyFinalData = buildYYQYFinalData();
+//         if (m_config.productModel == "BYQ-19") m_byqFinalData = buildBYQFinalData();
+    
+// }
+
 void ErrorTableDialog::setFinalData() {
-    if (isAllRoundsCompleted()) {
-       if (m_config.productModel == "YYQY-13") m_yyqyFinalData = buildYYQYFinalData();
-        if (m_config.productModel == "BYQ-19") m_byqFinalData = buildBYQFinalData();
+    // 1. 检查是否完成所有轮次
+    if (!isAllRoundsCompleted()) {
+        qDebug() << "未完成所有轮次测量，跳过设置最终数据";
+        return;
+    }
+
+    // 2. 检查是否有有效的平均最大角度
+    double avgMaxAngle = calculateAverageMaxAngle();
+    if (avgMaxAngle <= 0.0) {
+        qDebug() << "无有效的平均最大角度，跳过设置最终数据";
+        return;
+    }
+
+    // 3. 检查是否每个检测点都有有效的最终角度
+    for (int i = 0; i < m_detectionData.size(); i++) {
+        double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(i);
+        if (finalAngle <= 0.0) {
+            qDebug() << "检测点" << i << "无有效最终角度，跳过设置最终数据";
+            return;
+        }
+    }
+
+    // 4. 检查产品型号是否有效
+    if (m_config.productModel != "YYQY-13" && m_config.productModel != "BYQ-19") {
+        qDebug() << "无效的产品型号:" << m_config.productModel;
+        return;
+    }
+
+    // 5. 设置最终数据
+    if (m_config.productModel == "YYQY-13") {
+        m_yyqyFinalData = buildYYQYFinalData();
+        qDebug() << "YYQY最终数据设置完成 - 压力点数量:" << m_yyqyFinalData.points.size()
+                 << "角度数量:" << m_yyqyFinalData.pointsAngle.size();
+    }
+    if (m_config.productModel == "BYQ-19") {
+        m_byqFinalData = buildBYQFinalData();
+        qDebug() << "BYQ最终数据设置完成 - 压力点数量:" << m_byqFinalData.points.size()
+                 << "角度数量:" << m_byqFinalData.pointsAngle.size();
     }
 }
 
@@ -2620,6 +2665,9 @@ YYQY_final_data ErrorTableDialog::buildYYQYFinalData() const
         out.pointsAngle.append(finalAng);
     }
     
+    qDebug() << "YYQY points:" << out.points;
+    qDebug() << "YYQY pointsAngle:" << out.pointsAngle;
+
     return out;
 }
 

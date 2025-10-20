@@ -235,7 +235,7 @@ private:
     // 表盘生成相关
     QImage generateDialImage();
     QImage generateBYQDialImage();   // BYQ类型表盘
-    QPixmap generateYYQYDialImage();  // YYQY类型表盘
+    QImage generateYYQYDialImage();  // YYQY类型表盘
     
     // BYQ表盘绘制方法
     void drawBYQTicksAndNumbers(QPainter& p, const QPointF& C, double outerR,

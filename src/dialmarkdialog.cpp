@@ -1372,7 +1372,7 @@ static inline int dpi_to_dpm(double dpi) { return qRound(dpi / 0.0254); } // = d
 QImage DialMarkDialog::generateDialImage()
 {
     if (m_dialType == "YYQY-13") {
-        return generateYYQYDialImage().toImage();
+        return generateYYQYDialImage();
     } else {
         return generateBYQDialImage();
     }
@@ -1639,6 +1639,7 @@ void DialMarkDialog::saveGeneratedDial()
 }
 
 // ======= YYQY表盘生成 =======
+/*
 QPixmap DialMarkDialog::generateYYQYDialImage()
 {
     // YYQY表盘规格：1890x1890像素，1200x1200分辨率
@@ -1673,6 +1674,41 @@ QPixmap DialMarkDialog::generateYYQYDialImage()
     
     p.end();
     return pm;
+}
+    */
+
+QImage DialMarkDialog::generateYYQYDialImage()
+{
+    // YYQY表盘规格：1890x1890像素，1200x1200分辨率
+    const int S = 1890;  
+    
+    QImage img(S, S, QImage::Format_RGBA64);
+    img.fill(Qt::white);
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setRenderHint(QPainter::TextAntialiasing, true);
+    
+    const QPointF C(S/2.0, S/2.0);  // 圆心
+    const double outerR = 16.3 * S / 42.0;  // 外径半径（缩小表盘，留出边距）
+    
+    // 使用配置中的角度值
+    const double maxPressure = m_yyqyConfig.maxPressure; // 最大压力
+    double totalAngle = m_yyqyConfig.totalAngle;
+    const QVector<double>& points = m_yyqyConfig.points;           // 保存的分段点
+    const QVector<double>& pointsAngle = m_yyqyConfig.pointsAngle; // 保存的分段角度
+
+    qDebug() << "生成YYQY表盘，角度：" << totalAngle;
+    
+    // 绘制各个组件 - 调整绘制顺序，确保数字不被遮挡
+    drawYYQYLogo(p, C, outerR);                        // 绘制商标
+    drawYYQYTicks(p, C, outerR, totalAngle, maxPressure, points, pointsAngle);           // 先绘制刻度线
+    drawYYQYColorBands(p, C, outerR, totalAngle, maxPressure, points, pointsAngle);      // 然后绘制彩色带
+    drawYYQYNumbers(p, C, outerR, totalAngle, maxPressure, points, pointsAngle);         // 再绘制数字（确保在最上层）
+    drawYYQYCenterTexts(p, C, outerR);                 // 绘制中心文字
+    drawYYQYPositionDot(p, C, outerR, totalAngle);     // 最后绘制定位点
+    
+    p.end();
+    return img;
 }
 
 //实在不行就yyqy2ang
@@ -1887,116 +1923,61 @@ void DialMarkDialog::drawYYQYColorBands(QPainter& p, const QPointF& C, double ou
 
 void DialMarkDialog::drawYYQYCenterTexts(QPainter& p, const QPointF& C, double outerR)
 {
-    // const double k = outerR / 16.3;
-    
-    // // "MPa"文字在圆心正上方R3位置（2号黑体）- 修复字体大小
-    // int mpaFontSize = (int)(108 * k);  // 2号字体大幅增加，从18*k改为36*k
-    // mpaFontSize = qMax(mpaFontSize, 96);  // 最小28px
-    // mpaFontSize = qMin(mpaFontSize, 108);  // 最大56px
-    // QFont mpaFont("SimHei", mpaFontSize);  // MPa文字加粗
-    // mpaFont.setStretch(QFont::Condensed);  // 设置为窄体（高高细细）
-    // p.setFont(mpaFont);
-    // p.setPen(Qt::black);
-    
-    // QPointF mpaPos(C.x(), C.y() - 3 * k);
-    // QFontMetrics mpafm(mpaFont);
-    // QRect mpaRect = mpafm.boundingRect("MPa");
-    // QRectF mpaDrawRect(mpaPos.x() - mpaRect.width()/2.0, 
-    //                   mpaPos.y() - mpaRect.height()/2.0, 
-    //                   mpaRect.width(), mpaRect.height());
-    // p.drawText(mpaDrawRect, Qt::AlignCenter, "MPa");
-    
-    // // "禁油"和"氧气"文字（3号黑体）- 修复字体大小
-    // int textFontSize = (int)(88 * k);  // 3号字体大幅增加，从20*k改为40*k
-    // textFontSize = qMax(textFontSize, 88);  // 最小32px
-    // textFontSize = qMin(textFontSize, 88);  // 最大64px
-    // QFont textFont("SimHei", textFontSize, QFont::Normal);
-    // textFont.setStretch(QFont::Condensed);  // 设置为窄体（高高细细）
-    // p.setFont(textFont);
-    
-    // double text_r = 4.0 * k;  // 改为R4位置
-    // double text_y_offset = 1.5 * k;  // 相对圆心往下偏移
-    
-    // // "禁油"文字在圆心左边
-    // QPointF jinYouPos(C.x() - text_r, C.y() + text_y_offset);  // 添加向下偏移
-    // QFontMetrics textfm(textFont);
-    // QRect jinYouRect = textfm.boundingRect("禁油");
-    // QRectF jinYouDrawRect(jinYouPos.x() - jinYouRect.width()/2.0, 
-    //                      jinYouPos.y() - jinYouRect.height()/2.0, 
-    //                      jinYouRect.width(), jinYouRect.height());
-    // p.drawText(jinYouDrawRect, Qt::AlignCenter, "禁油");
-    
-    // // "氧气"文字在圆心右边（有蓝色下划线）
-    // QPointF yangQiPos(C.x() + text_r, C.y() + text_y_offset);  // 添加向下偏移
-    // QRect yangQiRect = textfm.boundingRect("氧气");
-    // QRectF yangQiDrawRect(yangQiPos.x() - yangQiRect.width()/2.0, 
-    //                      yangQiPos.y() - yangQiRect.height()/2.0, 
-    //                      yangQiRect.width(), yangQiRect.height());
-    // p.setPen(Qt::black);
-    // p.drawText(yangQiDrawRect, Qt::AlignCenter, "氧气");
-    
-    // // 绘制"氧气"的蓝色下划线（酞蓝色PB06，宽0.5，圆角）
-    // QPen underlinePen(QColor("#0066CC"), 0.5 * k, Qt::SolidLine);
-    // p.setPen(underlinePen);
-    // double underlineY = yangQiDrawRect.bottom() - k * 0.4;  // 更靠近文字
-    // // 下划线与文字一样宽，不留边距
-    // p.drawLine(QPointF(yangQiDrawRect.left(), underlineY), 
-    //            QPointF(yangQiDrawRect.right(), underlineY));
     const double k = outerR / 16.3;
     
-    // "MPa"
-    int mpaFontSize = (int)(36 * k);      // 合理缩放基准
-    mpaFontSize = qBound(18, mpaFontSize, 56); // 限制在 18..56 像素
-    QFont mpaFont("SimHei", mpaFontSize);
-    mpaFont.setBold(true);
-    mpaFont.setStretch(QFont::Condensed);
+    // "MPa"文字在圆心正上方R3位置（2号黑体）- 修复字体大小
+    int mpaFontSize = (int)(108 * k);  // 2号字体大幅增加，从18*k改为36*k
+    mpaFontSize = qMax(mpaFontSize, 96);  // 最小28px
+    mpaFontSize = qMin(mpaFontSize, 108);  // 最大56px
+    QFont mpaFont("SimHei", mpaFontSize);  // MPa文字加粗
+    mpaFont.setStretch(QFont::Condensed);  // 设置为窄体（高高细细）
     p.setFont(mpaFont);
     p.setPen(Qt::black);
-    QFontMetrics mpafm(mpaFont);
-    QString mpaText = "MPa";
-    QRect mpaRect = mpafm.boundingRect(mpaText);
-    QPointF mpaPos(C.x(), C.y() - 3.0 * k);
-    QRectF mpaDrawRect(mpaPos.x() - mpaRect.width()/2.0,
-                       mpaPos.y() - mpaRect.height()/2.0,
-                       mpaRect.width(), mpaRect.height());
-    p.drawText(mpaDrawRect, Qt::AlignCenter, mpaText);
     
-    // "禁油" / "氧气" 字体
-    int textFontSize = (int)(20 * k);
-    textFontSize = qBound(12, textFontSize, 36); // 限制在 12..36 像素
+    QPointF mpaPos(C.x(), C.y() - 3 * k);
+    QFontMetrics mpafm(mpaFont);
+    QRect mpaRect = mpafm.boundingRect("MPa");
+    QRectF mpaDrawRect(mpaPos.x() - mpaRect.width()/2.0, 
+                      mpaPos.y() - mpaRect.height()/2.0, 
+                      mpaRect.width(), mpaRect.height());
+    p.drawText(mpaDrawRect, Qt::AlignCenter, "MPa");
+    
+    // "禁油"和"氧气"文字（3号黑体）- 修复字体大小
+    int textFontSize = (int)(88 * k);  // 3号字体大幅增加，从20*k改为40*k
+    textFontSize = qMax(textFontSize, 88);  // 最小32px
+    textFontSize = qMin(textFontSize, 88);  // 最大64px
     QFont textFont("SimHei", textFontSize, QFont::Normal);
-    textFont.setStretch(QFont::Condensed);
+    textFont.setStretch(QFont::Condensed);  // 设置为窄体（高高细细）
     p.setFont(textFont);
+
+    double text_r = 4.0 * k;  // R4位置
+    double text_y_offset = 1.5 * k;  // 相对圆心往下偏移
+    
+    // "禁油"文字在圆心左边
+    QPointF jinYouPos(C.x() - text_r, C.y() + text_y_offset);  // 添加向下偏移
     QFontMetrics textfm(textFont);
-
-    QString leftText = "禁油";
-    QString rightText = "氧气";
-    QRect leftRect = textfm.boundingRect(leftText);
-    QRect rightRect = textfm.boundingRect(rightText);
-
-    // 基于 MPa 宽度计算水平间距，保证不重叠
-    double margin = 2.0 * k; // 最小间距
-    double leftX = C.x() - (mpaRect.width() / 2.0) - margin - leftRect.width() / 2.0;
-    double rightX = C.x() + (mpaRect.width() / 2.0) + margin + rightRect.width() / 2.0;
-    double textY = C.y() + 1.5 * k;
-
-    QRectF leftDrawRect(leftX - leftRect.width()/2.0, textY - leftRect.height()/2.0,
-                        leftRect.width(), leftRect.height());
-    QRectF rightDrawRect(rightX - rightRect.width()/2.0, textY - rightRect.height()/2.0,
-                         rightRect.width(), rightRect.height());
-
+    QRect jinYouRect = textfm.boundingRect("禁油");
+    QRectF jinYouDrawRect(jinYouPos.x() - jinYouRect.width()/2.0, 
+                         jinYouPos.y() - jinYouRect.height()/2.0, 
+                         jinYouRect.width(), jinYouRect.height());
+    p.drawText(jinYouDrawRect, Qt::AlignCenter, "禁油");
+    
+    // "氧气"文字在圆心右边（有蓝色下划线）
+    QPointF yangQiPos(C.x() + text_r, C.y() + text_y_offset);  // 添加向下偏移
+    QRect yangQiRect = textfm.boundingRect("氧气");
+    QRectF yangQiDrawRect(yangQiPos.x() - yangQiRect.width()/2.0, 
+                         yangQiPos.y() - yangQiRect.height()/2.0, 
+                         yangQiRect.width(), yangQiRect.height());
     p.setPen(Qt::black);
-    p.drawText(leftDrawRect, Qt::AlignCenter, leftText);
-    p.drawText(rightDrawRect, Qt::AlignCenter, rightText);
-
-    // "氧气" 下划线（蓝色）
-    QPen underlinePen(QColor("#0066CC"), qMax(0.5, 0.5 * k), Qt::SolidLine);
-    underlinePen.setCapStyle(Qt::RoundCap);
+    p.drawText(yangQiDrawRect, Qt::AlignCenter, "氧气");
+    
+    // 绘制"氧气"的蓝色下划线（酞蓝色PB06，宽0.5，圆角）
+    QPen underlinePen(QColor("#0066CC"), 0.5 * k, Qt::SolidLine);
     p.setPen(underlinePen);
-    double underlineY = rightDrawRect.bottom() - 0.25 * k;
-    p.drawLine(QPointF(rightDrawRect.left(), underlineY),
-               QPointF(rightDrawRect.right(), underlineY));
-
+    double underlineY = yangQiDrawRect.bottom() - k * 0.4;  // 更靠近文字
+    // 下划线与文字一样宽，不留边距
+    p.drawLine(QPointF(yangQiDrawRect.left(), underlineY), 
+               QPointF(yangQiDrawRect.right(), underlineY));
 }
 
 void DialMarkDialog::drawYYQYPositionDot(QPainter& p, const QPointF& C, double outerR, double totalAngle)
