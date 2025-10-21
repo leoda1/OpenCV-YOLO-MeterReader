@@ -72,7 +72,7 @@ struct YYQYDialConfig {
     QVector<double> points;  // 中间节点的角度值
     QVector<double> pointsAngle;  // 中间节点的角度值
 
-    YYQYDialConfig() : maxPressure(6.3), totalAngle(250.0), warningPressure(4.0) ,points({0.0, 1.0, 2.0, 3.0, 4.0, 5.0}), pointsAngle({0.0, 45.0, 90.0, 135.0, 185.0, 200.5}) {}
+    YYQYDialConfig() : maxPressure(6.3), totalAngle(270.0), warningPressure(4.0) ,points({0.0, 1.0, 2.0, 3.0, 4.0, 5.0}), pointsAngle({0.0, 45.0, 90.0, 135.0, 185.0, 222.5}) {}
 };
 
 // 自定义图片显示标签类，支持鼠标交互

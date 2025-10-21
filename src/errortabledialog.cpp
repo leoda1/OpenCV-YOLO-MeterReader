@@ -708,7 +708,7 @@ void ErrorTableDialog::updateDataTable()
         qDebug() << "updateDataTable 未知异常";
     }
     if (isAllRoundsCompleted()) {
-        //setFinalData();
+        setFinalData();
     }
     
 }
@@ -2057,10 +2057,6 @@ void ErrorTableDialog::saveCurrentRound()
             .arg(m_totalRounds));
     }
     
-    // 如果是最后一轮且有效，尝试设置最终数据
-    if (m_currentRound == m_totalRounds - 1) {
-        setFinalData();
-    }
 
     // 自动保存到文件
     saveConfig();
@@ -2593,6 +2589,7 @@ void ErrorTableDialog::setFinalData() {
     // 3. 检查是否每个检测点都有有效的最终角度
     for (int i = 0; i < m_detectionData.size(); i++) {
         double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(i);
+        if(i == 0 && finalAngle >= 3.0)  return;
         if (finalAngle <= 0.0) {
             qDebug() << "检测点" << i << "无有效最终角度，跳过设置最终数据";
             return;

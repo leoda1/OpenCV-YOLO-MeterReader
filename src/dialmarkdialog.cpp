@@ -1639,43 +1639,6 @@ void DialMarkDialog::saveGeneratedDial()
 }
 
 // ======= YYQY表盘生成 =======
-/*
-QPixmap DialMarkDialog::generateYYQYDialImage()
-{
-    // YYQY表盘规格：1890x1890像素，1200x1200分辨率
-    const int S = 1890;  
-    
-    QPixmap pm(S, S);
-    pm.fill(Qt::white);
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.setRenderHint(QPainter::TextAntialiasing, true);
-    
-    const QPointF C(S/2.0, S/2.0);  // 圆心
-    const double outerR = 16.3 * S / 42.0;  // 外径半径（缩小表盘，留出边距）
-    
-    // 使用配置中的角度值
-    const double maxPressure = m_yyqyConfig.maxPressure; // 最大压力
-    double totalAngle = m_yyqyConfig.totalAngle;
-    const QVector<double>& points = m_yyqyConfig.points;           // 保存的分段点
-    const QVector<double>& pointsAngle = m_yyqyConfig.pointsAngle; // 保存的分段角度
-
-
-
-    qDebug() << "生成YYQY表盘，角度：" << totalAngle;
-    
-    // 绘制各个组件 - 调整绘制顺序，确保数字不被遮挡
-    drawYYQYLogo(p, C, outerR);                        // 绘制商标
-    drawYYQYTicks(p, C, outerR, totalAngle, maxPressure, points, pointsAngle);           // 先绘制刻度线
-    drawYYQYColorBands(p, C, outerR, totalAngle, maxPressure, points, pointsAngle);      // 然后绘制彩色带
-    drawYYQYNumbers(p, C, outerR, totalAngle, maxPressure, points, pointsAngle);         // 再绘制数字（确保在最上层）
-    drawYYQYCenterTexts(p, C, outerR);                 // 绘制中心文字
-    drawYYQYPositionDot(p, C, outerR, totalAngle);     // 最后绘制定位点
-    
-    p.end();
-    return pm;
-}
-    */
 
 QImage DialMarkDialog::generateYYQYDialImage()
 {
@@ -1712,43 +1675,57 @@ QImage DialMarkDialog::generateYYQYDialImage()
 }
 
 //实在不行就yyqy2ang
-static inline double yyqyV2Ang(double v, double vmax, double startDeg, double totalAngle,QVector<double> points,QVector<double> pointsAngle)
+static inline double yyqyV2Ang(double v, double vmax, double startDeg, double totalAngle, QVector<double> points, QVector<double> pointsAngle)
 {
-    //  确保两端点完整（若已经在列表里则不会重复添加）
+    // 复制并保证包含端点 0 和 vmax
     QVector<double> allP = points;
     QVector<double> allA = pointsAngle;
 
-    if (allP.isEmpty() || allP.last()  != vmax) allP.append(vmax);
-    if (allA.isEmpty() || allA.last()  != totalAngle) allA.append(totalAngle);
+    if (allP.isEmpty() || allP.first() != 0.0) {
+        allP.prepend(0.0);
+        allA.prepend(0.0);
+    }
+    if (allP.isEmpty() || allP.last() != vmax) {
+        allP.append(vmax);
+        allA.append(totalAngle);
+    }
 
-    //  参数合法性检查（超出范围则 clamp）
+    // 基本合法性检查：长度、单调性
+    if (allP.size() != allA.size()) {
+        // 退化为线性映射
+        double frac = (vmax > 0.0) ? std::clamp(v / vmax, 0.0, 1.0) : 0.0;
+        return startDeg - frac * totalAngle;
+    }
+    for (int i = 1; i < allP.size(); ++i) {
+        if (allP[i] <= allP[i-1] || allA[i] < allA[i-1]) {
+            double frac = (vmax > 0.0) ? std::clamp(v / vmax, 0.0, 1.0) : 0.0;
+            return startDeg - frac * totalAngle;
+        }
+    }
+
+    // clamp v
     v = std::clamp(v, 0.0, vmax);
 
-    // 找到 v 所在的主段
+    // 处理边界值，保证 0 与 vmax 精确映射
+    if (v <= 0.0) return startDeg;
+    if (v >= vmax) return startDeg - totalAngle;
+
+    // 找到包含 v 的段并做线性插值
     int idx = 0;
     for (int i = 0; i < allP.size() - 1; ++i) {
-        if (v >= allP[i] && v <= allP[i + 1]) {
+        if (v >= allP[i] && v <= allP[i+1]) {
             idx = i;
             break;
         }
     }
 
-    double pCurr = allP[idx];
-    double pNext = allP[idx + 1];
-    double aCurr = allA[idx];
-    double aNext = allA[idx + 1];
+    double p0 = allP[idx], p1 = allP[idx+1];
+    double a0 = allA[idx], a1 = allA[idx+1];
 
-    // 最后一段之前均分 5 份，最后一份单独处理
-    if(idx == allP.size() - 2){
-        // 最后一段
-        const double lastStep = 0.1; // 最后一段单独处理，步长为0.1
-        double angleStep = (aNext - aCurr) / ((pNext - pCurr) / lastStep);
-        return startDeg - (aCurr + (v - pCurr) / lastStep * angleStep); // 注意这里是减去，因为顺时针方向角度减小
-    } else{
-        const double subDiv = 10.0;
-        double angleStep = (aNext - aCurr) / subDiv;
-        return startDeg - (aCurr + (v - pCurr) * 10 * angleStep);
-    }
+    double t = (p1 == p0) ? 0.0 : (v - p0) / (p1 - p0);
+    double angSeg = a0 + t * (a1 - a0);
+
+    return startDeg - angSeg;
 }
 
 
@@ -1761,7 +1738,7 @@ void DialMarkDialog::drawYYQYTicks(QPainter& p, const QPointF& C, double outerR,
     const double r_band_outer = 16.3 * k;   // 外圆半径（与彩色带外沿对齐）
     const double r_band_inner = 15.5 * k;   // 彩色带内沿
     const double r_major_outer = r_band_inner;  // 大刻度外径 = 彩色带内沿
-    const double r_major_inner = 12.0 * k;  // 大刻度内径
+    const double r_major_inner = 12.5 * k;  // 大刻度内径
     const double r_minor_outer = r_band_inner;  // 小刻度外径 = 彩色带内沿
     const double r_minor_inner = 13.8 * k;  // 小刻度内径
     const double r_number = 10.0 * k;       // 数字半径，调整到更靠内避免被刻度线遮挡
@@ -1845,8 +1822,8 @@ void DialMarkDialog::drawYYQYNumbers(QPainter& p, const QPointF& C, double outer
         
         // 对于数字0，稍微向上偏移避开定位点
         if (i == 0) {
-            numberPos.ry() -= k * 0.4;  // 向上偏移
-            numberPos.rx() -= k * 0.5;  // 向左偏移一点点
+            numberPos.ry() -= k * 1.0;  // 向上偏移
+            numberPos.rx() -= k * 1.0;  // 向左偏移一点点
         } else if (i == 1) {
             numberPos.rx() -= k * 0.8;  // 向左偏移一点点
         }
@@ -1927,10 +1904,10 @@ void DialMarkDialog::drawYYQYCenterTexts(QPainter& p, const QPointF& C, double o
     
     // "MPa"文字在圆心正上方R3位置（2号黑体）- 修复字体大小
     int mpaFontSize = (int)(108 * k);  // 2号字体大幅增加，从18*k改为36*k
-    mpaFontSize = qMax(mpaFontSize, 96);  // 最小28px
-    mpaFontSize = qMin(mpaFontSize, 108);  // 最大56px
-    QFont mpaFont("SimHei", mpaFontSize);  // MPa文字加粗
-    mpaFont.setStretch(QFont::Condensed);  // 设置为窄体（高高细细）
+    mpaFontSize = qMax(mpaFontSize, 88);  // 最小28px
+    mpaFontSize = qMin(mpaFontSize, 88);  // 最大56px
+    QFont mpaFont("黑体", mpaFontSize);  // MPa文字加粗
+    //mpaFont.setStretch(QFont::Condensed);  // 设置为窄体（高高细细）
     p.setFont(mpaFont);
     p.setPen(Qt::black);
     
@@ -1946,11 +1923,11 @@ void DialMarkDialog::drawYYQYCenterTexts(QPainter& p, const QPointF& C, double o
     int textFontSize = (int)(88 * k);  // 3号字体大幅增加，从20*k改为40*k
     textFontSize = qMax(textFontSize, 88);  // 最小32px
     textFontSize = qMin(textFontSize, 88);  // 最大64px
-    QFont textFont("SimHei", textFontSize, QFont::Normal);
-    textFont.setStretch(QFont::Condensed);  // 设置为窄体（高高细细）
+    QFont textFont("黑体", textFontSize, QFont::Normal);
+    //textFont.setStretch(QFont::Condensed);  // 设置为窄体（高高细细）
     p.setFont(textFont);
 
-    double text_r = 4.0 * k;  // R4位置
+    double text_r = 4.5 * k;  // R4位置
     double text_y_offset = 1.5 * k;  // 相对圆心往下偏移
     
     // "禁油"文字在圆心左边
@@ -1971,13 +1948,13 @@ void DialMarkDialog::drawYYQYCenterTexts(QPainter& p, const QPointF& C, double o
     p.setPen(Qt::black);
     p.drawText(yangQiDrawRect, Qt::AlignCenter, "氧气");
     
-    // 绘制"氧气"的蓝色下划线（酞蓝色PB06，宽0.5，圆角）
-    QPen underlinePen(QColor("#0066CC"), 0.5 * k, Qt::SolidLine);
+    // 绘制"氧气"的蓝色下划线（酞蓝色PB06，宽0.5，圆角）---改0.1
+    QPen underlinePen(QColor("#0066CC"), 0.25 * k, Qt::SolidLine);
     p.setPen(underlinePen);
-    double underlineY = yangQiDrawRect.bottom() - k * 0.4;  // 更靠近文字
+    double underlineY = yangQiDrawRect.bottom() + k * 0.3;  //   - k * 0.1;  // 更靠近文字
     // 下划线与文字一样宽，不留边距
-    p.drawLine(QPointF(yangQiDrawRect.left(), underlineY), 
-               QPointF(yangQiDrawRect.right(), underlineY));
+    p.drawLine(QPointF(yangQiDrawRect.left() + 0.6 * k, underlineY), 
+               QPointF(yangQiDrawRect.right() - 0.6 * k, underlineY));
 }
 
 void DialMarkDialog::drawYYQYPositionDot(QPainter& p, const QPointF& C, double outerR, double totalAngle)
