@@ -275,9 +275,10 @@ private:
     };
     
     DialConfig m_dialConfig;    
-    QPushButton *m_generateButton;  // 生成表盘按钮
-    QDoubleSpinBox *m_maxPressureSpin;    // 最大压力输入框（支持小数）
-    QDoubleSpinBox *m_dialAngleSpin;      // 表盘角度输入框（支持小数，仅YYQY类型）
+    //QPushButton *m_generateButton;  // 生成表盘按钮
+    //QDoubleSpinBox *m_maxPressureSpin;    // 最大压力输入框（支持小数）
+    QDoubleSpinBox *m_dialAngleSpin;   //总角度输入框
+    QComboBox *m_dialAngleCombo;      // 表盘角下拉框（支持小数，仅YYQY类型）
 
     void setupUI();
     void setupToolbar();
@@ -285,6 +286,7 @@ private:
     void updateColorButton();
     void loadDialImageFromFile();
     void showAnnotationProperties(int index);
+    void updateAngleComboBox();
 };
 
 #endif // DIALMARKDIALOG_H 

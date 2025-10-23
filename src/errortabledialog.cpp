@@ -1444,28 +1444,32 @@ void ErrorTableDialog::exportToExcel()
             double avgAngleDiff = totalAngleDiff / validRoundCount;
             hysteresisAngles << QString::number(avgAngleDiff, 'f', 2);
             // 使用固定迟滞误差值
-            double fixedHysteresisError = getFixedHysteresisError(i);
-            hysteresisPressureErrors << QString::number(fixedHysteresisError, 'f', 3);
+            double fsAngle = calculateAverageMaxAngle();
+            const double fsPressure = modelFullScalePressure(m_config);
+            double pressureError = std::abs(angleToPressureByFS(avgAngleDiff, fsAngle, fsPressure));
+            hysteresisPressureErrors << QString::number(pressureError, 'f', 3);
         } else {
             hysteresisAngles << "--";
             hysteresisPressureErrors << "--";
         }
     }
     
-    // === 修正：导出迟滞误差角度 = 该点迟滞误差(MPa) / 满量程压力 * 实测平均总角度 ===
-    QStringList hysteresisAnglesFixed;
-    double avgMaxAngle = calculateAverageMaxAngle(); // 实测平均总角度
-    const double fsPressure = modelFullScalePressure(m_config);
-    for (int i = 0; i < m_detectionData.size(); ++i) {
-        if (avgMaxAngle > 0.0 && fsPressure > 0.0) {
-            double angleDeg = (getFixedHysteresisError(i) / fsPressure) * avgMaxAngle;
-            hysteresisAnglesFixed << QString::number(angleDeg, 'f', 2);
-        } else {
-            hysteresisAnglesFixed << "--";
-        }
-    }
-    out << QString("迟滞误差角度,%1,,,\n").arg(hysteresisAnglesFixed.join(","));
+    out << QString("迟滞误差角度,%1,,,\n").arg(hysteresisAngles.join(","));
     out << QString("迟滞误差（MPa）,%1,,,\n").arg(hysteresisPressureErrors.join(","));
+    // // === 修正：导出迟滞误差角度 = 该点迟滞误差(MPa) / 满量程压力 * 实测平均总角度 ===
+    // QStringList hysteresisAnglesFixed;
+    // double avgMaxAngle = calculateAverageMaxAngle(); // 实测平均总角度
+    // const double fsPressure = modelFullScalePressure(m_config);
+    // for (int i = 0; i < m_detectionData.size(); ++i) {
+    //     if (avgMaxAngle > 0.0 && fsPressure > 0.0) {
+    //         double angleDeg = (getFixedHysteresisError(i) / fsPressure) * avgMaxAngle;
+    //         hysteresisAnglesFixed << QString::number(angleDeg, 'f', 2);
+    //     } else {
+    //         hysteresisAnglesFixed << "--";
+    //     }
+    // }
+    // out << QString("迟滞误差角度,%1,,,\n").arg(hysteresisAnglesFixed.join(","));
+    // out << QString("迟滞误差（MPa）,%1,,,\n").arg(hysteresisPressureErrors.join(","));
     
     QMessageBox::information(this, "成功", QString("%1轮测量数据已导出到CSV文件，按照指定格式排列，可用Excel打开").arg(m_totalRounds));
 }
@@ -2594,11 +2598,7 @@ void ErrorTableDialog::setFinalData() {
     // 3. 检查是否每个检测点都有有效的最终角度
     for (int i = 0; i < m_detectionData.size(); i++) {
         double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(i);
-        if(i == 0 && finalAngle >= 3.0)  return;
-        if (finalAngle <= 0.0) {
-            qDebug() << "检测点" << i << "无有效最终角度，跳过设置最终数据";
-            return;
-        }
+        if(i == 0 && finalAngle >= 4.5 && finalAngle <= -4.5)  return;
     }
 
     // 4. 检查产品型号是否有效

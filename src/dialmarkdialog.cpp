@@ -705,38 +705,49 @@ void DialMarkDialog::setupUI()
     controlLayout->addWidget(buttonGroup);
     
     // 在控制面板中添加表盘生成按钮
-    QGroupBox *dialGroup = new QGroupBox("表盘生成", controlPanel);
+    QGroupBox *dialGroup = new QGroupBox("表盘角度", controlPanel);
     dialGroup->setFont(panelFont);
     QVBoxLayout *dialLayout = new QVBoxLayout(dialGroup);
     dialLayout->setSpacing(8);
-    dialLayout->setContentsMargins(12, 12, 12, 12);
+    dialLayout->setContentsMargins(20, 15, 20, 15);
     
-    //删掉
-    m_generateButton = new QPushButton("生成新表盘", dialGroup);
-    m_generateButton->setFont(panelFont);
-    m_generateButton->setMinimumHeight(32);
-    dialLayout->addWidget(m_generateButton);
+    //删掉表盘生成按钮
+    // m_generateButton = new QPushButton("生成新表盘", dialGroup);
+    // m_generateButton->setFont(panelFont);
+    // m_generateButton->setMinimumHeight(32);
+    // dialLayout->addWidget(m_generateButton);
     
-    // 删掉
-    QLabel *maxPressureLabel = new QLabel("最大压力(MPa):");
-    maxPressureLabel->setFont(panelFont);
-    dialLayout->addWidget(maxPressureLabel);
+    // // 删掉
+    // QLabel *maxPressureLabel = new QLabel("最大压力(MPa):");
+    // maxPressureLabel->setFont(panelFont);
+    // dialLayout->addWidget(maxPressureLabel);
     
-    m_maxPressureSpin = new QDoubleSpinBox(dialGroup);
-    m_maxPressureSpin->setRange(0.1, 100.0);  // 支持小数，最小值0.1
-    m_maxPressureSpin->setDecimals(1);        // 显示1位小数
-    m_maxPressureSpin->setSingleStep(0.1);    // 每次调整0.1
+    // m_maxPressureSpin = new QDoubleSpinBox(dialGroup);
+    // m_maxPressureSpin->setRange(0.1, 100.0);  // 支持小数，最小值0.1
+    // m_maxPressureSpin->setDecimals(1);        // 显示1位小数
+    // m_maxPressureSpin->setSingleStep(0.1);    // 每次调整0.1
     
     // 根据表盘类型设置默认值
-    if (m_dialType == "YYQY-13") {
-        m_maxPressureSpin->setValue(6.3);     // YYQY表盘默认6.3MPa
-    } else {
-        m_maxPressureSpin->setValue(25.0);    // BYQ表盘默认25.0MPa
-    }
+    // if (m_dialType == "YYQY-13") {
+    //     m_maxPressureSpin->setValue(6.3);     // YYQY表盘默认6.3MPa
+    // } else {
+    //     m_maxPressureSpin->setValue(25.0);    // BYQ表盘默认25.0MPa
+    // }
     
-    m_maxPressureSpin->setFont(panelFont);
-    dialLayout->addWidget(m_maxPressureSpin);
+    // m_maxPressureSpin->setFont(panelFont);
+    // dialLayout->addWidget(m_maxPressureSpin);
     
+    //表盘分段点角度显示
+    QLabel *pointsAngleLabel = new QLabel("表盘分段点角度:");
+    pointsAngleLabel->setFont(panelFont);
+    dialLayout->addWidget(pointsAngleLabel);
+    m_dialAngleCombo = new QComboBox(dialGroup);
+    m_dialAngleCombo->setFont(panelFont);
+    m_dialAngleCombo->setMinimumHeight(28);
+    dialLayout->addWidget(m_dialAngleCombo);
+
+
+
     // 为所有表盘类型添加角度配置
     QLabel *angleLabel = new QLabel("表盘总角度(度):");
     angleLabel->setFont(panelFont);
@@ -780,37 +791,40 @@ void DialMarkDialog::setupUI()
         
         // 更新界面显示的参数值
         if (m_dialType == "YYQY-13") {
-            m_maxPressureSpin->setValue(m_yyqyConfig.maxPressure);
+            //m_maxPressureSpin->setValue(m_yyqyConfig.maxPressure);
             m_dialAngleSpin->setValue(m_yyqyConfig.totalAngle);
         } else {
-            m_maxPressureSpin->setValue(m_byqConfig.maxPressure);
+            //m_maxPressureSpin->setValue(m_byqConfig.maxPressure);
             m_dialAngleSpin->setValue(m_byqConfig.totalAngle);
         }
-        
+
+        // 更新界面显示的下拉框数据
+        updateAngleComboBox();
+
         QMessageBox::information(this, "成功", "已从误差表格导入数据并重新生成表盘");
     });
     
     // 连接信号
-    connect(m_generateButton, &QPushButton::clicked, this, [this]() {
-        // 更新配置
-        if (m_dialType == "YYQY-13") {
-            // 更新YYQY配置
-            m_yyqyConfig.totalAngle = m_dialAngleSpin->value();
-            m_yyqyConfig.maxPressure = m_maxPressureSpin->value();
-        } else {
-            // 更新BYQ配置
-            m_byqConfig.totalAngle = m_dialAngleSpin->value();
-            m_byqConfig.maxPressure = m_maxPressureSpin->value();
-        }
+    // connect(m_generateButton, &QPushButton::clicked, this, [this]() {
+    //     // 更新配置
+    //     if (m_dialType == "YYQY-13") {
+    //         // 更新YYQY配置
+    //         m_yyqyConfig.totalAngle = m_dialAngleSpin->value();
+    //         //m_yyqyConfig.maxPressure = m_maxPressureSpin->value();
+    //     } else {
+    //         // 更新BYQ配置
+    //         m_byqConfig.totalAngle = m_dialAngleSpin->value();
+    //         //m_byqConfig.maxPressure = m_maxPressureSpin->value();
+    //     }
         
-        QPixmap newDial = QPixmap::fromImage(generateDialImage());
-        if (!newDial.isNull()) {
-            m_imageLabel->setImage(newDial);
-            qDebug() << "成功生成新表盘, 类型:" << m_dialType << "角度:" << m_dialAngleSpin->value() << "压力:" << m_maxPressureSpin->value();
-        } else {
-            QMessageBox::warning(this, "错误", "生成表盘失败");
-        }
-    });
+    //     QPixmap newDial = QPixmap::fromImage(generateDialImage());
+    //     if (!newDial.isNull()) {
+    //         m_imageLabel->setImage(newDial);
+    //         qDebug() << "成功生成新表盘, 类型:" << m_dialType << "角度:" << m_dialAngleSpin->value()  ;
+    //     } else {
+    //         QMessageBox::warning(this, "错误", "生成表盘失败");
+    //     }
+    // });
     
     connect(saveDialButton, &QPushButton::clicked, this, &DialMarkDialog::saveGeneratedDial);
     
@@ -870,6 +884,8 @@ void DialMarkDialog::setupUI()
     
     // 添加缩放快捷键
     setupZoomShortcuts();
+    // 初始化角度下拉框
+    updateAngleComboBox();
 }
 
 void DialMarkDialog::setupZoomShortcuts()
@@ -2017,6 +2033,34 @@ void DialMarkDialog::drawYYQYLogo(QPainter& p, const QPointF& C, double outerR)
     qDebug() << "商标已绘制在位置：" << logoPos << "，尺寸：" << scaledWidth << "x" << scaledHeight;
 }
 
+void DialMarkDialog::updateAngleComboBox()
+{
+    m_dialAngleCombo->clear();
+    
+    QVector<double> pointsAngle;
+    if (m_dialType == "YYQY-13") {
+        pointsAngle = m_yyqyConfig.pointsAngle;
+    } else {
+        pointsAngle = m_byqConfig.pointsAngle;
+    }
+    
+    if (pointsAngle.isEmpty()) {
+        qDebug() << "updateAngleComboBox: pointsAngle数组为空";
+        return;
+    }
+    
+    for (int i = 0; i < pointsAngle.size(); ++i) {
+        double angle = pointsAngle[i];
+        QString displayText = QString("角度 %1°").arg(angle, 0, 'f', 1);
+        m_dialAngleCombo->addItem(displayText, angle);
+    }
+    
+    if (m_dialAngleCombo->count() > 0) {
+        m_dialAngleCombo->setCurrentIndex(0);
+    }
+}
+
+
 void DialMarkDialog::setErrorTableDialog(ErrorTableDialog *dlg)
 {
     m_errorTableDialog = dlg;
@@ -2094,6 +2138,8 @@ void DialMarkDialog::applyFinalDataFromErrorTable()
             m_errorTableDialog->m_yyqyFinalData.pointsAngle
         );
     }
+    // 更新下拉框数据
+    updateAngleComboBox();
 
     // 关键：立即重新生成并替换显示的图片
     if (m_imageLabel) {
