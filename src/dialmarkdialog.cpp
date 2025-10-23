@@ -711,12 +711,13 @@ void DialMarkDialog::setupUI()
     dialLayout->setSpacing(8);
     dialLayout->setContentsMargins(12, 12, 12, 12);
     
+    //删掉
     m_generateButton = new QPushButton("生成新表盘", dialGroup);
     m_generateButton->setFont(panelFont);
     m_generateButton->setMinimumHeight(32);
     dialLayout->addWidget(m_generateButton);
     
-    // 添加表盘配置控件
+    // 删掉
     QLabel *maxPressureLabel = new QLabel("最大压力(MPa):");
     maxPressureLabel->setFont(panelFont);
     dialLayout->addWidget(maxPressureLabel);
@@ -737,7 +738,7 @@ void DialMarkDialog::setupUI()
     dialLayout->addWidget(m_maxPressureSpin);
     
     // 为所有表盘类型添加角度配置
-    QLabel *angleLabel = new QLabel("表盘角度(度):");
+    QLabel *angleLabel = new QLabel("表盘总角度(度):");
     angleLabel->setFont(panelFont);
     dialLayout->addWidget(angleLabel);
     

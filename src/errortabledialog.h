@@ -62,14 +62,14 @@ struct PressureGaugeConfig {
     
     double maxPressure;        // 满量程压力(MPa)
     double maxAngle;           // 满量程角度(度)
-    double basicErrorLimit;    // 基本误差限值(MPa)
-    double hysteresisErrorLimit; // 迟滞误差限值(MPa)
-    
-    QList<double> detectionPoints; // 检测点压力值列表
+    //double basicErrorLimit;    // 基本误差限值(MPa)
+    //double hysteresisErrorLimit; // 迟滞误差限值(MPa)
+
+    QVector<double> detectionPoints; // 检测点压力值列表
 
 
-    PressureGaugeConfig() : maxPressure(3.0), maxAngle(270.0), 
-                           basicErrorLimit(0.1), hysteresisErrorLimit(0.15) {
+    PressureGaugeConfig() : maxPressure(3.0), maxAngle(270.0)
+                                                      {
         // 默认检测点 (0, 1, 2, 3 MPa)
         detectionPoints << 0.0 << 1.0 << 2.0 << 3.0 << 4.0 << 5.0;
     }
@@ -169,8 +169,8 @@ private:
     // 删除未使用的满量程压力和满量程角度输入框
     // QDoubleSpinBox *m_maxPressureSpin;
     // QDoubleSpinBox *m_maxAngleSpin;
-    QDoubleSpinBox *m_basicErrorLimitSpin;
-    QDoubleSpinBox *m_hysteresisErrorLimitSpin;
+    //QDoubleSpinBox *m_basicErrorLimitSpin;
+    //QDoubleSpinBox *m_hysteresisErrorLimitSpin;
     
     // 检测点配置
     QGroupBox *m_detectionPointsGroup;
