@@ -13,6 +13,7 @@
 
 #include <stdlib.h>
 #include "settingdialog.h"
+#include "helpdialog.h"
 // #include "Opencv_hp.h"
 
 using namespace Pylon;
@@ -491,6 +492,17 @@ void MainWindow::setting(){
 void MainWindow::about(){
     // AboutDialog *dialog = new AboutDialog(this);
     // dialog->exec();
+    // 打开帮助说明（单实例）
+    if (!m_helpDialog) {
+        m_helpDialog = new HelpDialog(this);
+        m_helpDialog->setAttribute(Qt::WA_DeleteOnClose, true);
+        connect(m_helpDialog, &QDialog::destroyed, this, [this]{ m_helpDialog = nullptr; });
+    }
+    m_helpDialog->show();
+    m_helpDialog->showNormal(); // 取消最小化
+    m_helpDialog->setWindowState((m_helpDialog->windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
+    m_helpDialog->raise();
+    m_helpDialog->activateWindow();
 }
 
 void MainWindow::singleGrab(){
@@ -3232,3 +3244,4 @@ void MainWindow::setDetectionPointValues()
     // 这个方法用于动态设置检测点数值，可以根据需要调用
     updateDetectionPointLabels();
 }
+

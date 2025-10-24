@@ -21,6 +21,7 @@
 #include "dialmarkdialog.h"
 #include "errortabledialog.h"
 
+#include "helpdialog.h"  // 新增
 namespace Ui {
 class MainWindow;
 }
@@ -122,6 +123,8 @@ private:
     QComboBox *m_dialTypeCombo;
     QLabel *m_dialTypeLabel;
     QString m_currentDialType;
+
+    HelpDialog* m_helpDialog = nullptr;  // 新增：帮助对话框单实例
     
     // 指针识别配置
     PointerDetectionConfig m_yyqyConfig;     // YYQY表盘配置

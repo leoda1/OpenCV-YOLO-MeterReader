@@ -105,6 +105,8 @@ set(SOURCES
     src/settingdialog.cpp
     src/dialmarkdialog.cpp
     src/errortabledialog.cpp
+    # 新增:
+    src/helpdialog.cpp
 )
 
 set(INC
@@ -113,6 +115,8 @@ set(INC
     src/settingdialog.h
     src/dialmarkdialog.h
     src/errortabledialog.h
+    # 新增:
+    src/helpdialog.h
 )
 
 set(UI
