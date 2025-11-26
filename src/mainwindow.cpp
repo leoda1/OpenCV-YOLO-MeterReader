@@ -495,12 +495,12 @@ void MainWindow::about(){
     // 打开帮助说明（单实例）
     if (!m_helpDialog) {
         m_helpDialog = new HelpDialog(this);
-        m_helpDialog->setAttribute(Qt::WA_DeleteOnClose, true);
-        connect(m_helpDialog, &QDialog::destroyed, this, [this]{ m_helpDialog = nullptr; });
+        connect(m_helpDialog, &QDialog::finished, this, [this](int){
+            m_helpDialog->deleteLater();
+            m_helpDialog = nullptr;
+        });
     }
     m_helpDialog->show();
-    m_helpDialog->showNormal(); // 取消最小化
-    m_helpDialog->setWindowState((m_helpDialog->windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
     m_helpDialog->raise();
     m_helpDialog->activateWindow();
 }

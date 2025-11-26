@@ -232,29 +232,71 @@ void ErrorTableDialog::setupConfigArea()
 {
     m_configGroup = new QGroupBox("压力表配置", this);
     QGridLayout *layout = new QGridLayout(m_configGroup);
-    layout->setSpacing(6);  // 减少间距
-    layout->setContentsMargins(8, 8, 8, 8);  // 减少边距
-    
-    // 产品信息
-    layout->addWidget(new QLabel("产品型号:"), 0, 0);
+    layout->setSpacing(6);
+    layout->setContentsMargins(8, 8, 8, 8);
+
+    // 仅让最后一列吃掉多余空间，其它列不伸展
+    layout->setColumnStretch(0, 0);
+    layout->setColumnStretch(1, 0);
+    layout->setColumnStretch(2, 0);
+    layout->setColumnStretch(3, 1);
+    layout->setHorizontalSpacing(8);
+
+    // 标签左对齐
+    auto mkLabel = [](const QString& text, QWidget* parent){
+        auto* l = new QLabel(text, parent);
+        l->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        return l;
+    };
+
+    // 产品信息（控件自身也左对齐放置）
+    layout->addWidget(mkLabel("产品型号:", m_configGroup), 0, 0, Qt::AlignLeft);
     m_productModelEdit = new QLineEdit();
-    m_productModelEdit->setMaximumWidth(150);
-    layout->addWidget(m_productModelEdit, 0, 1);
-    
-    layout->addWidget(new QLabel("产品名称:"), 0, 2);
+    m_productModelEdit->setFixedWidth(150);
+    m_productModelEdit->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    layout->addWidget(m_productModelEdit, 0, 1, Qt::AlignLeft);
+
+    layout->addWidget(mkLabel("产品名称:", m_configGroup), 0, 2, Qt::AlignLeft);
     m_productNameEdit = new QLineEdit();
-    m_productNameEdit->setMaximumWidth(150);
-    layout->addWidget(m_productNameEdit, 0, 3);
-    
-    layout->addWidget(new QLabel("刻度盘图号:"), 1, 0);
+    m_productNameEdit->setFixedWidth(150);
+    m_productNameEdit->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    layout->addWidget(m_productNameEdit, 0, 3, Qt::AlignLeft);
+
+    layout->addWidget(mkLabel("刻度盘图号:", m_configGroup), 1, 0, Qt::AlignLeft);
     m_dialDrawingNoEdit = new QLineEdit();
-    m_dialDrawingNoEdit->setMaximumWidth(150);
-    layout->addWidget(m_dialDrawingNoEdit, 1, 1);
-    
-    layout->addWidget(new QLabel("支组编号:"), 1, 2);
+    m_dialDrawingNoEdit->setFixedWidth(150);
+    m_dialDrawingNoEdit->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    layout->addWidget(m_dialDrawingNoEdit, 1, 1, Qt::AlignLeft);
+
+    layout->addWidget(mkLabel("支组编号:", m_configGroup), 1, 2, Qt::AlignLeft);
     m_groupNoEdit = new QLineEdit();
-    m_groupNoEdit->setMaximumWidth(150);
-    layout->addWidget(m_groupNoEdit, 1, 3);
+    m_groupNoEdit->setFixedWidth(150);
+    m_groupNoEdit->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    layout->addWidget(m_groupNoEdit, 1, 3, Qt::AlignLeft);
+
+
+
+
+    // // 产品信息----旧
+    // layout->addWidget(new QLabel("产品型号:"), 0, 0);
+    // m_productModelEdit = new QLineEdit();
+    // m_productModelEdit->setMaximumWidth(150);
+    // layout->addWidget(m_productModelEdit, 0, 1);
+    
+    // layout->addWidget(new QLabel("产品名称:"), 0, 2);
+    // m_productNameEdit = new QLineEdit();
+    // m_productNameEdit->setMaximumWidth(150);
+    // layout->addWidget(m_productNameEdit, 0, 3);
+    
+    // layout->addWidget(new QLabel("刻度盘图号:"), 1, 0);
+    // m_dialDrawingNoEdit = new QLineEdit();
+    // m_dialDrawingNoEdit->setMaximumWidth(150);
+    // layout->addWidget(m_dialDrawingNoEdit, 1, 1);
+    
+    // layout->addWidget(new QLabel("支组编号:"), 1, 2);
+    // m_groupNoEdit = new QLineEdit();
+    // m_groupNoEdit->setMaximumWidth(150);
+    // layout->addWidget(m_groupNoEdit, 1, 3);
     
     // 技术参数 - 删除未使用的满量程压力和满量程角度输入框
     
@@ -2580,7 +2622,7 @@ void ErrorTableDialog::onProductInfoChanged()
 //         if (m_config.productModel == "BYQ-19") m_byqFinalData = buildBYQFinalData();
     
 // }
-
+//保存计算的检测点最终数据（平均值）
 void ErrorTableDialog::setFinalData() {
     // 1. 检查是否完成所有轮次
     if (!isAllRoundsCompleted()) {

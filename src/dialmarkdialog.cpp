@@ -752,19 +752,26 @@ void DialMarkDialog::setupUI()
     QLabel *angleLabel = new QLabel("表盘总角度(度):");
     angleLabel->setFont(panelFont);
     dialLayout->addWidget(angleLabel);
+
+    // 新增：总角度信息显示（最大压力 / 最大角度）
+    m_maxInfoLabel = new QLabel(dialGroup);
+    m_maxInfoLabel->setFont(panelFont);
+    //m_maxInfoLabel->setStyleSheet("color:#555;");
+    dialLayout->addWidget(m_maxInfoLabel);
+    updateMaxInfoLabel();
     
-    m_dialAngleSpin = new QDoubleSpinBox(dialGroup);
-    if (m_dialType == "YYQY-13") {
-        m_dialAngleSpin->setRange(180.0, 360.0);  // YYQY支持更大角度范围
-        m_dialAngleSpin->setValue(280.0);         // 默认280度（YYQY标准角度）
-    } else {
-        m_dialAngleSpin->setRange(60.0, 180.0);   // BYQ支持较小角度范围
-        m_dialAngleSpin->setValue(100.0);         // 默认100度（BYQ标准角度）
-    }
-    m_dialAngleSpin->setDecimals(1);              // 显示1位小数
-    m_dialAngleSpin->setSingleStep(0.5);          // 每次调整0.5度
-    m_dialAngleSpin->setFont(panelFont);
-    dialLayout->addWidget(m_dialAngleSpin);
+    // m_dialAngleSpin = new QDoubleSpinBox(dialGroup);
+    // if (m_dialType == "YYQY-13") {
+    //     m_dialAngleSpin->setRange(180.0, 360.0);  // YYQY支持更大角度范围
+    //     m_dialAngleSpin->setValue(280.0);         // 默认280度（YYQY标准角度）
+    // } else {
+    //     m_dialAngleSpin->setRange(60.0, 180.0);   // BYQ支持较小角度范围
+    //     m_dialAngleSpin->setValue(100.0);         // 默认100度（BYQ标准角度）
+    // }
+    // m_dialAngleSpin->setDecimals(1);              // 显示1位小数
+    // m_dialAngleSpin->setSingleStep(0.5);          // 每次调整0.5度
+    // m_dialAngleSpin->setFont(panelFont);
+    // dialLayout->addWidget(m_dialAngleSpin);
     
     // 添加保存表盘按钮
     QPushButton *saveDialButton = new QPushButton("保存生成表盘", dialGroup);
@@ -790,13 +797,13 @@ void DialMarkDialog::setupUI()
         applyFinalDataFromErrorTable();
         
         // 更新界面显示的参数值
-        if (m_dialType == "YYQY-13") {
-            //m_maxPressureSpin->setValue(m_yyqyConfig.maxPressure);
-            m_dialAngleSpin->setValue(m_yyqyConfig.totalAngle);
-        } else {
-            //m_maxPressureSpin->setValue(m_byqConfig.maxPressure);
-            m_dialAngleSpin->setValue(m_byqConfig.totalAngle);
-        }
+        // if (m_dialType == "YYQY-13") {
+        //     //m_maxPressureSpin->setValue(m_yyqyConfig.maxPressure);
+        //     m_dialAngleSpin->setValue(m_yyqyConfig.totalAngle);
+        // } else {
+        //     //m_maxPressureSpin->setValue(m_byqConfig.maxPressure);
+        //     m_dialAngleSpin->setValue(m_byqConfig.totalAngle);
+        // }
 
         // 更新界面显示的下拉框数据
         updateAngleComboBox();
@@ -865,16 +872,16 @@ void DialMarkDialog::setupUI()
                 showAnnotationProperties(index);
             });
     
-    // 连接角度变化信号（所有表盘类型）
-    connect(m_dialAngleSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, [this](double value) {
-                if (m_dialType == "YYQY-13") {
-                    m_yyqyConfig.totalAngle = value;
-                } else {
-                    m_byqConfig.totalAngle = value;
-                }
-                qDebug() << "角度已更新为：" << value;
-            });
+    // // 连接角度变化信号（所有表盘类型）
+    // connect(m_dialAngleSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+    //         this, [this](double value) {
+    //             if (m_dialType == "YYQY-13") {
+    //                 m_yyqyConfig.totalAngle = value;
+    //             } else {
+    //                 m_byqConfig.totalAngle = value;
+    //             }
+    //             qDebug() << "角度已更新为：" << value;
+    //         });
     
     // 确保字体设置为默认黑体
     m_fontComboBox->setCurrentText("黑体");
@@ -1212,7 +1219,7 @@ void DialMarkDialog::onTextChanged()
 void DialMarkDialog::exportImage()
 {
     QString fileName = QFileDialog::getSaveFileName(this,
-        "导出标注图片", "annotated_dial.tiff", 
+        "导出标注图片", "annotated_dial.png", 
         "TIFF 图片 (*.tiff);;PNG 图片 (*.png);;JPEG 图片 (*.jpg);;BMP 图片 (*.bmp);;所有图片 (*.png *.jpg *.jpeg *.bmp *.tiff)");
     
     if (!fileName.isEmpty()) {
@@ -1463,11 +1470,11 @@ void DialMarkDialog::drawBYQTicksAndNumbers(QPainter& p, const QPointF& C, doubl
     const double r16_1 = outerR * (16.1 / 17.1);       // R16.1：彩色带内圈
     const double r15_1 = outerR * (15.1 / 17.1);       // R15.1：小刻度线外沿
     const double r14_6 = outerR * (14.6 / 17.1);       // R14.6：大刻度线内沿
-    const double r13_0 = outerR * (13.0 / 17.1);       // R14.0：数字位置
+    const double r13_0 = outerR * (12.8 / 17.1);       // R14.0：数字位置
     // 刻度线宽：根据实际半径调整，保持合理比例
     const double lineScale = outerR / 300.0;  // 基准缩放
-    QPen penMinor(Qt::black, std::max(1.0, 0.2 * lineScale * 10), Qt::SolidLine, Qt::RoundCap);    // 小刻度：平直端点
-    QPen penMajor(Qt::black, std::max(2.0, 0.4 * lineScale * 10), Qt::SolidLine, Qt::RoundCap);   // 大刻度：圆形端点
+    QPen penMinor(Qt::black, std::max(2.0, 0.5 * lineScale * 10), Qt::SolidLine, Qt::RoundCap);    // 小刻度：平直端点
+    QPen penMajor(Qt::black, std::max(2.5, 0.8 * lineScale * 10), Qt::SolidLine, Qt::RoundCap);   // 大刻度：圆形端点
 
     // 次刻度（1 MPa间隔）
     p.setPen(penMinor);
@@ -1486,7 +1493,7 @@ void DialMarkDialog::drawBYQTicksAndNumbers(QPainter& p, const QPointF& C, doubl
     }
 
     // 数字字体：直接使用合理的固定字体大小，不要基于比例计算
-    const int fontNumberPx = 3;  // 固定合理字体大小
+    const int fontNumberPx = 4;  // 固定合理字体大小
     QFont numFont("Arial", fontNumberPx, QFont::Bold);
     p.setFont(numFont);
     p.setPen(QPen(Qt::black, 1));
@@ -1566,7 +1573,7 @@ void DialMarkDialog::drawBYQColorBands(QPainter& p, const QPointF& C, double out
     // 与刻度一致的"主刻度线宽"
     const double lineScale = outerR / 300.0;
     const double w_major = std::max(2.0, 0.4 * lineScale * 10);
-    const double deltaDeg = qRadiansToDegrees(std::atan((w_major * 0.5) / r_mid));
+    const double deltaDeg = qRadiansToDegrees(std::atan((w_major * 0.8) / r_mid));
     const bool clockwise = (spanDeg < 0);
 
     // ③ 颜色分段
@@ -1621,7 +1628,7 @@ void DialMarkDialog::drawBYQUnitMPa(QPainter& p, const QPointF& C, double Rpx)
     const QString MPa = "MPa";
     QRectF textRect = p.fontMetrics().boundingRect(MPa);
 
-    double r3_0 = (r4_0 + r2_0) / 2.0;
+    double r3_0 = (r4_0 + r2_0) / 1.1;
     QPointF pos = QPointF(C.x() - textRect.width() / 2.0,
                           C.y() - r3_0 - textRect.height() / 2.0);
 
@@ -1634,14 +1641,14 @@ void DialMarkDialog::saveGeneratedDial()
     QImage img = generateDialImage();
     
     // 选择保存路径
-    QString fileName = QFileDialog::getSaveFileName(this, 
-        "保存表盘图片", "", "TIFF Files (*.tiff);;PNG Files (*.png)");
-    
+    QString fileName = QFileDialog::getSaveFileName(this,
+        "保存表盘图片", "", "PNG Files (*.png)");
+
     if (fileName.isEmpty()) {
         return;
     }
     
-    QImageWriter w(fileName, "tiff");
+    QImageWriter w(fileName, "png");
     // 压缩：LZW（无损，兼容性好）；也可改 "deflate"
     w.setCompression(1); // 0=无压缩，1=LZW，2=PackBits，32946=Deflate（按 Qt/平台实现而定）
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
@@ -1651,7 +1658,7 @@ void DialMarkDialog::saveGeneratedDial()
     if (!w.write(img)) {
         QMessageBox::warning(this, "保存失败", "错误：保存失败: " + w.errorString());
     } else {
-        QMessageBox::information(this, "保存成功", "成功：已保存 TIFF: " + fileName);
+        QMessageBox::information(this, "保存成功", "成功：已保存 PNG: " + fileName);
     }
 }
 
@@ -1746,7 +1753,7 @@ static inline double yyqyV2Ang(double v, double vmax, double startDeg, double to
 }
 
 
-//绘制刻度线I（需要改变）
+//绘制刻度线
 void DialMarkDialog::drawYYQYTicks(QPainter& p, const QPointF& C, double outerR, double totalAngle,double maxPressure,
     QVector<double> points,QVector<double> pointsAngle)
 {
@@ -1839,7 +1846,7 @@ void DialMarkDialog::drawYYQYNumbers(QPainter& p, const QPointF& C, double outer
         
         // 对于数字0，稍微向上偏移避开定位点
         if (i == 0) {
-            numberPos.ry() -= k * 1.0;  // 向上偏移
+            numberPos.ry() -= k * 0.8;  // 向上偏移
             numberPos.rx() -= k * 1.0;  // 向左偏移一点点
         } else if (i == 1) {
             numberPos.rx() -= k * 0.8;  // 向左偏移一点点
@@ -1944,8 +1951,8 @@ void DialMarkDialog::drawYYQYCenterTexts(QPainter& p, const QPointF& C, double o
     //textFont.setStretch(QFont::Condensed);  // 设置为窄体（高高细细）
     p.setFont(textFont);
 
-    double text_r = 4.5 * k;  // R4位置
-    double text_y_offset = 1.5 * k;  // 相对圆心往下偏移
+    double text_r = 5 * k;  // R4位置
+    double text_y_offset = 0.7 * k;  // 相对圆心往下偏移
     
     // "禁油"文字在圆心左边
     QPointF jinYouPos(C.x() - text_r, C.y() + text_y_offset);  // 添加向下偏移
@@ -1966,12 +1973,12 @@ void DialMarkDialog::drawYYQYCenterTexts(QPainter& p, const QPointF& C, double o
     p.drawText(yangQiDrawRect, Qt::AlignCenter, "氧气");
     
     // 绘制"氧气"的蓝色下划线（酞蓝色PB06，宽0.5，圆角）---改0.1
-    QPen underlinePen(QColor("#0066CC"), 0.25 * k, Qt::SolidLine);
+    QPen underlinePen(QColor("#0066CC"), 0.45 * k, Qt::SolidLine);
     p.setPen(underlinePen);
-    double underlineY = yangQiDrawRect.bottom() + k * 0.3;  //   - k * 0.1;  // 更靠近文字
+    double underlineY = yangQiDrawRect.bottom() + k * 0.5;  //   - k * 0.1;  // 更靠近文字
     // 下划线与文字一样宽，不留边距
-    p.drawLine(QPointF(yangQiDrawRect.left() + 0.6 * k, underlineY), 
-               QPointF(yangQiDrawRect.right() - 0.6 * k, underlineY));
+    p.drawLine(QPointF(yangQiDrawRect.left() + 0.3 * k, underlineY), 
+               QPointF(yangQiDrawRect.right() - 0.3 * k, underlineY));
 }
 
 void DialMarkDialog::drawYYQYPositionDot(QPainter& p, const QPointF& C, double outerR, double totalAngle)
@@ -2049,15 +2056,45 @@ void DialMarkDialog::updateAngleComboBox()
         return;
     }
     
+
+
+
     for (int i = 0; i < pointsAngle.size(); ++i) {
+        int pressure = int((m_dialType == "YYQY-13") ? m_yyqyConfig.points[i] : m_byqConfig.points[i]);
         double angle = pointsAngle[i];
-        QString displayText = QString("角度 %1°").arg(angle, 0, 'f', 1);
+        // 显示为：压力值，角度
+        QString displayText = QString("压力：%1 MPa，角度：%2°")
+                                  .arg(pressure, 0, 'f', 2)
+                                  .arg(angle,    0, 'f', 1);
+
+        // 主数据仍用角度（兼容原有逻辑），并附加压力作为额外数据
         m_dialAngleCombo->addItem(displayText, angle);
+        m_dialAngleCombo->setItemData(i, pressure, Qt::UserRole + 1);
+        m_dialAngleCombo->setItemData(i,
+            QString("压力: %1 MPa\n角度: %2°").arg(pressure, 0, 'f', 2).arg(angle, 0, 'f', 1),
+            Qt::ToolTipRole);
     }
     
     if (m_dialAngleCombo->count() > 0) {
         m_dialAngleCombo->setCurrentIndex(0);
     }
+}
+
+void DialMarkDialog::updateMaxInfoLabel()
+{
+    if (!m_maxInfoLabel) return;
+
+    const bool isYYQY = (m_dialType == "YYQY-13");
+    const double maxPressure = isYYQY ? m_yyqyConfig.maxPressure : m_byqConfig.maxPressure;
+
+    // 显示当前输入框中的角度值，更直观
+    const double totalAngle = isYYQY ? m_yyqyConfig.totalAngle : m_byqConfig.totalAngle;
+
+    m_maxInfoLabel->setText(
+        QString("最大压力：%1 MPa，角度：%2°")
+            .arg(maxPressure, 0, 'f', 2)
+            .arg(totalAngle,  0, 'f', 1)
+    );
 }
 
 
@@ -2151,4 +2188,6 @@ void DialMarkDialog::applyFinalDataFromErrorTable()
             qDebug() << "applyFinalDataFromErrorTable: 生成图像失败";
         }
     }
+
+    updateMaxInfoLabel();  // 新增：导入后刷新“最大压力/最大角度”
 }

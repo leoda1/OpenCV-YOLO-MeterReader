@@ -61,7 +61,7 @@ struct BYQDialConfig {
     QVector<double> points;  // 中间节点的值
     QVector<double> pointsAngle;  // 中间节点的角度值
 
-    BYQDialConfig() : maxPressure(25.0), totalAngle(360.0), majorStep(5.0), minorStep(1.0), points({0.0, 5.0, 10.0, 15.0, 20.0}), pointsAngle({0.0, 20.0, 50.0,80.0,125.0}) {}
+    BYQDialConfig() : maxPressure(25.0), totalAngle(95.0), majorStep(5.0), minorStep(1.0), points({0.0, 5.0, 10.0, 15.0, 20.0}), pointsAngle({0.0, 15.0, 35.0, 56.0, 78.0}) {}
 };
 
 // YYQY表盘配置
@@ -72,7 +72,7 @@ struct YYQYDialConfig {
     QVector<double> points;  // 中间节点的角度值
     QVector<double> pointsAngle;  // 中间节点的角度值
 
-    YYQYDialConfig() : maxPressure(6.3), totalAngle(270.0), warningPressure(4.0) ,points({0.0, 1.0, 2.0, 3.0, 4.0, 5.0}), pointsAngle({0.0, 45.0, 90.0, 135.0, 185.0, 222.5}) {}
+    YYQYDialConfig() : maxPressure(6.3), totalAngle(270.0), warningPressure(4.0) ,points({0.0, 1.0, 2.0, 3.0, 4.0, 5.0}), pointsAngle({0.0, 45.0, 90.0, 135.0, 185.0, 232.5}) {}
 };
 
 // 自定义图片显示标签类，支持鼠标交互
@@ -224,6 +224,7 @@ private:
     QPushButton *m_saveButton;
     QPushButton *m_loadButton;
     QPushButton *m_exportButton;
+    QLabel* m_maxInfoLabel = nullptr;   // 新增：显示“最大压力/最大角度”
     
     QColor m_currentColor;
     QString m_dialType;  // 表盘类型
@@ -258,6 +259,7 @@ private:
     void drawYYQYLogo(QPainter& p, const QPointF& C, double outerR);  // 绘制商标
     
     void saveGeneratedDial();
+    void updateMaxInfoLabel();          // 新增：刷新显示文本
     
     // 表盘配置参数
     struct DialConfig {
@@ -277,7 +279,7 @@ private:
     DialConfig m_dialConfig;    
     //QPushButton *m_generateButton;  // 生成表盘按钮
     //QDoubleSpinBox *m_maxPressureSpin;    // 最大压力输入框（支持小数）
-    QDoubleSpinBox *m_dialAngleSpin;   //总角度输入框
+    //QDoubleSpinBox *m_dialAngleSpin;   //总角度输入框
     QComboBox *m_dialAngleCombo;      // 表盘角下拉框（支持小数，仅YYQY类型）
 
     void setupUI();

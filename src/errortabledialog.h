@@ -81,7 +81,7 @@ struct BYQ_final_data{
     double totalAngle;       // 表盘总角度 (度)
     QVector<double> points;  // 中间节点的角度值
     QVector<double> pointsAngle;  // 中间节点的角度值    
-    BYQ_final_data() : maxPressure(25.0), totalAngle(180.0),  points({0.0, 5.0, 10.0, 15.0, 20.0}), pointsAngle({0.0, 20.0, 50.0, 80.0, 125.0}) {}
+    BYQ_final_data() : maxPressure(25.0), totalAngle(122.0),  points({0.0, 5.0, 10.0, 15.0, 20.0}), pointsAngle({0.0, 20.0, 50.0, 80.0, 108.0}) {}
 };
 
 
@@ -90,7 +90,7 @@ struct YYQY_final_data{
     double totalAngle;       // 表盘总角度 (度)
     QVector<double> points;  // 中间节点的角度值
     QVector<double> pointsAngle;  // 中间节点的角度值
-    YYQY_final_data() : maxPressure(6.3), totalAngle(255.0), points({0.0, 1.0, 2.0, 3.0, 4.0, 5.0}), pointsAngle({0.0, 45.0, 90.0, 133.0, 188.0, 208.0}) {}
+    YYQY_final_data() : maxPressure(6.3), totalAngle(266.0), points({0.0, 1.0, 2.0, 3.0, 4.0, 5.0}), pointsAngle({0.0, 45.0, 90.0, 133.0, 188.0, 228.0}) {}
 };
 
 
