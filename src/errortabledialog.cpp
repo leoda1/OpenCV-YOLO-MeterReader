@@ -867,8 +867,8 @@ void ErrorTableDialog::setDialType(const QString &dialType)
         m_config.productModel = "BYQ-19";
         m_config.productName = "标准压力表";
         m_config.detectionPoints.clear();
-        // BYQ-19默认5个检测点 (0, 6, 10, 21, 30 MPa)
-        m_config.detectionPoints << 0.0 << 6.0 << 10.0 << 21.0 << 25.0;
+        // BYQ-19默认5个检测点 (0, 5, 10, 15, 20 MPa)
+        m_config.detectionPoints << 0.0 << 5.0 << 10.0 << 15.0 << 20.0;
         m_config.maxPressure = 25.0;
         m_config.maxAngle = 270.0;
         //m_config.basicErrorLimit = 0.075;  // 更严格的误差限值
@@ -1328,6 +1328,11 @@ void ErrorTableDialog::exportToExcel()
     // 写入产品信息 - 按照新格式
     out << QString("产品型号：,%1,,产品名称：,%2,,,\n").arg(m_config.productModel, m_config.productName);
     out << QString("刻度盘图号：,%1,,支组编号：,%2,,,\n").arg(m_config.dialDrawingNo, m_config.groupNo);
+    // 新增：写入平均最大总角度（度）
+    
+    double avgMaxAngle = calculateAverageMaxAngle();
+    out << QString("平均最大总角度：,%1,,,\n").arg(avgMaxAngle, 0, 'f', 2);
+    
     out << "\n"; // 空行
     
     // 收集所有检测点数据（只显示一次）
@@ -1338,7 +1343,7 @@ void ErrorTableDialog::exportToExcel()
         detectionPoints << QString::number(point.pressure, 'f', 1);
         // "检测点对应的刻度盘角度" = 实测最终角度（若无则以理论角度代替）
         double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(i);
-        if (finalAngle > 0.0) {
+        if (finalAngle != 0.0) {
             theoreticalAngles << QString::number(finalAngle, 'f', 2);
         } else {
             theoreticalAngles << QString::number(pressureToAngle(point.pressure), 'f', 2);
@@ -1348,12 +1353,17 @@ void ErrorTableDialog::exportToExcel()
     // 写入检测点和最终角度（只显示一次）
     out << QString("检测点,%1,,,\n").arg(detectionPoints.join(","));
     out << QString("检测点对应的刻度盘角度,%1,,,\n").arg(theoreticalAngles.join(","));
+    out << "\n"; // 空行
     
-    // 为每轮数据写入（不显示轮次标题）
+    
+    // 为每轮数据写入
     for (int round = 0; round < m_totalRounds; ++round) {
+        // 新增：轮次标题
+        out << QString("第%1轮,,,,\n").arg(round + 1);
         // 收集当前轮次的所有检测点数据
         QStringList forwardAngles, forwardAngleErrors, forwardPressureErrors;
         QStringList backwardAngles, backwardAngleErrors, backwardPressureErrors;
+        QStringList roundHystAngles, roundHystPressure; // 该轮迟滞误差
         
         for (int i = 0; i < m_detectionData.size(); ++i) {
             const DetectionPoint &point = m_detectionData[i];
@@ -1424,16 +1434,34 @@ void ErrorTableDialog::exportToExcel()
                 backwardAngleErrors << "--";
                 backwardPressureErrors << "--";
             }
+
+            // 新增：该轮迟滞误差（角度与MPa），按点计算（需要正反行程都有）
+            if (hasForwardData && hasBackwardData) {
+                double angleDiff = std::abs(currentForwardAngle - currentBackwardAngle);
+                roundHystAngles << QString::number(angleDiff, 'f', 2);
+                double fsAngle = isAllRoundsCompleted()
+                                   ? calculateAverageMaxAngle()
+                                   : ((round < m_maxAngles.size()) ? m_maxAngles[round] : 0.0);
+                const double fsPressure = modelFullScalePressure(m_config);
+                double hystMPa = angleToPressureByFS(angleDiff, fsAngle, fsPressure);
+                roundHystPressure << QString::number(std::abs(hystMPa), 'f', 3);
+            } else {
+                roundHystAngles << "--";
+                roundHystPressure << "--";
+            }
         }
         
         // 按照垂直格式写入当前轮次的数据
         out << QString("正行程角度,%1,,,\n").arg(forwardAngles.join(","));
         out << QString("正行程角度误差,%1,,,\n").arg(forwardAngleErrors.join(","));
         out << QString("正行程误差（MPa）,%1,,,\n").arg(forwardPressureErrors.join(","));
-        out << "\n";
+        //out << "\n";
         out << QString("反行程角度,%1,,,\n").arg(backwardAngles.join(","));
         out << QString("反行程角度误差,%1,,,\n").arg(backwardAngleErrors.join(","));
         out << QString("反行程误差（MPa）,%1,,,\n").arg(backwardPressureErrors.join(","));
+        // 新增：该轮迟滞误差（角度与MPa）
+        out << QString("该轮迟滞误差角度,%1,,,\n").arg(roundHystAngles.join(","));
+        out << QString("该轮迟滞误差（MPa）,%1,,,\n").arg(roundHystPressure.join(","));
         out << "\n";
     }
     // 计算并显示迟滞误差（只显示一次，在最后两行）
@@ -2575,10 +2603,10 @@ double ErrorTableDialog::getFixedHysteresisError(int pointIndex) const
         // BYQ表盘：根据检测点返回固定值
         switch (pointIndex) {
             case 0: return 0.5;  // 检测点0
-            case 1: return 1.0;  // 检测点6
+            case 1: return 1.0;  // 检测点5
             case 2: return 2.0;  // 检测点10
-            case 3: return 1.0;  // 检测点21
-            case 4: return 2.0;  // 检测点25
+            case 3: return 1.0;  // 检测点15
+            case 4: return 2.0;  // 检测点20
             default: return 0.0;
         }
     }

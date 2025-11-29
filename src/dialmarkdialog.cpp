@@ -1220,7 +1220,7 @@ void DialMarkDialog::exportImage()
 {
     QString fileName = QFileDialog::getSaveFileName(this,
         "导出标注图片", "annotated_dial.png", 
-        "TIFF 图片 (*.tiff);;PNG 图片 (*.png);;JPEG 图片 (*.jpg);;BMP 图片 (*.bmp);;所有图片 (*.png *.jpg *.jpeg *.bmp *.tiff)");
+        "TIFF 图片 (*.tif *.tiff);;PNG 图片 (*.png);;JPEG 图片 (*.jpg *.jpeg);;BMP 图片 (*.bmp);;所有图片 (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)");
     
     if (!fileName.isEmpty()) {
         QPixmap annotatedImage = m_imageLabel->getAnnotatedImage();
@@ -1639,26 +1639,43 @@ void DialMarkDialog::saveGeneratedDial()
 {
     // 生成表盘图像
     QImage img = generateDialImage();
-    
-    // 选择保存路径
-    QString fileName = QFileDialog::getSaveFileName(this,
-        "保存表盘图片", "", "PNG Files (*.png)");
 
-    if (fileName.isEmpty()) {
-        return;
+    // 选择保存路径（多格式）
+    QString fileName = QFileDialog::getSaveFileName(
+        this,
+        "保存表盘图片",
+        "",
+        "TIFF 图片 (*.tif *.tiff);;PNG 图片 (*.png);;JPEG 图片 (*.jpg *.jpeg);;BMP 图片 (*.bmp);;所有图片 (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)"
+    );
+    if (fileName.isEmpty()) return;
+
+    // 若用户没填后缀，自动补 .tif
+    QString ext = QFileInfo(fileName).suffix().toLower();
+    if (ext.isEmpty()) {
+        fileName += ".tif";
+        ext = "tif";
     }
-    
-    QImageWriter w(fileName, "png");
-    // 压缩：LZW（无损，兼容性好）；也可改 "deflate"
-    w.setCompression(1); // 0=无压缩，1=LZW，2=PackBits，32946=Deflate（按 Qt/平台实现而定）
-#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
-    // Qt6.5+ 可设置 ICC（如有自定义）
-    // w.setColorSpace(QColorSpace::SRgb);
-#endif
-    if (!w.write(img)) {
-        QMessageBox::warning(this, "保存失败", "错误：保存失败: " + w.errorString());
+
+    // 根据后缀选择写入格式
+    QByteArray fmt("png");
+    if (ext == "tif" || ext == "tiff") fmt = "tiff";
+    else if (ext == "png") fmt = "png";
+    else if (ext == "jpg" || ext == "jpeg") fmt = "jpeg";
+    else if (ext == "bmp") fmt = "bmp";
+
+    // 使用 QImageWriter 保存；TIFF 启用 LZW
+    QImageWriter writer(fileName, fmt);
+    if (fmt == "tiff") {
+        writer.setCompression(1); // TIFF: 1=LZW 无损压缩
+    }
+    if (!writer.write(img)) {
+        QMessageBox::warning(this, "保存失败", "错误：保存失败: " + writer.errorString());
     } else {
-        QMessageBox::information(this, "保存成功", "成功：已保存 PNG: " + fileName);
+        QMessageBox::information(
+            this,
+            "保存成功",
+            QString("成功：已保存 %1: %2").arg(QString::fromLatin1(fmt.toUpper()), fileName)
+        );
     }
 }
 

@@ -1762,11 +1762,11 @@ void highPreciseDetector::showScale1Result() {
             cv::Point2f axisPoint(line[0], line[1]);
             cv::Point2f tipPoint(line[2], line[3]);
             
-            // 绘制从转轴中心到指针顶点的连线（红色粗线）
-            cv::line(m_visual, 
+                // 绘制从转轴中心到指针顶点的连线（红色细线，原厚度4改为3）
+                cv::line(m_visual, 
                     cv::Point(cvRound(axisPoint.x), cvRound(axisPoint.y)), 
                     cv::Point(cvRound(tipPoint.x), cvRound(tipPoint.y)), 
-                    cv::Scalar(0, 0, 255), 4, cv::LINE_AA);
+                    cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
             
             // 在指针顶点处绘制一个小圆圈（黄色）
             cv::circle(m_visual, cv::Point(cvRound(tipPoint.x), cvRound(tipPoint.y)), 5, cv::Scalar(0, 255, 255), -1, 8, 0);
@@ -3172,24 +3172,24 @@ void MainWindow::updateDetectionPointLabels()
         ui->labelReverseData6->setText("5 MPa");
         
     } else if (m_currentDialType == "BYQ-19") {
-        // BYQ表盘：5个检测点，显示 0, 6, 10, 21, 25 MPa
+        // BYQ表盘：5个检测点，显示 0, 5, 10, 15, 20 MPa
         m_requiredDataCount = 5;
-        m_detectionPoints = {0.0, 6.0, 10.0, 21.0, 25.0}; // BYQ表盘的检测点压力值
+        m_detectionPoints = {0.0, 5.0, 10.0, 15.0, 20.0}; // BYQ表盘的检测点压力值
         
         // 更新正行程检测点标签
         ui->labelForwardData1->setText("0 MPa");
-        ui->labelForwardData2->setText("6 MPa");
+        ui->labelForwardData2->setText("5 MPa");
         ui->labelForwardData3->setText("10 MPa");
-        ui->labelForwardData4->setText("21 MPa");
-        ui->labelForwardData5->setText("25 MPa");
+        ui->labelForwardData4->setText("15 MPa");
+        ui->labelForwardData5->setText("20 MPa");
         ui->labelForwardData6->setText("--");  // BYQ表盘只有5个检测点
         
         // 更新反行程检测点标签
         ui->labelReverseData1->setText("0 MPa");
-        ui->labelReverseData2->setText("6 MPa");
+        ui->labelReverseData2->setText("5 MPa");
         ui->labelReverseData3->setText("10 MPa");
-        ui->labelReverseData4->setText("21 MPa");
-        ui->labelReverseData5->setText("25 MPa");
+        ui->labelReverseData4->setText("15 MPa");
+        ui->labelReverseData5->setText("20 MPa");
         ui->labelReverseData6->setText("--");  // BYQ表盘只有5个检测点
     }
     
