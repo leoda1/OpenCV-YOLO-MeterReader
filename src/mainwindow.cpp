@@ -1386,6 +1386,16 @@ void highPreciseDetector::detectPointerFromCenter() {
     }
 }
 
+// 前向声明：在后面匿名命名空间中定义的尖端细化函数
+namespace {
+cv::Point2f rayEdgeFarthest(const cv::Mat& edge,
+                            const cv::Mat& roiMask,
+                            const cv::Point2f& axisCenter,
+                            double angleDeg,
+                            float innerR,
+                            float outerR);
+}
+
 cv::Vec4i highPreciseDetector::detectWhitePointer(const cv::Mat& gray, const cv::Point2f& center, float radius) {
     // 确保YYQY模式下不显示转轴中心
     m_axisCenter = cv::Point2f(-1, -1);
@@ -1490,6 +1500,27 @@ cv::Vec4i highPreciseDetector::detectWhitePointer(const cv::Mat& gray, const cv:
     // 6. 如果基于轮廓的方法失败，尝试基于亮度的射线方法
     if (bestPointer[0] == -1) {
         bestPointer = detectWhitePointerByBrightness(gray, center, radius);
+    }
+
+    // 7. 尖端细化：使用边缘图在当前方向上由外向内寻找最外侧边缘点，提升尖端稳定性
+    if (bestPointer[0] != -1) {
+        cv::Point2f startPt((float)bestPointer[0], (float)bestPointer[1]);
+        cv::Point2f endPt((float)bestPointer[2], (float)bestPointer[3]);
+        // 以 start->end 的方向确定角度（确保从中心指向外缘）
+        cv::Point2f dir = endPt - startPt;
+        double angleDeg = std::atan2(dir.y, dir.x) * 180.0 / CV_PI;
+        // 构建边缘图
+        cv::Mat edges;
+        cv::Canny(gray, edges, m_config ? m_config->cannyLow : 30, m_config ? m_config->cannyHigh : 100, 3);
+        // 构建 ROI 掩码（表盘内环），避免外部噪声
+        cv::Mat roiMask = cv::Mat::zeros(gray.size(), CV_8UC1);
+        cv::circle(roiMask, cv::Point((int)center.x, (int)center.y), (int)(radius * 0.95f), cv::Scalar(255), -1);
+        // 由外向内搜索该方向的最外侧边缘点
+        cv::Point2f refinedTip = rayEdgeFarthest(edges, roiMask, center, angleDeg, radius * 0.15f, radius * 0.95f);
+        if (refinedTip.x >= 0) {
+            bestPointer[2] = (int)std::lround(refinedTip.x);
+            bestPointer[3] = (int)std::lround(refinedTip.y);
+        }
     }
     
     qDebug() << "白色指针检测完成，最高得分:" << maxScore;
