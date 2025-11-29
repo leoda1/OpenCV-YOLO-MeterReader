@@ -32,10 +32,6 @@
 
 #include "errortabledialog.h"
 
-namespace Ui {
-class DialMarkDialog;
-}
-
 // 文本标注项
 struct TextAnnotation {
     QPoint position;
@@ -209,7 +205,6 @@ private slots:
     void exportImage();
 
 private:
-    Ui::DialMarkDialog *ui;
     AnnotationLabel *m_imageLabel;
     QScrollArea *m_scrollArea;
     QPushButton *m_colorButton;

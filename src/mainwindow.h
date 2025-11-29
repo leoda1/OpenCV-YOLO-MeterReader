@@ -301,6 +301,11 @@ private:
     float m_axisRadius;        // BYQ转轴半径
     static double s_lastValidAngle;  // 上次有效角度，用于稳定性检查
     
+    // BYQ底部两条黑线（用于自动计算转轴中心）
+    cv::Vec4i m_blackLine1;    // 第一条黑线
+    cv::Vec4i m_blackLine2;    // 第二条黑线
+    bool m_hasBlackLines;      // 是否检测到黑线
+    
 public:
     explicit highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config = nullptr);
     ~highPreciseDetector() = default;

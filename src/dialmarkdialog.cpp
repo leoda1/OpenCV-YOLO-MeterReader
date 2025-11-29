@@ -548,7 +548,6 @@ void AnnotationLabel::resetZoom()
 // DialMarkDialog 实现---初始化的函数
 DialMarkDialog::DialMarkDialog(QWidget *parent, const QString &dialType)
     : QDialog(parent)
-    , ui(nullptr)
     , m_currentColor(Qt::red)
     , m_dialType(dialType)
 {
@@ -563,7 +562,6 @@ DialMarkDialog::DialMarkDialog(QWidget *parent, const QString &dialType)
 
 DialMarkDialog::~DialMarkDialog()
 {
-    if (ui) delete ui;
 }
 
 void DialMarkDialog::setupUI()
@@ -2072,23 +2070,20 @@ void DialMarkDialog::updateAngleComboBox()
         qDebug() << "updateAngleComboBox: pointsAngle数组为空";
         return;
     }
-    
-
-
 
     for (int i = 0; i < pointsAngle.size(); ++i) {
         int pressure = int((m_dialType == "YYQY-13") ? m_yyqyConfig.points[i] : m_byqConfig.points[i]);
         double angle = pointsAngle[i];
         // 显示为：压力值，角度
         QString displayText = QString("压力：%1 MPa，角度：%2°")
-                                  .arg(pressure, 0, 'f', 2)
-                                  .arg(angle,    0, 'f', 1);
+                                  .arg(pressure)
+                                  .arg(angle, 0, 'f', 1);
 
         // 主数据仍用角度（兼容原有逻辑），并附加压力作为额外数据
         m_dialAngleCombo->addItem(displayText, angle);
         m_dialAngleCombo->setItemData(i, pressure, Qt::UserRole + 1);
         m_dialAngleCombo->setItemData(i,
-            QString("压力: %1 MPa\n角度: %2°").arg(pressure, 0, 'f', 2).arg(angle, 0, 'f', 1),
+            QString("压力: %1 MPa\n角度: %2°").arg(pressure).arg(angle, 0, 'f', 1),
             Qt::ToolTipRole);
     }
     
