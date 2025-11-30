@@ -1459,9 +1459,7 @@ QImage DialMarkDialog::generateBYQDialImage()
     
     // 表盘半径
     const double Rpx = std::min(OUT_W, OUT_H) * 0.4;
-
-    // 使用用户输入的角度和压力值-------- 改用户输入为自动保存
-    const double totalAngle = m_byqConfig.totalAngle;  // 用户输入的角度
+    const double totalAngle = m_byqConfig.pointsAngle[5];  // 用户输入的角度
     const double vmax = m_byqConfig.maxPressure;       // 用户输入的最大压力
     const QVector<double>& points = m_byqConfig.points;           // 保存的分段点
     const QVector<double>& pointsAngle = m_byqConfig.pointsAngle; // 保存的分段角度
