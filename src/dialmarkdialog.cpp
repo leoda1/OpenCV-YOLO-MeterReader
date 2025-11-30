@@ -1202,6 +1202,8 @@ void DialMarkDialog::loadAnnotations()
     }
 }
 
+static inline int dpi_to_dpm(double dpi) { return qRound(dpi / 0.0254); } // = dpi*39.370079
+
 void DialMarkDialog::onTextChanged()
 {
     // 当文本框内容改变时，如果有选中的标注，更新它
@@ -1223,10 +1225,38 @@ void DialMarkDialog::exportImage()
     if (!fileName.isEmpty()) {
         QPixmap annotatedImage = m_imageLabel->getAnnotatedImage();
         if (!annotatedImage.isNull()) {
-            if (annotatedImage.save(fileName)) {
+            // 转换为QImage以便设置DPI和使用QImageWriter
+            QImage img = annotatedImage.toImage();
+            
+            // 设置DPI元数据（根据表盘类型）
+            double dpi = (m_dialType == "YYQY-13") ? 960.0 : 2400.0;
+            int dpm = dpi_to_dpm(dpi);
+            img.setDotsPerMeterX(dpm);
+            img.setDotsPerMeterY(dpm);
+            
+            // 确定文件格式
+            QString ext = QFileInfo(fileName).suffix().toLower();
+            if (ext.isEmpty()) {
+                fileName += ".tif";
+                ext = "tif";
+            }
+            
+            QByteArray fmt("png");
+            if (ext == "tif" || ext == "tiff") fmt = "tiff";
+            else if (ext == "png") fmt = "png";
+            else if (ext == "jpg" || ext == "jpeg") fmt = "jpeg";
+            else if (ext == "bmp") fmt = "bmp";
+            
+            // 使用QImageWriter保存以保留DPI信息
+            QImageWriter writer(fileName, fmt);
+            if (fmt == "tiff") {
+                writer.setCompression(1); // TIFF: 1=LZW 无损压缩
+            }
+            
+            if (writer.write(img)) {
                 QMessageBox::information(this, "成功", "图片已导出到: " + fileName);
             } else {
-                QMessageBox::warning(this, "错误", "导出图片失败: " + fileName);
+                QMessageBox::warning(this, "错误", "导出图片失败: " + writer.errorString());
             }
         } else {
             QMessageBox::warning(this, "错误", "没有可导出的图片");
@@ -1388,8 +1418,6 @@ static inline double v2ang(double v, double vmax, double startDeg, double totalA
         }
 }
 
-
-static inline int dpi_to_dpm(double dpi) { return qRound(dpi / 0.0254); } // = dpi*39.370079
 // ======= 主入口：生成表盘图 =======
 QImage DialMarkDialog::generateDialImage()
 {
@@ -1681,11 +1709,13 @@ void DialMarkDialog::saveGeneratedDial()
 
 QImage DialMarkDialog::generateYYQYDialImage()
 {
-    // YYQY表盘规格：1890x1890像素，1200x1200分辨率
+    // YYQY表盘规格：1890x1890像素，960 DPI分辨率
     const int S = 1890;  
+    const double OUT_DPI = 960;    // 图片DPI
     
     QImage img(S, S, QImage::Format_RGBA64);
     img.fill(Qt::white);
+    
     QPainter p(&img);
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::TextAntialiasing, true);
@@ -1710,6 +1740,12 @@ QImage DialMarkDialog::generateYYQYDialImage()
     drawYYQYPositionDot(p, C, outerR, totalAngle);     // 最后绘制定位点
     
     p.end();
+    
+    // 绘制完成后再设置 DPI 元数据（避免影响字体渲染）
+    const int dpm = dpi_to_dpm(OUT_DPI);
+    img.setDotsPerMeterX(dpm);
+    img.setDotsPerMeterY(dpm);
+    
     return img;
 }
 
