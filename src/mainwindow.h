@@ -21,6 +21,7 @@
 #include "dialmarkdialog.h"
 #include "errortabledialog.h"
 
+#include "helpdialog.h"  // 新增
 namespace Ui {
 class MainWindow;
 }
@@ -122,6 +123,8 @@ private:
     QComboBox *m_dialTypeCombo;
     QLabel *m_dialTypeLabel;
     QString m_currentDialType;
+
+    HelpDialog* m_helpDialog = nullptr;  // 新增：帮助对话框单实例
     
     // 指针识别配置
     PointerDetectionConfig m_yyqyConfig;     // YYQY表盘配置
@@ -297,6 +300,11 @@ private:
     cv::Point2f m_axisCenter;  // BYQ转轴中心
     float m_axisRadius;        // BYQ转轴半径
     static double s_lastValidAngle;  // 上次有效角度，用于稳定性检查
+    
+    // BYQ底部两条黑线（用于自动计算转轴中心）
+    cv::Vec4i m_blackLine1;    // 第一条黑线
+    cv::Vec4i m_blackLine2;    // 第二条黑线
+    bool m_hasBlackLines;      // 是否检测到黑线
     
 public:
     explicit highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config = nullptr);

@@ -13,6 +13,7 @@
 
 #include <stdlib.h>
 #include "settingdialog.h"
+#include "helpdialog.h"
 // #include "Opencv_hp.h"
 
 using namespace Pylon;
@@ -491,6 +492,17 @@ void MainWindow::setting(){
 void MainWindow::about(){
     // AboutDialog *dialog = new AboutDialog(this);
     // dialog->exec();
+    // 打开帮助说明（单实例）
+    if (!m_helpDialog) {
+        m_helpDialog = new HelpDialog(this);
+        connect(m_helpDialog, &QDialog::finished, this, [this](int){
+            m_helpDialog->deleteLater();
+            m_helpDialog = nullptr;
+        });
+    }
+    m_helpDialog->show();
+    m_helpDialog->raise();
+    m_helpDialog->activateWindow();
 }
 
 void MainWindow::singleGrab(){
@@ -1019,6 +1031,13 @@ void MainWindow::showDialMarkDialog()
     qDebug() << "打开表盘标注对话框，表盘类型:" << m_currentDialType;
     
     auto dialog = std::make_unique<DialMarkDialog>(this, m_currentDialType);
+    // 如果主窗口维护了 ErrorTableDialog 指针，则注入（但不自动应用数据）
+    // 用户需要在 DialMarkDialog 内部手动选择是否使用误差表格的数据
+    if (m_errorTableDialog) {
+        dialog->setErrorTableDialog(m_errorTableDialog);
+        // 移除自动应用数据的调用，避免在打开对话框时就覆盖默认配置
+        // dialog->applyFinalDataFromErrorTable();
+    }
     dialog->exec();
 }
 
@@ -1185,7 +1204,9 @@ void MainWindow::onDialTypeChanged(const QString &dialType)
     qDebug() << "表盘类型切换为:" << dialType << "需要数据数量:" << m_requiredDataCount;
 }
 
-highPreciseDetector::highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config) : m_angle(-999), m_config(config), m_axisCenter(-1, -1) {
+highPreciseDetector::highPreciseDetector(const cv::Mat& image, const PointerDetectionConfig* config) 
+    : m_angle(-999), m_config(config), m_axisCenter(-1, -1), m_axisRadius(0), 
+      m_blackLine1(-1, -1, -1, -1), m_blackLine2(-1, -1, -1, -1), m_hasBlackLines(false) {
     if (image.empty()) {
         qDebug() << "输入图像为空";
         return;
@@ -1367,6 +1388,16 @@ void highPreciseDetector::detectPointerFromCenter() {
     }
 }
 
+// 前向声明：在后面匿名命名空间中定义的尖端细化函数
+namespace {
+cv::Point2f rayEdgeFarthest(const cv::Mat& edge,
+                            const cv::Mat& roiMask,
+                            const cv::Point2f& axisCenter,
+                            double angleDeg,
+                            float innerR,
+                            float outerR);
+}
+
 cv::Vec4i highPreciseDetector::detectWhitePointer(const cv::Mat& gray, const cv::Point2f& center, float radius) {
     // 确保YYQY模式下不显示转轴中心
     m_axisCenter = cv::Point2f(-1, -1);
@@ -1471,6 +1502,27 @@ cv::Vec4i highPreciseDetector::detectWhitePointer(const cv::Mat& gray, const cv:
     // 6. 如果基于轮廓的方法失败，尝试基于亮度的射线方法
     if (bestPointer[0] == -1) {
         bestPointer = detectWhitePointerByBrightness(gray, center, radius);
+    }
+
+    // 7. 尖端细化：使用边缘图在当前方向上由外向内寻找最外侧边缘点，提升尖端稳定性
+    if (bestPointer[0] != -1) {
+        cv::Point2f startPt((float)bestPointer[0], (float)bestPointer[1]);
+        cv::Point2f endPt((float)bestPointer[2], (float)bestPointer[3]);
+        // 以 start->end 的方向确定角度（确保从中心指向外缘）
+        cv::Point2f dir = endPt - startPt;
+        double angleDeg = std::atan2(dir.y, dir.x) * 180.0 / CV_PI;
+        // 构建边缘图
+        cv::Mat edges;
+        cv::Canny(gray, edges, m_config ? m_config->cannyLow : 30, m_config ? m_config->cannyHigh : 100, 3);
+        // 构建 ROI 掩码（表盘内环），避免外部噪声
+        cv::Mat roiMask = cv::Mat::zeros(gray.size(), CV_8UC1);
+        cv::circle(roiMask, cv::Point((int)center.x, (int)center.y), (int)(radius * 0.95f), cv::Scalar(255), -1);
+        // 由外向内搜索该方向的最外侧边缘点
+        cv::Point2f refinedTip = rayEdgeFarthest(edges, roiMask, center, angleDeg, radius * 0.15f, radius * 0.95f);
+        if (refinedTip.x >= 0) {
+            bestPointer[2] = (int)std::lround(refinedTip.x);
+            bestPointer[3] = (int)std::lround(refinedTip.y);
+        }
     }
     
     qDebug() << "白色指针检测完成，最高得分:" << maxScore;
@@ -1720,17 +1772,64 @@ void highPreciseDetector::showScale1Result() {
     // 绘制BYQ转轴中心（只在BYQ模式下且检测到转轴时显示）
     if (m_config && m_config->dialType == "BYQ" && m_axisCenter.x != -1 && m_axisCenter.y != -1 && m_axisRadius > 0) {
         cv::Point axisPoint(cvRound(m_axisCenter.x), cvRound(m_axisCenter.y));
-        int axisRadiusInt = cvRound(m_axisRadius);
         
-        // 绘制检测到的转轴圆（绿色圆圈，使用实际检测到的半径）
-        cv::circle(m_visual, axisPoint, axisRadiusInt, cv::Scalar(0, 255, 0), 2, 8, 0);
-        // 绘制转轴中心点（红色）
-        cv::circle(m_visual, axisPoint, 3, cv::Scalar(0, 0, 255), -1, 8, 0);
+        // 绘制转轴中心点（绿色小圆点）
+        cv::circle(m_visual, axisPoint, 4, cv::Scalar(0, 255, 0), -1, 8, 0);
         
-        // 添加标注文字，显示半径信息
-        std::string axisText = "Axis(R=" + std::to_string(axisRadiusInt) + ")";
-        cv::putText(m_visual, axisText, cv::Point(axisPoint.x + axisRadiusInt + 5, axisPoint.y - 10), 
-                   cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
+        // 如果检测到了两条黑线，绘制共线和垂线
+        if (m_hasBlackLines) {
+            // 收集两条黑线的四个端点
+            cv::Point2f p1(m_blackLine1[0], m_blackLine1[1]);
+            cv::Point2f p2(m_blackLine1[2], m_blackLine1[3]);
+            cv::Point2f p3(m_blackLine2[0], m_blackLine2[1]);
+            cv::Point2f p4(m_blackLine2[2], m_blackLine2[3]);
+            
+            // 计算共线方向（使用两条黑线的平均方向）
+            cv::Point2f dir1 = p2 - p1;
+            cv::Point2f dir2 = p4 - p3;
+            // 确保方向一致（点积为正）
+            if (dir1.x * dir2.x + dir1.y * dir2.y < 0) {
+                dir2 = -dir2;
+            }
+            cv::Point2f avgDir = dir1 + dir2;
+            float avgDirLen = cv::norm(avgDir);
+            if (avgDirLen > 0) {
+                avgDir = avgDir / avgDirLen;
+            } else {
+                avgDir = cv::Point2f(1, 0);  // 默认水平
+            }
+            
+            // 按照方向投影排序四个端点
+            std::vector<cv::Point2f> allPoints = {p1, p2, p3, p4};
+            std::sort(allPoints.begin(), allPoints.end(), 
+                [&avgDir](const cv::Point2f& a, const cv::Point2f& b) {
+                    return (a.x * avgDir.x + a.y * avgDir.y) < (b.x * avgDir.x + b.y * avgDir.y);
+                });
+            
+            cv::Point2f leftMost = allPoints[0];
+            cv::Point2f rightMost = allPoints[3];
+            
+            // 绘制青色共线（从最左点到最右点）
+            cv::line(m_visual, 
+                     cv::Point(cvRound(leftMost.x), cvRound(leftMost.y)),
+                     cv::Point(cvRound(rightMost.x), cvRound(rightMost.y)),
+                     cv::Scalar(255, 255, 0), 2, cv::LINE_AA);
+            
+            // 绘制从表盘圆心到转轴中心（m_axisCenter）的绿色垂线
+            // m_axisCenter 已经是 detectBYQAxis 计算好的垂足或间隙中点
+            if (!m_circles.empty()) {
+                cv::Point2f dialCenter(m_circles[0][0], m_circles[0][1]);
+                cv::line(m_visual, 
+                         cv::Point(cvRound(dialCenter.x), cvRound(dialCenter.y)),
+                         cv::Point(cvRound(m_axisCenter.x), cvRound(m_axisCenter.y)),
+                         cv::Scalar(0, 255, 0), 2, cv::LINE_AA);
+            }
+        }
+        
+        // 添加标注文字
+        std::string axisText = "Axis";
+        cv::putText(m_visual, axisText, cv::Point(axisPoint.x + 10, axisPoint.y - 5), 
+                   cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 1);
     }
     
     // 绘制检测到的直线（指针）
@@ -1738,25 +1837,24 @@ void highPreciseDetector::showScale1Result() {
         // 在BYQ模式下，如果检测到转轴中心，绘制从转轴中心到指针顶点的连线
         if (m_config && m_config->dialType == "BYQ" && m_axisCenter.x != -1 && m_axisCenter.y != -1) {
             // 新的辐射扫描算法返回的数据格式：
-            // line[0], line[1] = 转轴中心坐标
+            // line[0], line[1] = 转轴中心坐标（从detectSilverPointerEnd返回）
             // line[2], line[3] = 指针顶点坐标
-            cv::Point2f axisPoint(line[0], line[1]);
             cv::Point2f tipPoint(line[2], line[3]);
             
-            // 绘制从转轴中心到指针顶点的连线（红色粗线）
-            cv::line(m_visual, 
-                    cv::Point(cvRound(axisPoint.x), cvRound(axisPoint.y)), 
+            // 验证tipPoint有效：必须在圆心上方（y值小于圆心y值）且坐标有效
+            bool tipValid = (tipPoint.x > 0 && tipPoint.y > 0 && 
+                            !m_circles.empty() && tipPoint.y < m_circles[0][1]);
+            
+            if (tipValid) {
+                // 绘制从转轴中心到黄色点的连线（红色极细线）
+                cv::line(m_visual, 
+                    cv::Point(cvRound(m_axisCenter.x), cvRound(m_axisCenter.y)), 
                     cv::Point(cvRound(tipPoint.x), cvRound(tipPoint.y)), 
-                    cv::Scalar(0, 0, 255), 4, cv::LINE_AA);
+                    cv::Scalar(0, 0, 255), 1, cv::LINE_AA);
             
-            // 在指针顶点处绘制一个小圆圈（黄色）
-            cv::circle(m_visual, cv::Point(cvRound(tipPoint.x), cvRound(tipPoint.y)), 5, cv::Scalar(0, 255, 255), -1, 8, 0);
-            
-            // 在转轴中心绘制一个小圆圈（红色）
-            cv::circle(m_visual, cv::Point(cvRound(axisPoint.x), cvRound(axisPoint.y)), 3, cv::Scalar(0, 0, 255), -1, 8, 0);
-            
-            qDebug() << "BYQ模式：绘制从转轴中心(" << axisPoint.x << "," << axisPoint.y 
-                     << ")到指针顶点(" << tipPoint.x << "," << tipPoint.y << ")的连线";
+                // 在指针顶点处绘制一个小圆圈（黄色）
+                cv::circle(m_visual, cv::Point(cvRound(tipPoint.x), cvRound(tipPoint.y)), 5, cv::Scalar(0, 255, 255), -1, 8, 0);
+            }
         } else {
             // 其他模式或未检测到转轴时，使用原来的绘制方式
             cv::line(m_visual, 
@@ -1766,7 +1864,6 @@ void highPreciseDetector::showScale1Result() {
         }
     }
     
-    // 添加角度文本 - 显示绝对角度（用于调试）
     if (m_angle != -999) {
         std::string angleText = "Abs: " + std::to_string(m_angle) + "°";
         cv::putText(m_visual, angleText, cv::Point(10, 30), 
@@ -1933,7 +2030,8 @@ void MainWindow::initializeDataArrays()
 void MainWindow::updateDataDisplayVisibility()
 {
     // 根据表盘类型决定显示的数据数量
-    bool showData6 = (m_currentDialType == "YYQY-13");  // YYQY显示6个，BYQ显示5个
+    // YYQY和BYQ都显示6个检测点
+    bool showData6 = (m_currentDialType == "YYQY-13" || m_currentDialType == "BYQ-19");
     
     // 控制采集数据6的显示/隐藏
     ui->labelForwardData6->setVisible(showData6);
@@ -2365,7 +2463,7 @@ void MainWindow::onMaxAngleCapture()
         return;
     }
     
-    const RoundData &currentRound = m_allRoundsData[m_currentRound];
+    const RoundData &currentRound = m_allRoundsData[m_currentRound]; 
     
     // 检查正行程数据是否已完成
     bool forwardComplete = true;
@@ -2448,7 +2546,7 @@ void MainWindow::onMaxAngleCapture()
         
         // 保存当前角度和角度差，供确定按钮使用
         m_tempMaxAngle = std::abs(rel);
-        m_tempCurrentAngle = currentAngle;
+        m_tempCurrentAngle = currentAngle;        
         m_maxAngleCaptureMode = true;  // 进入最大角度采集模式
         
         // 减少弹窗：只在状态栏显示信息，不弹窗
@@ -2497,150 +2595,364 @@ cv::Vec4i highPreciseDetector::detectBYQPointer(const cv::Mat& gray, const cv::P
 }
 
 cv::Point2f highPreciseDetector::detectBYQAxis(const cv::Mat& gray, const cv::Point2f& dialCenter, float dialRadius) {
-    qDebug() << "检测BYQ螺旋波登管转轴中心，表盘中心:(" << dialCenter.x << "," << dialCenter.y << ") 半径:" << dialRadius;
+    qDebug() << "检测BYQ螺旋波登管转轴中心 - 使用LSD线段检测（支持表盘旋转）";
+    qDebug() << "表盘中心:(" << dialCenter.x << "," << dialCenter.y << ") 半径:" << dialRadius;
     
-    // 硬编码转轴中心位置：表盘圆心向下90像素
-    cv::Point2f hardcodedAxisCenter(dialCenter.x, dialCenter.y + 90.0f);
-    m_axisRadius = 48.0f;  // 硬编码转轴半径
+    m_hasBlackLines = false;
+    m_blackLine1 = cv::Vec4i(-1, -1, -1, -1);
+    m_blackLine2 = cv::Vec4i(-1, -1, -1, -1);
     
-    qDebug() << "硬编码转轴中心: (" << hardcodedAxisCenter.x << "," << hardcodedAxisCenter.y << ") 半径:" << m_axisRadius;
-    
-    return hardcodedAxisCenter;
-}
-
-cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray,
-                                                      const cv::Point2f& axisCenter, const cv::Point2f& dialCenter, float dialRadius) {
-    qDebug() << "检测银色指针末端 - 简化版";
-    
-    // 1. 创建环形掩码，排除转轴附近区域
+    // 1. 创建环形掩码：只搜索表盘内部的下半部分环形区域
+    // 使用环形而非矩形裁剪，这样即使表盘旋转也能正确覆盖黑线区域
     cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
-    cv::circle(mask, cv::Point((int)dialCenter.x, (int)dialCenter.y), (int)(dialRadius * m_config->pointerMaskRadius), cv::Scalar(255), -1);
-    // 排除转轴附近的圆形区域，避免干扰
-    cv::circle(mask, cv::Point((int)axisCenter.x, (int)axisCenter.y), (int)(m_axisRadius * m_config->axisExcludeMultiplier), cv::Scalar(0), -1);
     
-    // 2. 应用掩码获取感兴趣区域
+    // 外圆：表盘边缘往内缩一点
+    int outerRadius = (int)(dialRadius * 0.95);
+    // 内圆：排除中心区域（转轴附近）
+    int innerRadius = (int)(dialRadius * 0.25);
+    
+    // 画外圆（填充）
+    cv::circle(mask, cv::Point((int)dialCenter.x, (int)dialCenter.y), outerRadius, cv::Scalar(255), -1);
+    // 挖掉内圆
+    cv::circle(mask, cv::Point((int)dialCenter.x, (int)dialCenter.y), innerRadius, cv::Scalar(0), -1);
+    
+    // 不再用矩形裁剪，让整个环形区域都参与搜索
+    // 这样即使表盘旋转45度，黑线仍然在搜索区域内
+    
+    qDebug() << "黑线搜索区域: 环形区域 内径=" << innerRadius << " 外径=" << outerRadius;
+    
+    // 2. 应用掩码
     cv::Mat roiGray;
     gray.copyTo(roiGray, mask);
-
-    // ==== NEW: 先用"辐射扫描"找粗顶点与主方向 ====
-    // 计算自适应暗阈值（白底下，指针更暗）
-    cv::Scalar meanVal, stdVal;
-    cv::meanStdDev(roiGray, meanVal, stdVal, mask);
-    double mu = meanVal[0], sigma = stdVal[0];
-    // 阈值略低于均值，避免把浅阴影误作指针；同时给出下限
-    double darkThresh = std::max(80.0, mu - 0.6*sigma);
-
-    float innerR = (float)(m_axisRadius * m_config->axisExcludeMultiplier + 6.0); // 稍微多排除一些轴附近
-    float outerR = (float)(dialRadius * m_config->pointerMaskRadius);
-    int   minRun = std::max(6, (int)std::round((outerR - innerR) * 0.04));        // 至少覆盖 4% 的径向长度
-
-    double coarseAngleDeg = 0.0;
-    cv::Point2f tip = radialTipScan(gray, mask, axisCenter, innerR, outerR, darkThresh,
-                                    /*angleStepDeg=*/0.6, minRun, &coarseAngleDeg);
-
-    // ==== NEW: 使用边缘图在该方向"由外向内"细化为真正的最外侧边缘顶点 ====
-    cv::Mat edgesForTip;
-    // 用轻度平滑 + Canny 得到锐利边界（白底下，指针轮廓通常是暗边）
-    {
-        cv::Mat blurG;
-        cv::GaussianBlur(roiGray, blurG, cv::Size(3,3), 0.8);
-        cv::Canny(blurG, edgesForTip, std::max(10, m_config->cannyLowThreshold/2), m_config->cannyHighThreshold);
-    }
-    if (tip.x >= 0) {
-        // 先按方向细化
-        cv::Point2f edgeTip = rayEdgeFarthest(edgesForTip, mask, axisCenter, coarseAngleDeg, innerR, outerR);
-        if (edgeTip.x >= 0) {
-            double dr = cv::norm(edgeTip - axisCenter);
-            if (dr > innerR + 3 && dr < outerR + 6) {
-                qDebug() << "边缘细化到最外顶点 (" << edgeTip.x << "," << edgeTip.y << "), r=" << dr;
-                return cv::Vec4i((int)std::lround(axisCenter.x),
-                                 (int)std::lround(axisCenter.y),
-                                 (int)std::lround(edgeTip.x),
-                                 (int)std::lround(edgeTip.y));
-            }
-        }
-        // 若边缘细化失败，退回粗顶点
-        double dr = cv::norm(tip - axisCenter);
-        if (dr > innerR + 4 && dr < outerR + 4) {
-            qDebug() << "边缘细化失败，使用辐射扫描粗顶点 (" << tip.x << "," << tip.y << ")";
-            return cv::Vec4i((int)std::lround(axisCenter.x),
-                             (int)std::lround(axisCenter.y),
-                             (int)std::lround(tip.x),
-                             (int)std::lround(tip.y));
-        }
-    }
-    // ==== END NEW ====
     
-    // 3. 针对细指针的预处理 - 增强与白色背景的反差
-    cv::Mat enhanced;
+    // 3. 使用LSD检测直线段
+    cv::Ptr<cv::LineSegmentDetector> lsd = cv::createLineSegmentDetector(cv::LSD_REFINE_STD);
+    std::vector<cv::Vec4f> lines;
+    lsd->detect(roiGray, lines);
     
-    // 3.1 反转图像，让暗色指针变成亮线（更容易检测）
-    cv::bitwise_not(roiGray, enhanced, mask);
+    qDebug() << "LSD在环形区域检测到" << lines.size() << "条直线";
     
-    // 3.2 形态学操作增强细线
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(m_config->morphKernelWidth, m_config->morphKernelHeight));
-    cv::morphologyEx(enhanced, enhanced, cv::MORPH_CLOSE, kernel);
+    struct LineInfo {
+        cv::Vec4f line;
+        float length;
+        float midX;
+        float midY;
+        float angle;  // 线段角度（弧度）
+        cv::Point2f p1, p2;  // 两个端点
+        float distFromCenter;  // 中点到圆心的距离
+    };
     
-    // 3.3 轻微的高斯滤波减少噪声
-    cv::GaussianBlur(enhanced, enhanced, cv::Size(m_config->gaussianKernelSize, m_config->gaussianKernelSize), m_config->gaussianSigma);
-    
-    // 4. 边缘检测 - 使用配置的参数检测细线
-    cv::Mat edges;
-    cv::Canny(enhanced, edges, m_config->cannyLowThreshold, m_config->cannyHighThreshold);
-    
-    // 5. HoughLinesP检测 - 使用配置的参数
-    std::vector<cv::Vec4i> lines;
-    cv::HoughLinesP(edges, lines, 
-                    1.0,                                        // rho: 1像素精度
-                    CV_PI/180,                                 // theta: 1度精度
-                    m_config->houghThreshold,                  // 使用配置的阈值
-                    dialRadius * m_config->minLineLengthRatio, // 使用配置的最小长度比例
-                    dialRadius * m_config->maxLineGapRatio);   // 使用配置的最大间隙比例
-    
-    qDebug() << "HoughLinesP检测找到" << lines.size() << "条直线段";
-    
-    if (lines.empty()) {
-        qDebug() << "未检测到指针直线段（Hough），已放弃";
-        return cv::Vec4i(-1, -1, -1, -1);
-    }
-    
-    // 6. 简单逻辑：找最长的直线，连接到转轴中心
-    cv::Vec4i bestLine(-1, -1, -1, -1);
-    double maxLength = 0;
+    std::vector<LineInfo> candidateLines;
     
     for (const auto& line : lines) {
         cv::Point2f p1(line[0], line[1]);
         cv::Point2f p2(line[2], line[3]);
         
-        double length = sqrt(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2));
+        // 两端都必须在表盘圆内
+        float d1 = cv::norm(p1 - dialCenter);
+        float d2 = cv::norm(p2 - dialCenter);
+        if (d1 > dialRadius || d2 > dialRadius) continue;
         
-        if (length > maxLength) {
-            maxLength = length;
-            bestLine = line;
+        // 计算线段长度
+        float lineLen = cv::norm(p2 - p1);
+        if (lineLen < 15) continue;  // 太短的忽略
+        
+        // 计算中点
+        float midX = (p1.x + p2.x) / 2.0f;
+        float midY = (p1.y + p2.y) / 2.0f;
+        cv::Point2f midPoint(midX, midY);
+        
+        // 计算中点到圆心的距离（用于判断是否在下半部分）
+        float distFromCenter = cv::norm(midPoint - dialCenter);
+        
+        // 计算中点相对于圆心的角度（用于判断位置）
+        // 0度=右，90度=下，180度=左，-90度=上
+        float posAngle = std::atan2(midY - dialCenter.y, midX - dialCenter.x) * 180.0f / CV_PI;
+        
+        // 只保留大致在下半部分的线段（角度在 0° 到 180° 之间，允许±60度偏移）
+        // 这意味着允许表盘旋转最多60度
+        bool isInLowerHalf = (posAngle > -60 && posAngle < 240);
+        if (!isInLowerHalf) continue;
+        
+        // 计算线段方向角度（弧度，用于后续共线判断）
+        float angle = std::atan2(p2.y - p1.y, p2.x - p1.x);
+        float angleDeg = angle * 180.0f / CV_PI;
+        
+        LineInfo info = {line, lineLen, midX, midY, angle, p1, p2, distFromCenter};
+        candidateLines.push_back(info);
+        
+        qDebug() << "  候选黑线: (" << p1.x << "," << p1.y << ")->(" << p2.x << "," << p2.y 
+                 << ") 长度=" << lineLen << " 方向角=" << angleDeg << "° 位置角=" << posAngle << "°";
+    }
+    
+    qDebug() << "候选线段数:" << candidateLines.size();
+    
+    if (candidateLines.size() < 2) {
+        qDebug() << "候选线段不足2条，检测失败";
+        m_axisRadius = 0;
+        return cv::Point2f(-1, -1);
+    }
+    
+    // 4. 找最佳配对：两条线段应该"共线"（同一条直线上的两段）
+    // 判断共线的标准：
+    //   a) 方向角度相近（角度差小于15度）
+    //   b) 一条线段的端点投影到另一条线段的延长线上的距离很小
+    //   c) 两条线段之间有间隙（不重叠），中间是转轴
+    
+    LineInfo bestLine1, bestLine2;
+    float bestScore = 0;
+    
+    for (size_t i = 0; i < candidateLines.size(); ++i) {
+        for (size_t j = i + 1; j < candidateLines.size(); ++j) {
+            const LineInfo& L1 = candidateLines[i];
+            const LineInfo& L2 = candidateLines[j];
+            
+            // a) 检查角度差（考虑180度对称性）
+            float angleDiff = std::abs(L1.angle - L2.angle);
+            if (angleDiff > CV_PI) angleDiff = 2 * CV_PI - angleDiff;
+            if (angleDiff > CV_PI / 2) angleDiff = CV_PI - angleDiff;  // 处理反向
+            float angleDiffDeg = angleDiff * 180.0f / CV_PI;
+            
+            if (angleDiffDeg > 15) continue;  // 角度差超过15度，不共线
+            
+            // b) 计算两线段中点之间的连线与线段方向的垂直距离
+            // 使用L1的方向作为参考
+            cv::Point2f dir1 = L1.p2 - L1.p1;
+            float len1 = cv::norm(dir1);
+            if (len1 < 1) continue;
+            dir1 = dir1 / len1;  // 单位方向向量
+            
+            cv::Point2f midToMid = cv::Point2f(L2.midX - L1.midX, L2.midY - L1.midY);
+            // 垂直距离 = |midToMid × dir1| = |midToMid.x * dir1.y - midToMid.y * dir1.x|
+            float perpDist = std::abs(midToMid.x * dir1.y - midToMid.y * dir1.x);
+            
+            if (perpDist > 25) continue;  // 垂直距离过大，不共线
+            
+            // c) 检查两线段之间有间隙
+            // 计算四个端点在方向上的投影
+            float proj1_p1 = L1.p1.x * dir1.x + L1.p1.y * dir1.y;
+            float proj1_p2 = L1.p2.x * dir1.x + L1.p2.y * dir1.y;
+            float proj2_p1 = L2.p1.x * dir1.x + L2.p1.y * dir1.y;
+            float proj2_p2 = L2.p2.x * dir1.x + L2.p2.y * dir1.y;
+            
+            float L1_min = std::min(proj1_p1, proj1_p2);
+            float L1_max = std::max(proj1_p1, proj1_p2);
+            float L2_min = std::min(proj2_p1, proj2_p2);
+            float L2_max = std::max(proj2_p1, proj2_p2);
+            
+            // 检查是否有间隙（不重叠）
+            float gap = 0;
+            if (L1_max < L2_min) {
+                gap = L2_min - L1_max;
+            } else if (L2_max < L1_min) {
+                gap = L1_min - L2_max;
+            }
+            // 如果没有间隙（重叠），跳过
+            if (gap < 5) continue;  // 间隙至少5像素
+            
+            // 计算得分：总长度 + 共线性（垂直距离越小越好）+ 间隙合理性
+            float lengthScore = L1.length + L2.length;
+            float collinearScore = std::max(0.0f, 50.0f - perpDist * 2);  // 垂直距离越小分越高
+            float gapScore = (gap > 10 && gap < 150) ? 30.0f : 0.0f;  // 间隙在合理范围内加分
+            
+            float score = lengthScore + collinearScore + gapScore;
+            
+            qDebug() << "  配对 L" << i << "-L" << j << ": 角度差=" << angleDiffDeg 
+                     << "° 垂直距离=" << perpDist << " 间隙=" << gap << " 得分=" << score;
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestLine1 = L1;
+                bestLine2 = L2;
+            }
         }
     }
     
-    if (bestLine[0] != -1) {
-        cv::Point2f p1(bestLine[0], bestLine[1]);
-        cv::Point2f p2(bestLine[2], bestLine[3]);
+    if (bestScore > 0) {
+        // 保存黑线信息用于可视化
+        m_blackLine1 = cv::Vec4i((int)bestLine1.line[0], (int)bestLine1.line[1], 
+                                  (int)bestLine1.line[2], (int)bestLine1.line[3]);
+        m_blackLine2 = cv::Vec4i((int)bestLine2.line[0], (int)bestLine2.line[1], 
+                                  (int)bestLine2.line[2], (int)bestLine2.line[3]);
+        m_hasBlackLines = true;
         
-        // 找出距离转轴更远的点
-        double dist1 = sqrt(pow(p1.x - axisCenter.x, 2) + pow(p1.y - axisCenter.y, 2));
-        double dist2 = sqrt(pow(p2.x - axisCenter.x, 2) + pow(p2.y - axisCenter.y, 2));
+        // 收集四个端点
+        std::vector<cv::Point2f> allPoints = {bestLine1.p1, bestLine1.p2, bestLine2.p1, bestLine2.p2};
         
-        cv::Point2f farPoint = (dist1 > dist2) ? p1 : p2;
+        // 计算共线方向（使用两线段中点连线或平均方向）
+        cv::Point2f avgDir = (bestLine1.p2 - bestLine1.p1) + (bestLine2.p2 - bestLine2.p1);
+        float avgDirLen = cv::norm(avgDir);
+        if (avgDirLen < 1) {
+            qDebug() << "方向向量计算失败";
+            m_axisRadius = 0;
+            return cv::Point2f(-1, -1);
+        }
+        avgDir = avgDir / avgDirLen;
         
-        // 直接从转轴中心连接到远点
-        bestLine[0] = (int)axisCenter.x;
-        bestLine[1] = (int)axisCenter.y;
-        bestLine[2] = (int)farPoint.x;
-        bestLine[3] = (int)farPoint.y;
+        // 按照方向投影排序四个端点
+        std::sort(allPoints.begin(), allPoints.end(), 
+            [&avgDir](const cv::Point2f& a, const cv::Point2f& b) {
+                return (a.x * avgDir.x + a.y * avgDir.y) < (b.x * avgDir.x + b.y * avgDir.y);
+            });
         
-        qDebug() << "找到最长直线，从转轴中心连接: (" << bestLine[0] << "," << bestLine[1] 
-                 << ") 到 (" << bestLine[2] << "," << bestLine[3] << ")";
+        cv::Point2f leftMost = allPoints[0];
+        cv::Point2f rightMost = allPoints[3];
+        
+        qDebug() << "黑线端点1: (" << leftMost.x << "," << leftMost.y << ")";
+        qDebug() << "黑线端点2: (" << rightMost.x << "," << rightMost.y << ")";
+        
+        // 计算表盘圆心到共线的垂足作为转轴中心
+        // 这样可以保证绿线（圆心到转轴）垂直于青线（共线）
+        cv::Point2f lineDir = rightMost - leftMost;
+        float lineLenSq = lineDir.x * lineDir.x + lineDir.y * lineDir.y;
+        
+        cv::Point2f axisCenter(-1, -1);
+        if (lineLenSq > 1.0f) {
+            cv::Point2f toCenter = dialCenter - leftMost;
+            float t = (toCenter.x * lineDir.x + toCenter.y * lineDir.y) / lineLenSq;
+            axisCenter = leftMost + t * lineDir;
+        }
+        
+        if (axisCenter.x < 0) {
+            qDebug() << "无法计算垂足，检测失败";
+            m_axisRadius = 0;
+            return cv::Point2f(-1, -1);
+        }
+        
+        m_axisRadius = cv::norm(dialCenter - axisCenter);
+        
+        qDebug() << "表盘圆心: (" << dialCenter.x << "," << dialCenter.y << ")";
+        qDebug() << "转轴中心(垂足): (" << axisCenter.x << "," << axisCenter.y << ")";
+        qDebug() << "圆心到转轴距离: " << m_axisRadius;
+        
+        return axisCenter;
     }
     
-    return bestLine;
+    // 检测失败
+    qDebug() << "未能检测到共线的两条黑线，检测失败";
+    m_axisRadius = 0;
+    return cv::Point2f(-1, -1);
+}
+
+cv::Vec4i highPreciseDetector::detectSilverPointerEnd(const cv::Mat& gray,
+                                                      const cv::Point2f& axisCenter, const cv::Point2f& dialCenter, float dialRadius) {
+    qDebug() << "检测银色指针末端 - 使用LSD线段检测（只在圆心上方区域）";
+    qDebug() << "转轴中心:(" << axisCenter.x << "," << axisCenter.y << ") 圆心:(" << dialCenter.x << "," << dialCenter.y << ")";
+    
+    // 检查转轴中心是否有效
+    if (axisCenter.x < 0 || axisCenter.y < 0) {
+        qDebug() << "转轴中心无效，无法检测指针";
+        return cv::Vec4i(-1, -1, -1, -1);
+    }
+    
+    // 1. 创建圆心上方区域的掩码（指针的直线部分只在这里）
+    cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
+    // 画表盘圆
+    cv::circle(mask, cv::Point((int)dialCenter.x, (int)dialCenter.y), (int)dialRadius, cv::Scalar(255), -1);
+    // 遮蔽圆心下方区域（保留圆心上方，同时允许延伸到圆心下方50像素以捕获更多指针）
+    int bottomLimit = (int)dialCenter.y - 20;
+    cv::rectangle(mask, cv::Point(0, bottomLimit), 
+                  cv::Point(gray.cols, gray.rows), cv::Scalar(0), -1);
+    // 也排除太靠近顶部边缘的区域（表盘边缘干扰）
+    int topMargin = (int)(dialCenter.y - dialRadius + 5);  // 减少顶部边距
+    cv::rectangle(mask, cv::Point(0, 0), 
+                  cv::Point(gray.cols, topMargin), cv::Scalar(0), -1);
+    
+    // 2. 应用掩码
+    cv::Mat roiGray;
+    gray.copyTo(roiGray, mask);
+    
+    // 3. 计算上半区域的平均亮度，用于自适应二值化阈值
+    cv::Scalar meanVal = cv::mean(roiGray, mask);
+    double avgBrightness = meanVal[0];
+    
+    // 5. 形态学操作：连接断开的指针，去除噪点
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+    cv::morphologyEx(roiGray, roiGray, cv::MORPH_CLOSE, kernel);
+    cv::morphologyEx(roiGray, roiGray, cv::MORPH_OPEN, kernel);
+    
+    // 6. 使用LSD检测直线段
+    cv::Ptr<cv::LineSegmentDetector> lsd = cv::createLineSegmentDetector(cv::LSD_REFINE_STD);
+    std::vector<cv::Vec4f> lines;
+    lsd->detect(roiGray, lines);
+    
+    qDebug() << "LSD在圆心上方区域检测到" << lines.size() << "条直线";
+    
+    // 7. 筛选指针线段
+    cv::Vec4f bestLine(-1, -1, -1, -1);
+    float bestScore = 0;
+    
+    for (const auto& line : lines) {
+        cv::Point2f p1(line[0], line[1]);
+        cv::Point2f p2(line[2], line[3]);
+        
+        // 至少有一端在圆心上方（y值小于圆心y值）
+        bool p1Above = p1.y < dialCenter.y;
+        bool p2Above = p2.y < dialCenter.y;
+        if (!p1Above && !p2Above) continue;  // 两端都在圆心下方则跳过
+        
+        // 计算线段长度
+        float lineLen = cv::norm(p2 - p1);
+        if (lineLen < 20) continue;  // 太短的忽略（放宽到20像素）
+        
+        // 计算线段中点
+        cv::Point2f midPoint = (p1 + p2) * 0.5f;
+        
+        // 检查中点是否在表盘圆内
+        float distFromDialCenter = cv::norm(midPoint - dialCenter);
+        if (distFromDialCenter > dialRadius * 0.90f) continue;  // 放宽到95%
+        
+        // 计算线段方向向量
+        cv::Point2f lineDir = p2 - p1;
+        float lineDirLen = cv::norm(lineDir);
+        if (lineDirLen < 1) continue;
+        lineDir = lineDir / lineDirLen;
+        
+        // 计算从中点指向转轴中心的方向
+        cv::Point2f toAxis = axisCenter - midPoint;
+        float toAxisLen = cv::norm(toAxis);
+        if (toAxisLen < 1) continue;
+        toAxis = toAxis / toAxisLen;
+        
+        // 线段方向应该与指向转轴的方向一致（或相反，因为方向可能反的）
+        float dotProduct = std::abs(lineDir.x * toAxis.x + lineDir.y * toAxis.y);
+        if (dotProduct < 0.6f) continue;  // 方向偏差太大
+        
+        // 确定哪端离转轴更远（那就是指针末端）
+        float d1 = cv::norm(p1 - axisCenter);
+        float d2 = cv::norm(p2 - axisCenter);
+        
+        // 评分：长度 × 方向一致性
+        float score = lineLen * dotProduct;
+        
+        qDebug() << "  候选线段: (" << p1.x << "," << p1.y << ")->(" << p2.x << "," << p2.y 
+                 << ") 长度=" << lineLen << " 方向一致性=" << dotProduct 
+                 << " d1=" << d1 << " d2=" << d2 << " 分数=" << score;
+        
+        if (score > bestScore) {
+            bestScore = score;
+            // d1 > d2 表示 p1 离转轴更远，p1 是末端（黄色点）
+            if (d1 > d2) {
+                bestLine = cv::Vec4f(axisCenter.x, axisCenter.y, p1.x, p1.y);  // p1离转轴远，是末端
+            } else {
+                bestLine = cv::Vec4f(axisCenter.x, axisCenter.y, p2.x, p2.y);  // p2离转轴远，是末端
+            }
+        }
+    }
+    
+    if (bestScore > 0) {
+        cv::Point2f tipPoint(bestLine[2], bestLine[3]);
+        qDebug() << "最佳指针线段末端:(" << tipPoint.x << "," << tipPoint.y << ") 分数=" << bestScore;
+        
+        // 返回格式：[转轴中心x, 转轴中心y, 末端x, 末端y]
+        return cv::Vec4i((int)std::lround(bestLine[0]),
+                         (int)std::lround(bestLine[1]),
+                         (int)std::lround(bestLine[2]),
+                         (int)std::lround(bestLine[3]));
+    }
+    
+    qDebug() << "未检测到指针";
+    return cv::Vec4i(-1, -1, -1, -1);
 }
 
 // 测量并保存最大角度
@@ -2764,8 +3076,8 @@ void MainWindow::initializeRoundsData()
         m_maxMeasurementsPerRound = 6;
         m_detectionPoints = {0.0, 0.6, 1.2, 1.8, 2.4, 3.0};
     } else if (m_currentDialType == "BYQ-19") {
-        m_maxMeasurementsPerRound = 5;
-        m_detectionPoints = {0.0, 0.75, 1.5, 2.25, 3.0};
+        m_maxMeasurementsPerRound = 6;
+        m_detectionPoints = {0.0, 0.75, 1.5, 2.25, 3.0, 3.75};
     } else {
         // 默认配置
         m_maxMeasurementsPerRound = 6;
@@ -2991,7 +3303,7 @@ void MainWindow::addAngleToCurrentRound(double angle, bool isForward)
             if (m_currentDialType == "YYQY-13") {
                 requiredForwardCount = 6;  // YYQY表盘需要6个正行程数据
             } else if (m_currentDialType == "BYQ-19") {
-                requiredForwardCount = 5;  // BYQ表盘需要5个正行程数据
+                requiredForwardCount = 6;  // BYQ表盘需要5个正行程数据
             } else {
                 requiredForwardCount = 6;  // 默认6个
             }
@@ -3108,7 +3420,6 @@ void MainWindow::updateErrorTableWithAllRounds()
     
     // 使用批量设置方法
     m_errorTableDialog->setMainWindowData(allRoundsForward, allRoundsBackward, allRoundsMaxAngles);
-    
     qDebug() << "所有轮次数据同步完成";
 }
 
@@ -3154,25 +3465,25 @@ void MainWindow::updateDetectionPointLabels()
         ui->labelReverseData6->setText("5 MPa");
         
     } else if (m_currentDialType == "BYQ-19") {
-        // BYQ表盘：5个检测点，显示 0, 6, 10, 21, 25 MPa
-        m_requiredDataCount = 5;
-        m_detectionPoints = {0.0, 6.0, 10.0, 21.0, 25.0}; // BYQ表盘的检测点压力值
+        // BYQ表盘：6个检测点，显示 0, 5, 10, 15, 20, 25 MPa
+        m_requiredDataCount = 6;
+        m_detectionPoints = {0.0, 5.0, 10.0, 15.0, 20.0, 25.0};
         
         // 更新正行程检测点标签
         ui->labelForwardData1->setText("0 MPa");
-        ui->labelForwardData2->setText("6 MPa");
+        ui->labelForwardData2->setText("5 MPa");
         ui->labelForwardData3->setText("10 MPa");
-        ui->labelForwardData4->setText("21 MPa");
-        ui->labelForwardData5->setText("25 MPa");
-        ui->labelForwardData6->setText("--");  // BYQ表盘只有5个检测点
+        ui->labelForwardData4->setText("15 MPa");
+        ui->labelForwardData5->setText("20 MPa");
+        ui->labelForwardData6->setText("25 MPa");
         
         // 更新反行程检测点标签
         ui->labelReverseData1->setText("0 MPa");
-        ui->labelReverseData2->setText("6 MPa");
+        ui->labelReverseData2->setText("5 MPa");
         ui->labelReverseData3->setText("10 MPa");
-        ui->labelReverseData4->setText("21 MPa");
-        ui->labelReverseData5->setText("25 MPa");
-        ui->labelReverseData6->setText("--");  // BYQ表盘只有5个检测点
+        ui->labelReverseData4->setText("15 MPa");
+        ui->labelReverseData5->setText("20 MPa");
+        ui->labelReverseData6->setText("25 MPa");
     }
     
     qDebug() << "检测点标签已更新，表盘类型:" << m_currentDialType << "检测点数量:" << m_requiredDataCount;
@@ -3226,3 +3537,4 @@ void MainWindow::setDetectionPointValues()
     // 这个方法用于动态设置检测点数值，可以根据需要调用
     updateDetectionPointLabels();
 }
+
