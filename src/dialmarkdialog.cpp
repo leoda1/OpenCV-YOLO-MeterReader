@@ -1535,56 +1535,6 @@ void DialMarkDialog::drawBYQTicksAndNumbers(QPainter& p, const QPointF& C, doubl
     }
 }
 
-// void DialMarkDialog::drawColorBandsOverTicks(QPainter& p, const QPointF& C, double outerR,
-//     double startDeg, double spanDeg, double vmax)
-// {
-//     // ① 彩带半径 = R16.1 ~ R15.1（图纸要求）
-//     const double r17_1 = outerR;   // 彩带外沿
-//     const double r16_1 = outerR * (16.1 / 17.1);   // 彩带内沿
-//     const double r_mid = 0.5 * (r16_1 + r17_1);    // 以中径+粗笔画
-//     const double bandWidth = (r17_1 - r16_1);
-
-//     QRectF arcRect(C.x() - r_mid, C.y() - r_mid, 2*r_mid, 2*r_mid);
-
-//     // ② 与刻度一致的“主刻度线宽” —— 与 drawTicksAndNumbers 里的 penMajor 保持一致
-//     const double lineScale = outerR / 300.0;
-//     const double w_major   = std::max(2.0, 0.4 * lineScale * 10); // 你的主刻度宽逻辑
-//     const double deltaDeg  = qRadiansToDegrees(std::atan((w_major * 0.5) / r_mid));
-//     const bool   clockwise = (spanDeg < 0);
-
-//     // ③ 颜色分段
-//     const QColor Y07("#D8B64C"), G02("#2E5E36"), R03("#6A2A2A");
-//     struct Seg { double v0, v1; QColor c; };
-//     const QVector<Seg> segs = {
-//         { 0.0,  5.9, Y07},
-//         { 5.9, 21.0, G02},
-//         {21.0, vmax, R03}
-//     };
-
-//     QPen pen; pen.setWidthF(bandWidth); pen.setCapStyle(Qt::FlatCap);
-
-//     // ④ 只在两端做角度补偿；内部边界不补偿（避免断开）
-//     const double eps = 1e-9;
-//     for (const auto& s : segs) {
-//         double a0 = v2ang(s.v0, vmax, startDeg, spanDeg);
-//         double a1 = v2ang(s.v1, vmax, startDeg, spanDeg);
-
-//         if (std::abs(s.v0 - 0.0) < eps) {
-//             // 左端（0MPa）：让彩带端头贴住 0 的主刻度“外边缘”
-//             a0 -= (clockwise ? -deltaDeg : +deltaDeg);
-//         }
-//         if (std::abs(s.v1 - vmax) < eps) {
-//             // 右端（Vmax）：让彩带端头贴住 Vmax 主刻度“外边缘”
-//             a1 -= (clockwise ? +deltaDeg : -deltaDeg);
-//         }
-
-//         pen.setColor(s.c);
-//         p.setPen(pen);
-//         p.setBrush(Qt::NoBrush);
-//         p.drawArc(arcRect, deg16(a0), deg16(a1 - a0));
-//     }
-// }
-
 // ======= BYQ表盘绘制函数 =======
 void DialMarkDialog::drawBYQColorBands(QPainter& p, const QPointF& C, double outerR,
     double startDeg,double totalAngle, double spanDeg, double vmax,QVector<double> points,QVector<double> pointsAngle)

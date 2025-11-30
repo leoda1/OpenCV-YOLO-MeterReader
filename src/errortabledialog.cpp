@@ -867,13 +867,13 @@ void ErrorTableDialog::setDialType(const QString &dialType)
         m_config.productModel = "BYQ-19";
         m_config.productName = "标准压力表";
         m_config.detectionPoints.clear();
-        // BYQ-19默认5个检测点 (0, 5, 10, 15, 20 MPa)
-        m_config.detectionPoints << 0.0 << 5.0 << 10.0 << 15.0 << 20.0;
+        // BYQ-19默认6个检测点 (0, 5, 10, 15, 20, 25 MPa)
+        m_config.detectionPoints << 0.0 << 5.0 << 10.0 << 15.0 << 20.0 << 25.0;
         m_config.maxPressure = 25.0;
         m_config.maxAngle = 270.0;
         //m_config.basicErrorLimit = 0.075;  // 更严格的误差限值
         //m_config.hysteresisErrorLimit = 2.0;   // 按型号：BYQ=2.0
-        m_maxMeasurementsPerRound = 5;  // BYQ每轮5次测量
+        m_maxMeasurementsPerRound = 6;  // BYQ每轮6次测量
     }
     
     // 安全地重新创建检测数据
