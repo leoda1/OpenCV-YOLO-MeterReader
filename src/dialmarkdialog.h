@@ -57,7 +57,7 @@ struct BYQDialConfig {
     QVector<double> points;  // 中间节点的值
     QVector<double> pointsAngle;  // 中间节点的角度值
 
-    BYQDialConfig() : maxPressure(25.0), totalAngle(95.0), majorStep(5.0), minorStep(1.0), points({0.0, 5.0, 10.0, 15.0, 20.0, 25.0}), pointsAngle({0.0, 15.0, 35.0, 56.0, 78.0, 90.0}) {}
+    BYQDialConfig() : maxPressure(25.0), totalAngle(95.0), majorStep(5.0), minorStep(1.0), points({0.0, 5.0, 10.0, 15.0, 20.0, 25.0}), pointsAngle({0.0, 15.0, 35.0, 56.0, 78.0, 95.0}) {}
 };
 
 // YYQY表盘配置
