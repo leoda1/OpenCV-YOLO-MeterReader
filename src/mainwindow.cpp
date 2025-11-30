@@ -297,6 +297,17 @@ void MainWindow::startPreview(){
         // 根据相机规格计算有效的偏移量
         CIntegerPtr OffsetX(nodemap.GetNode("OffsetX"));
         CIntegerPtr OffsetY(nodemap.GetNode("OffsetY"));
+        CIntegerPtr Width(nodemap.GetNode("Width"));
+        CIntegerPtr Height(nodemap.GetNode("Height"));
+        
+        // Basler相机正确的ROI设置顺序：
+        // 1. 先把Offset设为0（避免新尺寸超出边界，并确保后续GetMax()返回正确值）
+        OffsetX->SetValue(0);
+        OffsetY->SetValue(0);
+        
+        // 2. 设置Width/Height
+        Width->SetValue(cropWidth);
+        Height->SetValue(cropHeight);
         
         // 获取偏移量的增量和最大值
         int64_t offsetXInc = OffsetX->GetInc();
@@ -311,23 +322,15 @@ void MainWindow::startPreview(){
         // 确保偏移量不超过最大值
         if (offsetX > offsetXMax) offsetX = offsetXMax;
         if (offsetY > offsetYMax) offsetY = offsetYMax;
-
-        // 按照Basler相机的推荐顺序设置参数 - 先宽高再偏移
-        CIntegerPtr Width(nodemap.GetNode("Width"));
-        CIntegerPtr Height(nodemap.GetNode("Height"));
         
-        // 先设置宽高
-        Width->SetValue(cropWidth);
-        Height->SetValue(cropHeight);
-        
-        // 再设置偏移量
+        // 5. 设置居中的偏移量
         OffsetX->SetValue(offsetX);
         OffsetY->SetValue(offsetY);
         
         // 输出实际设置的值，用于Debug
         qDebug() << "设置ROI: " << cropWidth << "x" << cropHeight << " @ " << offsetX << "," << offsetY;
         qDebug() << "最大允许值: Width=" << Width->GetMax() << " Height=" << Height->GetMax() 
-                 << " OffsetX=" << OffsetX->GetMax() << " OffsetY=" << OffsetY->GetMax();
+                 << " OffsetX=" << offsetXMax << " OffsetY=" << offsetYMax;
 
         // 设置用户自定义参数
         if(!saveSettings->myattr.isEmpty()){
