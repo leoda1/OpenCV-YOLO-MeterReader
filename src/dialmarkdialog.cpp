@@ -1385,8 +1385,8 @@ static inline double v2ang(double v, double vmax, double startDeg, double totalA
     QVector<double> allP = points;
     QVector<double> allA = pointsAngle;
 
-    if (allP.isEmpty() || allP.last()  != vmax) allP.append(vmax);
-    if (allA.isEmpty() || allA.last()  != totalAngle) allA.append(totalAngle);
+    //if (allP.isEmpty() || allP.last()  != vmax) allP.append(vmax);
+    //if (allA.isEmpty() || allA.last()  != totalAngle) allA.append(totalAngle);
 
     //  参数合法性检查（超出范围则 clamp）
     v = std::clamp(v, 0.0, vmax);
