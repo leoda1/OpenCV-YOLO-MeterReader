@@ -1229,7 +1229,7 @@ void DialMarkDialog::exportImage()
             QImage img = annotatedImage.toImage();
             
             // 设置DPI元数据（根据表盘类型）
-            double dpi = (m_dialType == "YYQY-13") ? 960.0 : 2400.0;
+            double dpi = (m_dialType == "YYQY-13") ? 1200.0 : 2400.0;
             int dpm = dpi_to_dpm(dpi);
             img.setDotsPerMeterX(dpm);
             img.setDotsPerMeterY(dpm);
@@ -1494,7 +1494,7 @@ void DialMarkDialog::drawBYQTicksAndNumbers(QPainter& p, const QPointF& C, doubl
     const double r16_1 = outerR * (16.1 / 17.1);       // R16.1：彩色带内圈
     const double r15_1 = outerR * (15.1 / 17.1);       // R15.1：小刻度线外沿
     const double r14_6 = outerR * (14.6 / 17.1);       // R14.6：大刻度线内沿
-    const double r13_0 = outerR * (12.8 / 17.1);       // R14.0：数字位置
+    const double r13_0 = outerR * (12.0 / 17.1);       // R14.0：数字位置
     // 刻度线宽：根据实际半径调整，保持合理比例
     const double lineScale = outerR / 300.0;  // 基准缩放
     const QColor black = QColor::fromCmyk(0, 0, 0, 100);
@@ -1518,7 +1518,7 @@ void DialMarkDialog::drawBYQTicksAndNumbers(QPainter& p, const QPointF& C, doubl
     }
 
     // 数字字体：直接使用合理的固定字体大小，不要基于比例计算
-    const int fontNumberPx = 4;  // 固定合理字体大小
+    const int fontNumberPx = 5;  // 固定合理字体大小
     QFont numFont("Arial", fontNumberPx, QFont::Bold);
     p.setFont(numFont);
     p.setPen(QPen(black, 1));
@@ -1607,7 +1607,7 @@ void DialMarkDialog::drawBYQUnitMPa(QPainter& p, const QPointF& C, double Rpx)
 
     double r3_0 = (r4_0 + r2_0) / 1.1;
     QPointF pos = QPointF(C.x() - textRect.width() / 2.0,
-                          C.y() - r3_0 - textRect.height() / 2.0);
+                          C.y() - r3_0 + textRect.height() / 4.0);
 
     p.drawText(pos, MPa);
 }
@@ -1662,7 +1662,7 @@ QImage DialMarkDialog::generateYYQYDialImage()
 {
     // YYQY表盘规格：1890x1890像素，960 DPI分辨率
     const int S = 1890;  
-    const double OUT_DPI = 960;    // 图片DPI
+    const double OUT_DPI = 1200;    // 图片DPI
     
     QImage img(S, S, QImage::Format_RGBA64);
     img.fill(Qt::white);
