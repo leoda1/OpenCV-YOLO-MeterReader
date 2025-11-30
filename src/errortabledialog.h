@@ -26,6 +26,8 @@
 #include <QCheckBox>
 #include <QTimer>
 
+
+
 // 单次测量数据结构（与主界面RoundData保持一致）
 struct MeasurementData {
     QVector<double> forwardAngles;    // 正行程角度数据（YYQY每轮6次，BYQ每轮5次）
@@ -60,17 +62,38 @@ struct PressureGaugeConfig {
     
     double maxPressure;        // 满量程压力(MPa)
     double maxAngle;           // 满量程角度(度)
-    double basicErrorLimit;    // 基本误差限值(MPa)
-    double hysteresisErrorLimit; // 迟滞误差限值(MPa)
-    
-    QList<double> detectionPoints; // 检测点压力值列表
-    
-    PressureGaugeConfig() : maxPressure(3.0), maxAngle(270.0), 
-                           basicErrorLimit(0.1), hysteresisErrorLimit(0.15) {
+    //double basicErrorLimit;    // 基本误差限值(MPa)
+    //double hysteresisErrorLimit; // 迟滞误差限值(MPa)
+
+    QVector<double> detectionPoints; // 检测点压力值列表
+
+
+    PressureGaugeConfig() : maxPressure(3.0), maxAngle(270.0)
+                                                      {
         // 默认检测点 (0, 1, 2, 3 MPa)
-        detectionPoints << 0.0 << 1.0 << 2.0 << 3.0;
+        detectionPoints << 0.0 << 1.0 << 2.0 << 3.0 << 4.0 << 5.0;
     }
 };
+
+
+struct BYQ_final_data{
+    double maxPressure;      // 最大压力值 (MPa)
+    double totalAngle;       // 表盘总角度 (度)
+    QVector<double> points;  // 中间节点的角度值
+    QVector<double> pointsAngle;  // 中间节点的角度值    
+    BYQ_final_data() : maxPressure(25.0), totalAngle(122.0),  points({0.0, 5.0, 10.0, 15.0, 20.0, 25.0}), pointsAngle({0.0, 20.0, 50.0, 80.0, 108.0, 122.0}) {}
+};
+
+
+struct YYQY_final_data{
+    double maxPressure;      // 最大压力值 (MPa)
+    double totalAngle;       // 表盘总角度 (度)
+    QVector<double> points;  // 中间节点的角度值
+    QVector<double> pointsAngle;  // 中间节点的角度值
+    YYQY_final_data() : maxPressure(6.3), totalAngle(266.0), points({0.0, 1.0, 2.0, 3.0, 4.0, 5.0}), pointsAngle({0.0, 45.0, 90.0, 133.0, 188.0, 228.0}) {}
+};
+
+
 
 class ErrorTableDialog : public QDialog
 {
@@ -107,6 +130,17 @@ public:
                           const QVector<double>& allRoundsMaxAngles);
     void clearAllData();
 
+    void setFinalData();  // 新增：构造并保存最终数据（BYQ/YYQY）
+
+
+    BYQ_final_data m_byqFinalData; // BYQ表盘最终数据
+    YYQY_final_data m_yyqyFinalData; // YYQY表盘最终数据
+
+    //传入最终数据
+    BYQ_final_data buildBYQFinalData() const;
+    YYQY_final_data buildYYQYFinalData() const;
+
+
 private slots:
     void onConfigChanged();
     void onDetectionPointsChanged();
@@ -135,8 +169,8 @@ private:
     // 删除未使用的满量程压力和满量程角度输入框
     // QDoubleSpinBox *m_maxPressureSpin;
     // QDoubleSpinBox *m_maxAngleSpin;
-    QDoubleSpinBox *m_basicErrorLimitSpin;
-    QDoubleSpinBox *m_hysteresisErrorLimitSpin;
+    //QDoubleSpinBox *m_basicErrorLimitSpin;
+    //QDoubleSpinBox *m_hysteresisErrorLimitSpin;
     
     // 检测点配置
     QGroupBox *m_detectionPointsGroup;
@@ -168,8 +202,9 @@ private:
     QPushButton *m_closeBtn;
     
     // 数据
-    PressureGaugeConfig m_config;
-    QList<DetectionPoint> m_detectionData;
+    PressureGaugeConfig m_config;     //压力表使用的配置
+    QList<DetectionPoint> m_detectionData;    //多个点的完整数据
+
     int m_currentPressureIndex;
     bool m_isForwardDirection;
     bool m_dialTypeSet;
@@ -189,11 +224,12 @@ private:
     void setupButtons();
     void setupRoundSwitchArea();    // 设置轮次切换区域
     
-    void updateConfigFromUI();
+    void ConfigFromUI();
     void updateUIFromConfig();
     void updateDetectionPointsTable();
     void updateDataTable();
     void updateAnalysisText();
+    
     
     // 实时更新产品信息
     void onProductInfoChanged();
@@ -225,7 +261,7 @@ private:
     void updateCurrentRoundDisplay();       // 更新当前轮次显示
     void updateRoundInfoDisplay();          // 更新轮次信息显示
     void updateMaxAngleFromRounds();        // 更新满量程角度为5轮平均值
-    
+    void updateConfigFromUI();
     // 数据导出相关新方法
     QString generateMultiRoundExportData(); // 生成多轮次导出数据
 };

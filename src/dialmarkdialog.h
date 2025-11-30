@@ -29,9 +29,8 @@
 #include <QShortcut>
 #include <QKeyEvent>
 
-namespace Ui {
-class DialMarkDialog;
-}
+
+#include "errortabledialog.h"
 
 // 文本标注项
 struct TextAnnotation {
@@ -55,8 +54,10 @@ struct BYQDialConfig {
     double totalAngle;       // 表盘总角度 (度)
     double majorStep;        // 主刻度步长 (MPa)
     double minorStep;        // 次刻度步长 (MPa)
-    
-    BYQDialConfig() : maxPressure(25.0), totalAngle(100.0), majorStep(5.0), minorStep(1.0) {}
+    QVector<double> points;  // 中间节点的值
+    QVector<double> pointsAngle;  // 中间节点的角度值
+
+    BYQDialConfig() : maxPressure(25.0), totalAngle(95.0), majorStep(5.0), minorStep(1.0), points({0.0, 5.0, 10.0, 15.0, 20.0, 25.0}), pointsAngle({0.0, 15.0, 35.0, 56.0, 78.0, 90.0}) {}
 };
 
 // YYQY表盘配置
@@ -64,8 +65,10 @@ struct YYQYDialConfig {
     double maxPressure;      // 最大压力值 (MPa)
     double totalAngle;       // 表盘总角度 (度)
     double warningPressure;  // 警告压力值 (MPa) - 黑色到红色的分界点
-    
-    YYQYDialConfig() : maxPressure(6.3), totalAngle(280.0), warningPressure(4.0) {}
+    QVector<double> points;  // 中间节点的角度值
+    QVector<double> pointsAngle;  // 中间节点的角度值
+
+    YYQYDialConfig() : maxPressure(6.3), totalAngle(270.0), warningPressure(4.0) ,points({0.0, 1.0, 2.0, 3.0, 4.0, 5.0}), pointsAngle({0.0, 45.0, 90.0, 135.0, 185.0, 232.5}) {}
 };
 
 // 自定义图片显示标签类，支持鼠标交互
@@ -174,6 +177,15 @@ public:
     explicit DialMarkDialog(QWidget *parent = nullptr, const QString &dialType = "BYQ-19");
     ~DialMarkDialog();
 
+    // 表盘配置
+    BYQDialConfig m_byqConfig;    // BYQ表盘配置
+    YYQYDialConfig m_yyqyConfig;  // YYQY表盘配置
+    //数据添加从error传入
+    void addBYQconfig(double maxPressure,double totalAngle,QVector<double> points,QVector<double> pointsAngle);
+    void addYYQYconfig(double maxPressure,double totalAngle,QVector<double> points,QVector<double> pointsAngle);
+    void applyFinalDataFromErrorTable();
+    // 新增：注入 ErrorTableDialog 指针（供 applyFinalDataFromErrorTable 使用）
+    void setErrorTableDialog(ErrorTableDialog *dlg);
 private slots:
     void loadDialImage();
     void chooseColor();
@@ -193,7 +205,6 @@ private slots:
     void exportImage();
 
 private:
-    Ui::DialMarkDialog *ui;
     AnnotationLabel *m_imageLabel;
     QScrollArea *m_scrollArea;
     QPushButton *m_colorButton;
@@ -208,44 +219,50 @@ private:
     QPushButton *m_saveButton;
     QPushButton *m_loadButton;
     QPushButton *m_exportButton;
+    QLabel* m_maxInfoLabel = nullptr;   // 新增：显示“最大压力/最大角度”
     
     QColor m_currentColor;
     QString m_dialType;  // 表盘类型
     
-    // 表盘配置
-    BYQDialConfig m_byqConfig;    // BYQ表盘配置
-    YYQYDialConfig m_yyqyConfig;  // YYQY表盘配置
-    
+    ErrorTableDialog *m_errorTableDialog = nullptr; // 关联的误差表格对话框指针
+
+
+
     // 表盘生成相关
     QImage generateDialImage();
     QImage generateBYQDialImage();   // BYQ类型表盘
-    QPixmap generateYYQYDialImage();  // YYQY类型表盘
+    QImage generateYYQYDialImage();  // YYQY类型表盘
     
     // BYQ表盘绘制方法
     void drawBYQTicksAndNumbers(QPainter& p, const QPointF& C, double outerR,
-                                double startDeg, double spanDeg,
-                                double vmax, double majorStep);
+                                double startDeg,double totalAngle, double spanDeg, double vmax, double majorStep,
+                                QVector<double> points,QVector<double> pointsAngle);
     void drawBYQColorBands(QPainter& p, const QPointF& C, double outerR,
-                           double startDeg, double spanDeg, double vmax);
+                           double startDeg, double totalAngle, double spanDeg, double vmax,
+                           QVector<double> points,QVector<double> pointsAngle);
     void drawBYQUnitMPa(QPainter& p, const QPointF& C, double outerR);
     
     // YYQY表盘绘制方法  
-    void drawYYQYTicks(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
-    void drawYYQYNumbers(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
-    void drawYYQYColorBands(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
+    void drawYYQYTicks(QPainter& p, const QPointF& C, double outerR, double totalAngle,double maxPressure,
+                       QVector<double> points,QVector<double> pointsAngle);
+    void drawYYQYNumbers(QPainter& p, const QPointF& C, double outerR, double totalAngle, double maxPressure,
+                         QVector<double> points, QVector<double> pointsAngle);
+    void drawYYQYColorBands(QPainter& p, const QPointF& C, double outerR, double totalAngle,double maxPressure,
+                                        QVector<double> points,QVector<double> pointsAngle);
     void drawYYQYCenterTexts(QPainter& p, const QPointF& C, double outerR);
-    void drawYYQYPositionDot(QPainter& p, const QPointF& C, double outerR, double totalAngle = 300.0);
+    void drawYYQYPositionDot(QPainter& p, const QPointF& C, double outerR, double totalAngle);
     void drawYYQYLogo(QPainter& p, const QPointF& C, double outerR);  // 绘制商标
     
     void saveGeneratedDial();
+    void updateMaxInfoLabel();          // 新增：刷新显示文本
     
     // 表盘配置参数
     struct DialConfig {
         int imageSize = 800;           // 图片尺寸
         int dialRadius = 350;          // 表盘半径
-        double startAngle = -135.0;    // 起始角度（度）
-        double endAngle = 135.0;       // 结束角度（度）
-        double maxPressure = 25.0;     // 最大压力值
+        //double startAngle = -135.0;    // 起始角度（度）
+        //double endAngle = 135.0;       // 结束角度（度）
+        //double maxPressure = 30.0;     // 最大压力值
         QList<double> majorScales;     // 主刻度值
         QList<double> minorScales;     // 次刻度值
         QColor backgroundColor = Qt::white;
@@ -255,9 +272,10 @@ private:
     };
     
     DialConfig m_dialConfig;    
-    QPushButton *m_generateButton;  // 生成表盘按钮
-    QDoubleSpinBox *m_maxPressureSpin;    // 最大压力输入框（支持小数）
-    QDoubleSpinBox *m_dialAngleSpin;      // 表盘角度输入框（支持小数，仅YYQY类型）
+    //QPushButton *m_generateButton;  // 生成表盘按钮
+    //QDoubleSpinBox *m_maxPressureSpin;    // 最大压力输入框（支持小数）
+    //QDoubleSpinBox *m_dialAngleSpin;   //总角度输入框
+    QComboBox *m_dialAngleCombo;      // 表盘角下拉框（支持小数，仅YYQY类型）
 
     void setupUI();
     void setupToolbar();
@@ -265,6 +283,7 @@ private:
     void updateColorButton();
     void loadDialImageFromFile();
     void showAnnotationProperties(int index);
+    void updateAngleComboBox();
 };
 
 #endif // DIALMARKDIALOG_H 
