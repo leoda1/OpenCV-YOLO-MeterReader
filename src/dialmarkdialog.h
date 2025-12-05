@@ -29,6 +29,12 @@
 #include <QShortcut>
 #include <QKeyEvent>
 
+// libtiff 支持（用于导出 CMYK TIFF）
+#ifdef HAS_LIBTIFF
+extern "C" {
+#include <tiffio.h>
+}
+#endif
 
 #include "errortabledialog.h"
 
@@ -255,6 +261,12 @@ private:
     
     void saveGeneratedDial();
     void updateMaxInfoLabel();          // 新增：刷新显示文本
+    
+    // CMYK TIFF 保存（需要 libtiff）
+    bool saveCmykTiff(const QImage& img, const QString& fileName, double dpi);
+    
+    // RGB 到 CMYK 转换
+    static void rgbToCmyk(int r, int g, int b, int& c, int& m, int& y, int& k);
     
     // 表盘配置参数
     struct DialConfig {

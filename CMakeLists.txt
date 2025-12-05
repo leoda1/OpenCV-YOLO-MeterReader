@@ -76,10 +76,18 @@ set(OpenCV_DIR "D:/app/opencv/opencv/build/x64/vc16/lib")
 find_package(OpenCV REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 
+# libtiff（用于导出 CMYK TIFF）
+if(APPLE)
+    set(TIFF_INCLUDE_DIR "/opt/homebrew/Cellar/libtiff/4.7.1/include")
+    set(TIFF_LIBRARY "/opt/homebrew/Cellar/libtiff/4.7.1/lib/libtiff.dylib")
+    add_definitions(-DHAS_LIBTIFF)
+endif()
+
 # 通用包含目录
 include_directories(
     ${CMAKE_SOURCE_DIR}/src
     ${OpenCV_INCLUDE_DIRS}
+    ${TIFF_INCLUDE_DIR}
 )
 
 # macOS Pylon SDK配置
@@ -143,6 +151,7 @@ target_link_libraries(${PROJECT_NAME}
     Qt6::Core Qt6::Gui Qt6::Widgets
     ${OpenCV_LIBS}
     ${PYLON_LIBS}
+    ${TIFF_LIBRARY}
 )
 
 # 平台特定的POST_BUILD操作
