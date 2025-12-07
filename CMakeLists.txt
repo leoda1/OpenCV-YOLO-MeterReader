@@ -76,6 +76,32 @@ set(OpenCV_DIR "D:/app/opencv/opencv/build/x64/vc16/lib")
 find_package(OpenCV REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 
+# libtiff（用于导出 CMYK TIFF）
+if(APPLE)
+    set(TIFF_INCLUDE_DIR "/opt/homebrew/Cellar/libtiff/4.7.1/include")
+    set(TIFF_LIBRARY "/opt/homebrew/Cellar/libtiff/4.7.1/lib/libtiff.dylib")
+    add_definitions(-DHAS_LIBTIFF)
+endif()
+
+# libtiff（用于导出 CMYK TIFF）
+if(WIN32)
+    set(TIFF_ROOT "D:/86151/liushixiong/tryfix/tiff-4.7.1")
+    if(EXISTS "${TIFF_ROOT}")
+        message(STATUS "Found manual libtiff at ${TIFF_ROOT}")
+        # 1. 添加头文件目录 (源码目录 + 构建目录)
+        include_directories(
+            "${TIFF_ROOT}/libtiff"
+            "${TIFF_ROOT}/build/libtiff"
+        )
+        # 2. 添加库文件目录
+        link_directories("${TIFF_ROOT}/lib")
+        # 3. 定义一个宏，让 C++ 代码知道 libtiff 可用
+        add_compile_definitions(HAVE_LIBTIFF)
+    else()
+        message(WARNING "Manual libtiff not found at ${TIFF_ROOT}. CMYK export will be disabled.")
+    endif()
+endif()
+
 # 通用包含目录
 include_directories(
     ${CMAKE_SOURCE_DIR}/src
@@ -139,11 +165,16 @@ else()
 endif()
 
 # 链接库
-target_link_libraries(${PROJECT_NAME}
+target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets
     ${OpenCV_LIBS}
     ${PYLON_LIBS}
 )
+
+# 新增：链接 libtiff 库
+if(EXISTS "${TIFF_ROOT}")
+    target_link_libraries(${PROJECT_NAME} PRIVATE tiff)
+endif()
 
 # 平台特定的POST_BUILD操作
 if(WIN32)
@@ -157,6 +188,16 @@ if(WIN32)
         COMMENT "复制Pylon运行时库"
     )
     
+     # 新增：复制 libtiff 的 DLL 运行时库
+    if(EXISTS "${TIFF_ROOT}/bin/tiff.dll")
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+                    "${TIFF_ROOT}/bin/tiff.dll"
+                    $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            COMMENT "复制 libtiff 运行时库"
+        )
+    endif()
+
     # 复制图片资源
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory

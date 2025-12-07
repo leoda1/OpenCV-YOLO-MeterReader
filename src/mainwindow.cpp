@@ -3294,7 +3294,7 @@ void MainWindow::addAngleToCurrentRound(double angle, bool isForward)
         // 检查是否已经完成正行程数据采集
         bool forwardComplete = true;
         for (int i = 0; i < currentRound.forwardAngles.size(); ++i) {
-            if (currentRound.forwardAngles[i] == 0.0) {
+            if (currentRound.forwardAngles[i] == 0.0 && !std::signbit(currentRound.forwardAngles[i])) {
                 forwardComplete = false;
                 break;
             }
@@ -3320,15 +3320,17 @@ void MainWindow::addAngleToCurrentRound(double angle, bool isForward)
         
         // 找到第一个空的正行程位置
         for (int i = 0; i < currentRound.forwardAngles.size(); ++i) {
-            if (currentRound.forwardAngles[i] == 0.0) {
+            if (currentRound.forwardAngles[i] == 0.0 && !std::signbit(currentRound.forwardAngles[i])) {
                 // 允许添加数据到空位置（包括0度数据）
-                currentRound.forwardAngles[i] = angle;
+                // 关键修改：如果是0.0，保存为 -0.0，防止被误判为空
+                double valToSave = (angle == 0.0) ? -0.0 : angle;
+                currentRound.forwardAngles[i] = valToSave;
                 qDebug() << "添加第" << (m_currentRound + 1) << "轮正行程第" << (i + 1) << "次数据:" << angle;
                 
                 // 检查是否完成正行程数据采集
                 bool allForwardFilled = true;
                 for (int j = 0; j < currentRound.forwardAngles.size(); ++j) {
-                    if (currentRound.forwardAngles[j] == 0.0) {
+                    if (currentRound.forwardAngles[j] == 0.0 && !std::signbit(currentRound.forwardAngles[j])) {
                         allForwardFilled = false;
                         break;
                     }
@@ -3344,7 +3346,7 @@ void MainWindow::addAngleToCurrentRound(double angle, bool isForward)
         // 检查是否已经完成反行程数据采集
         bool backwardComplete = true;
         for (int i = 0; i < currentRound.backwardAngles.size(); ++i) {
-            if (currentRound.backwardAngles[i] == 0.0) {
+            if (currentRound.backwardAngles[i] == 0.0 && !std::signbit(currentRound.backwardAngles[i])) {
                 backwardComplete = false;
                 break;
             }
@@ -3357,8 +3359,10 @@ void MainWindow::addAngleToCurrentRound(double angle, bool isForward)
         
         // 反行程从最后一个位置开始往回填写（采集数据6,5,4,3,2,1）
         for (int i = currentRound.backwardAngles.size() - 1; i >= 0; --i) {
-            if (currentRound.backwardAngles[i] == 0.0) {
-                currentRound.backwardAngles[i] = angle;
+            if (currentRound.backwardAngles[i] == 0.0 && !std::signbit(currentRound.backwardAngles[i])) {
+                double valToSave = (angle == 0.0) ? -0.0 : angle;
+                currentRound.backwardAngles[i] = valToSave;
+                
                 int displayPosition = i + 1;
                 qDebug() << "添加第" << (m_currentRound + 1) << "轮反行程采集数据" << displayPosition << "（数组位置" << (i + 1) << "）:" << angle;
                 

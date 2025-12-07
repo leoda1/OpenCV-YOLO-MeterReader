@@ -1385,6 +1385,13 @@ static inline double v2ang(double v, double vmax, double startDeg, double totalA
     QVector<double> allP = points;
     QVector<double> allA = pointsAngle;
 
+    // 修正：当检测点为0时，不管0点的实际角度是多少，都按0去计算
+    if (!allP.isEmpty() && std::abs(allP.first()) < 1e-9) {
+        if (!allA.isEmpty()) {
+            allA[0] = 0.0;
+        }
+    }
+
     //if (allP.isEmpty() || allP.last()  != vmax) allP.append(vmax);
     //if (allA.isEmpty() || allA.last()  != totalAngle) allA.append(totalAngle);
 
@@ -1454,12 +1461,25 @@ QImage DialMarkDialog::generateBYQDialImage()
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::TextAntialiasing, true);
 
-    // 圆心位置
-    const QPointF C(OUT_W/2.0, OUT_H * 0.54);
-    
-    // 表盘半径
-    const double Rpx = std::min(OUT_W, OUT_H) * 0.4;
-    const double totalAngle = m_byqConfig.pointsAngle[5];  // 用户输入的角度
+    // 表盘半径：根据最终角度动态计算物理尺寸
+    auto mm_to_px = [](double mm, double dpi) {
+        return mm * dpi / 25.4;
+    };
+
+    const double totalAngle = m_byqConfig.pointsAngle[5];  // 用户输入的最终角度
+
+    // 根据角度计算物理半径(mm) - R1 (彩色带外径)
+    // 公式: R1 = -0.04 * alpha + 19.3
+    double mmRadius = -0.04 * totalAngle + 19.3;
+
+    // 将物理半径转换为像素半径
+    const double Rpx = mm_to_px(mmRadius, OUT_DPI);
+
+    // 圆心位置：调整使得图片中心(MPa位置)位于圆心和彩色带外径的中点
+    // ImageCenterY = (Cy + (Cy - Rpx)) / 2  => Cy = ImageCenterY + Rpx/2
+    // ImageCenterY = OUT_H / 2.0
+    const QPointF C(OUT_W/2.0, OUT_H/2.0 + Rpx/2.0);
+
     const double vmax = m_byqConfig.maxPressure;       // 用户输入的最大压力
     const QVector<double>& points = m_byqConfig.points;           // 保存的分段点
     const QVector<double>& pointsAngle = m_byqConfig.pointsAngle; // 保存的分段角度
@@ -1490,47 +1510,89 @@ QImage DialMarkDialog::generateBYQDialImage()
 void DialMarkDialog::drawBYQTicksAndNumbers(QPainter& p, const QPointF& C, double outerR,
     double startDeg, double totalAngle, double spanDeg, double vmax, double majorStep, QVector<double> points, QVector<double> pointsAngle)
 {
-    const double r17_1 = outerR;                        // R17.1：最外圆
-    const double r16_1 = outerR * (16.1 / 17.1);       // R16.1：彩色带内圈
-    const double r15_1 = outerR * (15.1 / 17.1);       // R15.1：小刻度线外沿
-    const double r14_6 = outerR * (14.6 / 17.1);       // R14.6：大刻度线内沿
-    const double r13_0 = outerR * (12.0 / 17.1);       // R14.0：数字位置
-    // 刻度线宽：根据实际半径调整，保持合理比例
-    const double lineScale = outerR / 300.0;  // 基准缩放
+    // 直接在函数内部定义DPI并计算物理线宽
+    const double OUT_DPI = 2400.0;
+    const double pxPerMm = OUT_DPI / 25.4;
+    auto mm_to_px = [&](double mm) { return mm * pxPerMm; };
+
+    // 根据公式计算各部分物理尺寸(mm)
+    // R1 = -0.04 * alpha + 19.3 (彩色带外径)
+    // R2 = -0.04 * alpha + 17.3 (小刻度内径)
+    // R3 = -0.04 * alpha + 16.8 (大刻度内径)
+    const double r1_mm = -0.04 * totalAngle + 19.3;
+    const double r2_mm = -0.04 * totalAngle + 17.3;
+    const double r3_mm = -0.04 * totalAngle + 16.8;
+    
+    // 彩色带宽度1mm，所以彩色带内径 = R1 - 1.0
+    const double r_band_inner_mm = r1_mm - 1.0;
+    
+    // 数字大小 2mm
+    const double fontHeight_mm = 2.0;
+    // 数字中心位置：大刻度内沿(R3) - 间距(0.6) - 半个字高(1.0)
+    const double r_num_mm = r3_mm - 0.6 - (fontHeight_mm / 2.0);
+
+    // 转换为像素
+    const double r_band_inner_px = mm_to_px(r_band_inner_mm); // 刻度线外沿（接触彩色带）
+    const double r2_px = mm_to_px(r2_mm);                     // 小刻度内沿
+    const double r3_px = mm_to_px(r3_mm);                     // 大刻度内沿
+    const double r_num_px = mm_to_px(r_num_mm);               // 数字位置
+
     const QColor black = QColor::fromCmyk(0, 0, 0, 100);
-    QPen penMinor(black, std::max(2.0, 0.5 * lineScale * 10), Qt::SolidLine, Qt::RoundCap);    // 小刻度：平直端点
-    QPen penMajor(black, std::max(2.5, 0.8 * lineScale * 10), Qt::SolidLine, Qt::RoundCap);   // 大刻度：圆形端点
+    QPen penMinor(black, 0.2 * pxPerMm, Qt::SolidLine, Qt::RoundCap);    // 小刻度: 0.2mm
+    QPen penMajor(black, 0.4 * pxPerMm, Qt::SolidLine, Qt::RoundCap);    // 大刻度: 0.4mm
 
     // 次刻度（1 MPa间隔）
     p.setPen(penMinor);
     const double minorStep = 1.0;
     for (double v = 0; v <= vmax + 1e-6; v += minorStep) {
         const double ang = v2ang(v, vmax, startDeg, totalAngle, points, pointsAngle);
-        p.drawLine(pol2(C, ang, r16_1), pol2(C, ang, r15_1));
+        // 从小刻度内沿画到彩色带内沿
+        p.drawLine(pol2(C, ang, r_band_inner_px), pol2(C, ang, r2_px));
     }
 
-    // 主刻度（5 MPa间隔）————需要改进
+    // 主刻度（5 MPa间隔）
     p.setPen(penMajor);
     const double majorTickStep = 5.0;
     for (double v = 0; v <= vmax + 1e-6; v += majorTickStep) {
         const double ang = v2ang(v, vmax, startDeg, totalAngle, points, pointsAngle);
-        p.drawLine(pol2(C, ang, r16_1), pol2(C, ang, r14_6));
+        // 从大刻度内沿画到彩色带内沿
+        p.drawLine(pol2(C, ang, r_band_inner_px), pol2(C, ang, r3_px));
     }
 
-    // 数字字体：直接使用合理的固定字体大小，不要基于比例计算
-    const int fontNumberPx = 5;  // 固定合理字体大小
-    QFont numFont("Arial", fontNumberPx, QFont::Bold);
+    // 数字字体：黑体，大小2mm
+    QFont numFont("黑体");
+    numFont.setBold(true);
+    numFont.setPixelSize(mm_to_px(fontHeight_mm));      // 2mm 对应的像素大小
+    
     p.setFont(numFont);
     p.setPen(QPen(black, 1));
 
-    // 数字：0,10,20,30,40,50（每10MPa一个数字）
+    // 数字：每 majorStep 一个数字，避免相邻数字相互遮挡
+    QRectF lastRect;
+    bool hasLast = false;
     for (double v = 0; v <= vmax + 1e-6; v += majorStep) {
         const double ang = v2ang(v, vmax, startDeg, totalAngle, points, pointsAngle);
-        const QPointF pos = pol2(C, ang, r13_0);
+        // 使用计算出的数字半径
+        double r_for_num = r_num_px;
         const QString t = QString::number(int(v));
+
+        // 初步位置
+        QPointF pos = pol2(C, ang, r_for_num);
         QRectF br = p.fontMetrics().boundingRect(t);
         br.moveCenter(pos);
+
+        // 对最后一个数字（最大值）做轻微右移微调，提升与前一数字间距
+        if (std::abs(v - vmax) < 1e-6) {
+            br.translate(+p.fontMetrics().height() * 0.30, 0);
+        }
+        // 将 5、10、15 数字整体向左微移，避免与后续数字产生拥挤感
+        int iv = int(v + 0.5);
+        if (iv == 5 || iv == 10 || iv == 15) {
+            br.translate(-p.fontMetrics().averageCharWidth() * 0.45, 0); // 左移 0.6 个平均字符宽度
+        }
         p.drawText(br, Qt::AlignCenter, t);
+        lastRect = br;
+        hasLast = true;
     }
 }
 
@@ -1538,10 +1600,25 @@ void DialMarkDialog::drawBYQTicksAndNumbers(QPainter& p, const QPointF& C, doubl
 void DialMarkDialog::drawBYQColorBands(QPainter& p, const QPointF& C, double outerR,
     double startDeg,double totalAngle, double spanDeg, double vmax,QVector<double> points,QVector<double> pointsAngle)
 {
-    const double r17_1 = outerR;   // 彩带外沿
-    const double r16_1 = outerR * (16.1 / 17.1);   // 彩带内沿
-    const double r_mid = 0.5 * (r16_1 + r17_1);
-    const double bandWidth = (r17_1 - r16_1);
+    // 新增：获取DPI以进行物理单位转换
+    const double OUT_DPI = 2400;
+    auto mm_to_px = [&](double mm) {
+        return mm * OUT_DPI / 25.4;
+    };
+
+    // 根据公式计算 R1 (彩色带外径)
+    // R1 = -0.04 * alpha + 19.3
+    const double r1_mm = -0.04 * totalAngle + 19.3;
+    
+    // 彩色带宽度 1mm
+    const double bandWidth_mm = 1.0;
+
+    // 转换为像素
+    const double r_outer_px = mm_to_px(r1_mm);
+    const double bandWidth_px = mm_to_px(bandWidth_mm);
+
+    // 彩带的中心半径 = 外沿半径 - 宽度的一半
+    const double r_mid = r_outer_px - bandWidth_px / 2.0;
 
     QRectF arcRect(C.x() - r_mid, C.y() - r_mid, 2*r_mid, 2*r_mid);
 
@@ -1552,7 +1629,7 @@ void DialMarkDialog::drawBYQColorBands(QPainter& p, const QPointF& C, double out
     const bool clockwise = (spanDeg < 0);
 
     // ③ 颜色分段 (CMYK色值)
-    const QColor Y07 = QColor::fromCmyk(0, 0, 100, 10);    // 黄色带
+    const QColor Y07 = QColor::fromCmyk(0, 0, 100, 0);    // 黄色带
     const QColor G02 = QColor::fromCmyk(100, 0, 100, 0);   // 绿色带
     const QColor R03 = QColor::fromCmyk(0, 100, 100, 0);   // 红色带
     struct Seg { double v0, v1; QColor c; };
@@ -1563,7 +1640,7 @@ void DialMarkDialog::drawBYQColorBands(QPainter& p, const QPointF& C, double out
     };
 
     QPen pen;
-    pen.setWidthF(bandWidth);
+    pen.setWidthF(bandWidth_px);
     pen.setCapStyle(Qt::FlatCap);
 
     // 只在两端做角度补偿
@@ -1589,27 +1666,32 @@ void DialMarkDialog::drawBYQColorBands(QPainter& p, const QPointF& C, double out
 // ======= 3) 中央单位与装饰 =======
 void DialMarkDialog::drawBYQUnitMPa(QPainter& p, const QPointF& C, double Rpx)
 {
-    // 直接使用合理的固定字体大小
-    double r4_0 = Rpx * (4.0 / 17.1);
-    double r2_0 = Rpx * (2.0 / 17.1);
-    double fontPixelHeight = (r4_0 - r2_0) * 2;
+    // 1. 计算 2.5mm 对应的像素大小
+    const double OUT_DPI = 2400.0;
+    const double pxPerMm = OUT_DPI / 25.4;
+    const double fontSizeMm = 2.5;
+    const double fontSizePx = fontSizeMm * pxPerMm;
 
-
-    QFont font("DIN Rounded");
-    font.setPixelSize(std::round(fontPixelHeight)); // 按像素高度设置
-    font.setBold(true); // 若图纸要求粗体，可设置
+    QFont font("黑体");
+    font.setBold(true);
+    font.setPixelSize(static_cast<int>(fontSizePx));
     p.setFont(font);
+    
     const QColor blackBand = QColor::fromCmyk(0, 0, 0, 100);
     p.setPen(QPen(blackBand, 1));
 
     const QString MPa = "MPa";
     QRectF textRect = p.fontMetrics().boundingRect(MPa);
 
-    double r3_0 = (r4_0 + r2_0) / 1.1;
-    QPointF pos = QPointF(C.x() - textRect.width() / 2.0,
-                          C.y() - r3_0 + textRect.height() / 4.0);
+    // 2. 位置位于整个图片中心
+    double imgW = p.device()->width();
+    double imgH = p.device()->height();
+    QPointF center(imgW / 2.0, imgH / 2.0);
 
-    p.drawText(pos, MPa);
+    // 将文本矩形中心移动到图片中心
+    textRect.moveCenter(center);
+
+    p.drawText(textRect, Qt::AlignCenter, MPa);
 }
 
 void DialMarkDialog::saveGeneratedDial()
@@ -1672,7 +1754,14 @@ QImage DialMarkDialog::generateYYQYDialImage()
     p.setRenderHint(QPainter::TextAntialiasing, true);
     
     const QPointF C(S/2.0, S/2.0);  // 圆心
-    const double outerR = 16.3 * S / 42.0;  // 外径半径（缩小表盘，留出边距）
+
+    // 新增：定义一个从毫米(mm)到像素(px)的转换函数
+    auto mm_to_px = [&](double mm) {
+        return mm * OUT_DPI / 25.4;
+    };
+
+    // 使用物理尺寸16.3mm计算外沿半径的像素值
+    const double outerR = mm_to_px(16.3);
     
     // 使用配置中的角度值
     const double maxPressure = m_yyqyConfig.maxPressure; // 最大压力
@@ -1714,6 +1803,18 @@ static inline double yyqyV2Ang(double v, double vmax, double startDeg, double to
     if (allP.isEmpty() || allP.last() != vmax) {
         allP.append(vmax);
         allA.append(totalAngle);
+    }
+
+    // 修改：确保0点对应的角度强制为0
+    if (!allP.isEmpty() && std::abs(allP.first()) < 1e-9) {
+        // 如果已经有0点，强制其角度为0
+        if (!allA.isEmpty()) {
+            allA[0] = 0.0;
+        }
+    } else {
+        // 如果没有0点，则手动插入 (0, 0)
+        allP.prepend(0.0);
+        allA.prepend(0.0);
     }
 
     // 基本合法性检查：长度、单调性

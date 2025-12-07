@@ -1329,8 +1329,22 @@ void ErrorTableDialog::exportToExcel()
     out << QString("产品型号：,%1,,产品名称：,%2,,,\n").arg(m_config.productModel, m_config.productName);
     out << QString("刻度盘图号：,%1,,支组编号：,%2,,,\n").arg(m_config.dialDrawingNo, m_config.groupNo);
     // 新增：写入平均最大总角度（度）
-    
+    // 规则：若为 BYQ 表盘，则直接等于 25 MPa 检测点对应的刻度盘角度；YYQY 不变
     double avgMaxAngle = calculateAverageMaxAngle();
+    if (m_config.productModel == "BYQ-19") {
+        double byq25Angle = 0.0;
+        for (int i = 0; i < m_detectionData.size(); ++i) {
+            const DetectionPoint &pt = m_detectionData[i];
+            if (std::abs(pt.pressure - 25.0) < 1e-6) {
+                double finalAngle = calculateFinalMeasuredAngleForDetectionPoint(i);
+                byq25Angle = (finalAngle != 0.0) ? finalAngle : pressureToAngle(pt.pressure);
+                break;
+            }
+        }
+        if (byq25Angle > 0.0) {
+            avgMaxAngle = byq25Angle;
+        }
+    }
     out << QString("平均最大总角度：,%1,,,\n").arg(avgMaxAngle, 0, 'f', 2);
     
     out << "\n"; // 空行
@@ -2607,7 +2621,8 @@ double ErrorTableDialog::getFixedHysteresisError(int pointIndex) const
             case 2: return 2.0;  // 检测点10
             case 3: return 1.0;  // 检测点15
             case 4: return 2.0;  // 检测点20
-            default: return 0.0;
+            //case 5: return 0.5;  // 检测点25（新增）
+            default: return 0.5;
         }
     }
     return 0.0;
