@@ -76,10 +76,36 @@ set(OpenCV_DIR "D:/app/opencv/opencv/build/x64/vc16/lib")
 find_package(OpenCV REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 
+# libtiff（用于导出 CMYK TIFF）
+if(APPLE)
+    set(TIFF_INCLUDE_DIR "/opt/homebrew/Cellar/libtiff/4.7.1/include")
+    set(TIFF_LIBRARY "/opt/homebrew/Cellar/libtiff/4.7.1/lib/libtiff.dylib")
+    add_definitions(-DHAS_LIBTIFF)
+endif()
+
+if(WIN32)
+    set(TIFF_ROOT "D:/86151/liushixiong/tryfix/tiff-4.7.1")
+    if(EXISTS "${TIFF_ROOT}")
+        message(STATUS "Found manual libtiff at ${TIFF_ROOT}")
+        # 1. 添加头文件目录 (源码目录 + 构建目录)
+       include_directories(
+            "${TIFF_ROOT}/libtiff"
+            "${TIFF_ROOT}/build/libtiff"
+        )
+        # 2. 添加库文件目录
+        link_directories("${TIFF_ROOT}/lib")
+        # 3. 定义一个宏，让 C++ 代码知道 libtiff 可用
+        add_compile_definitions(HAVE_LIBTIFF)
+    else()
+        message(WARNING "Manual libtiff not found at ${TIFF_ROOT}. CMYK export will be disabled.")
+    endif()
+endif()
+
 # 通用包含目录
 include_directories(
     ${CMAKE_SOURCE_DIR}/src
     ${OpenCV_INCLUDE_DIRS}
+    ${TIFF_INCLUDE_DIR}
 )
 
 # macOS Pylon SDK配置
@@ -143,6 +169,7 @@ target_link_libraries(${PROJECT_NAME}
     Qt6::Core Qt6::Gui Qt6::Widgets
     ${OpenCV_LIBS}
     ${PYLON_LIBS}
+    ${TIFF_LIBRARY}
 )
 
 # 平台特定的POST_BUILD操作
