@@ -254,6 +254,11 @@ private:
     void drawYYQYLogo(QPainter& p, const QPointF& C, double outerR);  // 绘制商标
     
     void saveGeneratedDial();
+    
+    // CMYK Export
+    static void rgbToCmyk(int r, int g, int b, int& c, int& m, int& y, int& k);
+    static bool saveCmykTiff(const QImage& img, const QString& fileName, double dpi);
+
     void updateMaxInfoLabel();          // 新增：刷新显示文本
     
     // 表盘配置参数

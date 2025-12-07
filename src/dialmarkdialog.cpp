@@ -15,6 +15,10 @@
 #include <iostream>
 #include <cmath>
 
+#ifdef HAVE_LIBTIFF
+#include "tiffio.h"
+#endif
+
 
 
 AnnotationLabel::AnnotationLabel(QWidget *parent)
@@ -1240,6 +1244,20 @@ void DialMarkDialog::exportImage()
                 fileName += ".tif";
                 ext = "tif";
             }
+
+            // 如果是 TIFF 格式，尝试使用 CMYK 导出
+            if (ext == "tif" || ext == "tiff") {
+#ifdef HAVE_LIBTIFF
+                if (saveCmykTiff(img, fileName, dpi)) {
+                     QMessageBox::information(this, "成功", "标注图片已保存为 CMYK TIFF！");
+                     return;
+                } else {
+                     QMessageBox::warning(this, "失败", "保存 CMYK TIFF 失败，将尝试保存为 RGB TIFF。");
+                }
+#else
+                QMessageBox::information(this, "提示", "未检测到 libtiff，将保存为 RGB TIFF。");
+#endif
+            }
             
             QByteArray fmt("png");
             if (ext == "tif" || ext == "tiff") fmt = "tiff";
@@ -1713,6 +1731,25 @@ void DialMarkDialog::saveGeneratedDial()
     if (ext.isEmpty()) {
         fileName += ".tif";
         ext = "tif";
+    }
+
+    // 如果是 TIFF 格式，尝试使用 CMYK 导出
+    if (ext == "tif" || ext == "tiff") {
+#ifdef HAVE_LIBTIFF
+        // 获取图像 DPI (假设 X/Y 一致)
+        double dpi = img.dotsPerMeterX() * 0.0254;
+        if (dpi <= 0) dpi = 2400.0; // 默认值
+
+        // 使用 libtiff 导出 CMYK
+        if (saveCmykTiff(img, fileName, dpi)) {
+             QMessageBox::information(this, "成功", "表盘图片已保存为 CMYK TIFF！");
+             return;
+        } else {
+             QMessageBox::warning(this, "失败", "保存 CMYK TIFF 失败，将尝试保存为 RGB TIFF。");
+        }
+#else
+        QMessageBox::information(this, "提示", "未检测到 libtiff，将保存为 RGB TIFF。");
+#endif
     }
 
     // 根据后缀选择写入格式
@@ -2300,4 +2337,115 @@ void DialMarkDialog::applyFinalDataFromErrorTable()
     }
 
     updateMaxInfoLabel();  // 新增：导入后刷新“最大压力/最大角度”
+}
+
+// ======= RGB 到 CMYK 转换 =======
+void DialMarkDialog::rgbToCmyk(int r, int g, int b, int& c, int& m, int& y, int& k)
+{
+    // 归一化 RGB 到 0-1
+    double rf = r / 255.0;
+    double gf = g / 255.0;
+    double bf = b / 255.0;
+
+    // 计算 K (黑色)
+    double kf = 1.0 - std::max({rf, gf, bf});
+
+    // 避免除以零
+    if (kf >= 1.0) {
+        c = m = y = 0;
+        k = 255;
+        return;
+    }
+
+    // 计算 CMY
+    double cf = (1.0 - rf - kf) / (1.0 - kf);
+    double mf = (1.0 - gf - kf) / (1.0 - kf);
+    double yf = (1.0 - bf - kf) / (1.0 - kf);
+
+    // 转换到 0-255 范围
+    c = static_cast<int>(std::round(cf * 255.0));
+    m = static_cast<int>(std::round(mf * 255.0));
+    y = static_cast<int>(std::round(yf * 255.0));
+    k = static_cast<int>(std::round(kf * 255.0));
+
+    // 限制范围
+    c = std::clamp(c, 0, 255);
+    m = std::clamp(m, 0, 255);
+    y = std::clamp(y, 0, 255);
+    k = std::clamp(k, 0, 255);
+}
+
+// ======= CMYK TIFF 保存 =======
+bool DialMarkDialog::saveCmykTiff(const QImage& img, const QString& fileName, double dpi)
+{
+#ifdef HAVE_LIBTIFF
+    // 确保图像有效
+    if (img.isNull()) {
+        qDebug() << "saveCmykTiff: 图像为空";
+        return false;
+    }
+
+    int width = img.width();
+    int height = img.height();
+
+    // 打开 TIFF 文件
+    // Windows 下建议使用 toLocal8Bit 以支持中文路径
+    TIFF* tif = TIFFOpen(fileName.toLocal8Bit().constData(), "w");
+    if (!tif) {
+        qDebug() << "saveCmykTiff: 无法打开文件" << fileName;
+        return false;
+    }
+
+    // 设置 TIFF 标签
+    TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, width);
+    TIFFSetField(tif, TIFFTAG_IMAGELENGTH, height);
+    TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, 4);      // CMYK = 4 通道
+    TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, 8);        // 每通道 8 位
+    TIFFSetField(tif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
+    TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_SEPARATED);  // CMYK
+    TIFFSetField(tif, TIFFTAG_INKSET, INKSET_CMYK);
+    TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);   // 交织存储
+    TIFFSetField(tif, TIFFTAG_COMPRESSION, COMPRESSION_LZW);        // LZW 压缩
+    TIFFSetField(tif, TIFFTAG_ROWSPERSTRIP, TIFFDefaultStripSize(tif, width * 4));
+
+    // 设置 DPI
+    TIFFSetField(tif, TIFFTAG_RESOLUTIONUNIT, RESUNIT_INCH);
+    TIFFSetField(tif, TIFFTAG_XRESOLUTION, dpi);
+    TIFFSetField(tif, TIFFTAG_YRESOLUTION, dpi);
+
+    // 分配行缓冲区
+    std::vector<uint8_t> cmykRow(width * 4);
+
+    // 转换并写入每一行
+    QImage rgbImg = img.convertToFormat(QImage::Format_RGB32);
+    
+    for (int y = 0; y < height; ++y) {
+        const QRgb* scanLine = reinterpret_cast<const QRgb*>(rgbImg.constScanLine(y));
+        for (int x = 0; x < width; ++x) {
+            QRgb pixel = scanLine[x];
+            int c, m, y_val, k;
+            rgbToCmyk(qRed(pixel), qGreen(pixel), qBlue(pixel), c, m, y_val, k);
+            
+            cmykRow[x * 4 + 0] = static_cast<uint8_t>(c);
+            cmykRow[x * 4 + 1] = static_cast<uint8_t>(m);
+            cmykRow[x * 4 + 2] = static_cast<uint8_t>(y_val);
+            cmykRow[x * 4 + 3] = static_cast<uint8_t>(k);
+        }
+        
+        if (TIFFWriteScanline(tif, cmykRow.data(), y, 0) < 0) {
+            qDebug() << "saveCmykTiff: 写入行失败" << y;
+            TIFFClose(tif);
+            return false;
+        }
+    }
+
+    TIFFClose(tif);
+    return true;
+#else
+    Q_UNUSED(img);
+    Q_UNUSED(fileName);
+    Q_UNUSED(dpi);
+    QMessageBox::warning(nullptr, "错误", "未启用 libtiff 支持，无法导出 CMYK TIFF。");
+    return false;
+#endif
 }
