@@ -1701,13 +1701,17 @@ void DialMarkDialog::drawBYQUnitMPa(QPainter& p, const QPointF& C, double Rpx)
     const QString MPa = "MPa";
     QRectF textRect = p.fontMetrics().boundingRect(MPa);
 
-    // 2. 位置位于整个图片中心
-    double imgW = p.device()->width();
-    double imgH = p.device()->height();
-    QPointF center(imgW / 2.0, imgH / 2.0);
-
-    // 将文本矩形中心移动到图片中心
-    textRect.moveCenter(center);
+    // 2. 位置调整：MPa底部的距离圆心7mm
+    // 假设位于圆心上方（朝向刻度方向）
+    const double distFromCenterMm = 7.0;
+    const double distFromCenterPx = distFromCenterMm * pxPerMm;
+    
+    // 计算位置：水平居中于C.x，底部位于 C.y - 7mm
+    double textX = C.x() - textRect.width() / 2.0;
+    double textY = C.y() - distFromCenterPx - textRect.height();
+    
+    // 移动矩形到指定位置
+    textRect.moveTo(textX, textY);
 
     p.drawText(textRect, Qt::AlignCenter, MPa);
 }
